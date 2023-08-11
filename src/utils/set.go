@@ -32,3 +32,9 @@ func (s* Set[T]) Has(val T) bool {
 	_, ok := s.data[val]
 	return ok
 }
+
+func SetOf[T comparable](vals ...T) *Set[T] {
+	s := NewSet[T]()
+	s.AddAll(vals)
+	return s
+}

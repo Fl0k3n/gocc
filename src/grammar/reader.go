@@ -14,7 +14,6 @@ const START_PREFIX = "%start"
 const PRODUCTIONS_PREFIX = "%%"
 const PRODUCTION_END_SYMBOL = ";"
 
-
 var TERMINAL_REGEX = regexp.MustCompile(`'.+?'`)
 
 type Reader struct {
