@@ -26,8 +26,12 @@ func Terminal(val string) Symbol {
 	}
 }
 
+type ProductionId int
+
 type Production struct {
-	From Symbol
+	// corresponds to its index in grammars productions
+	ProdId ProductionId
+	From string
 	To []Symbol
 }
 
@@ -47,9 +51,3 @@ func newEmptyGrammar() *Grammar {
 	}
 }
 
-func newProduction(from Symbol, to []Symbol) *Production {
-	return &Production{
-		From: from,
-		To: to,
-	}
-}

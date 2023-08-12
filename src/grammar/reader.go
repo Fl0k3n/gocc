@@ -24,6 +24,7 @@ type Reader struct {
 	tokens *utils.Set[string]
 	terminals *utils.Set[string]
 	nonTerminals *utils.Set[string]
+	prodCounter int
 }
 
 func NewReader(inputPath string) (*Reader, error){
@@ -40,6 +41,7 @@ func NewReader(inputPath string) (*Reader, error){
 		tokens: utils.NewSet[string](),
 		terminals: utils.NewSet[string](),
 		nonTerminals: utils.NewSet[string](),
+		prodCounter: 0,
 	}, nil
 }
 
@@ -96,13 +98,12 @@ func (r *Reader) advanceToProductions() error {
 
 func (r *Reader) readAndFlattenProduction() ([]*Production, error) {
 	productions := make([]*Production, 0)
-	fromNonterminal := Nonterminal("")
 
 	if err := r.readNextNonemptyLine(); err != nil {
 		return productions, nil
 	}
 
-	fromNonterminal.Val = r.currentLine
+	fromNonterminal := r.currentLine
 	for {
 		if err := r.readNextNonemptyLine(); err != nil {
 			return nil, errors.New("Expected production terminator")
@@ -113,9 +114,12 @@ func (r *Reader) readAndFlattenProduction() ([]*Production, error) {
 
 		tokens := strings.Split(r.currentLine, " ")[1:]
 		production := &Production{
+			ProdId: ProductionId(r.prodCounter),
 			From: fromNonterminal,
 			To: make([]Symbol, 0, len(tokens)),
 		}
+		r.prodCounter++
+
 		for idx, token := range tokens {
 			if TERMINAL_REGEX.MatchString(token) {
 				tokens[idx] = token[1:len(token)-1]
