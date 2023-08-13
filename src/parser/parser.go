@@ -1,40 +1,30 @@
 package parsers
 
 import (
-	. "grammars"
+	"grammars"
 	tokens "tokenizers"
-	"utils"
 )
 
 type Parser struct {
-	grammar *Grammar
 	tokenizer *tokens.Tokenizer
 	actionTable *ActionTable
 	gotoTable *GotoTable
-	nonTerminalToProds map[string][]*Production
-	closures map[string][]*Production
-	prodEnumerations []int
-	firstSets map[string]*utils.Set[string]
-	configurations []*Configuration	
-	configurationsLookupMap map[ConfigurationKey]int
 }
 
 
-func New(grammar *Grammar, tokenizer *tokens.Tokenizer) *Parser {
+func New(tokenizer *tokens.Tokenizer, actionTable *ActionTable, gotoTable *GotoTable) *Parser {
 	return &Parser{
-		grammar: grammar,
 		tokenizer: tokenizer,
+		actionTable: actionTable,
+		gotoTable: gotoTable,
 	}
 }
 
+func NewForGrammar(grammar *grammars.Grammar, tokenizer *tokens.Tokenizer) *Parser {
+	tb := NewTableBuilder(grammar)
+	act, got := tb.BuildConfigurationAutomaton()
+	return New(tokenizer, act, got)
+}
 
 func (p *Parser) BuildParseTree() {
-	p.initDataStructures()
-}
-
-
-func (p *Parser) PrintConfigurations() {
-	for id, c := range p.configurations {
-		c.Print(id)
-	}
 }

@@ -173,7 +173,6 @@ func (c *Configuration) AddDotProd(prod *DotProduction)  {
 	c.key = ConfigurationKey(sb.String())
 }
 
-
 func (c *Configuration) Print(confId int) {
 	fmt.Printf("Configuration %d {\n", confId)
 	for _, dotProd := range c.productions {
