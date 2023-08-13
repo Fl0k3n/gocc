@@ -14,6 +14,8 @@ const START_PREFIX = "%start"
 const PRODUCTIONS_PREFIX = "%%"
 const PRODUCTION_END_SYMBOL = ";"
 
+const ARTIFICIAL_START = "S_0"
+
 var TERMINAL_REGEX = regexp.MustCompile(`'.+?'`)
 
 type Reader struct {
@@ -159,6 +161,17 @@ func (r *Reader) fillGrammarSymbols() error {
 	return nil
 }
 
+func (r *Reader) augmentWithArtificialStart() error {
+	r.grammar.Nonterminals = append(r.grammar.Nonterminals, ARTIFICIAL_START)
+	r.grammar.Productions = append(r.grammar.Productions, &Production{	
+		ProdId: ProductionId(len(r.grammar.Productions)),
+		From: ARTIFICIAL_START,
+		To: []Symbol{{T: NONTERMINAL, Val: r.grammar.StartNonterminal}},
+	})
+	r.grammar.StartNonterminal = ARTIFICIAL_START
+	return nil
+}
+
 func (r *Reader) Read() (*Grammar, error) {
 	err := utils.Pipeline().
 		Then(r.readTokens).
@@ -166,6 +179,7 @@ func (r *Reader) Read() (*Grammar, error) {
 		Then(r.advanceToProductions).
 		Then(r.readProductions).
 		Then(r.fillGrammarSymbols).
+		Then(r.augmentWithArtificialStart).
 		Error()
 
 	return r.grammar, err

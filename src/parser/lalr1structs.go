@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	. "grammars"
+	"sort"
 	"strconv"
 	"strings"
+	"tokenizers"
 	"utils"
 )
 
@@ -171,3 +173,27 @@ func (c *Configuration) AddDotProd(prod *DotProduction)  {
 	c.key = ConfigurationKey(sb.String())
 }
 
+
+func (c *Configuration) Print(confId int) {
+	fmt.Printf("Configuration %d {\n", confId)
+	for _, dotProd := range c.productions {
+		rhs := make([]string, 0, len(dotProd.prod.To))
+		las := ""
+		for _, sym := range dotProd.prod.To[:dotProd.dotPos] {
+			rhs = append(rhs, sym.Val)
+		}
+		rhs = append(rhs, "@")
+		for _, sym := range dotProd.prod.To[dotProd.dotPos:] {
+			rhs = append(rhs, sym.Val)
+		}
+		lookaheads := dotProd.lookahead.GetAll()
+		sort.Strings(lookaheads)
+		if len(lookaheads) == 0 {
+			las = tokenizers.EOF
+		} else {
+			las = strings.Join(lookaheads, "/")
+		}
+		fmt.Printf("\t%s -> %s, %s\n", dotProd.prod.From, strings.Join(rhs, " "), las)
+	}
+	fmt.Println("}")
+}

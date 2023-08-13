@@ -136,33 +136,50 @@ func (p *Parser) makeDotProd(prod *Production) *DotProduction {
 	)
 }
 
-func (p *Parser) computeClosure(conf *Configuration) *Configuration {
-	presentDotProds := make(map[int]*DotProduction)
+func (p *Parser) buildLookaheads(parentLookaheads *utils.Set[string], startNt string) map[string]*utils.Set[string] {
+	ntToLookaheads := map[string]*utils.Set[string]{}
+	closures := p.closures[startNt]
 
-	for _, prod := range conf.productions {
-		presentDotProds[prod.dotProdId] = prod
+	for _, closureProd := range closures {
+		dotprod := p.makeDotProd(closureProd)
+		if curSym := dotprod.NextSymbol(); curSym.T == NONTERMINAL { 
+			if _, ok := ntToLookaheads[curSym.Val]; !ok {
+				ntToLookaheads[curSym.Val] = utils.NewSet[string]()
+			}
+			if dotprod.HasLookaheadSymbol() {
+				nextSym := dotprod.LookaheadSymbol()
+				if nextSym.T == TERMINAL {
+					ntToLookaheads[curSym.Val].Add(nextSym.Val)
+				} else {
+					ntToLookaheads[curSym.Val].AddAll(p.firstSets[nextSym.Val].GetAll())
+				}
+			} else {
+				ntToLookaheads[curSym.Val].AddAll(parentLookaheads.GetAll())
+			}
+		}
 	}
 
-	for _, prod := range conf.productions {
-		if prod.IsFullyComputed() || prod.NextSymbol().T == TERMINAL {
-			continue
+	for _, closureProd := range closures {
+		if _, ok := ntToLookaheads[closureProd.From]; !ok {
+			ntToLookaheads[closureProd.From] = parentLookaheads
 		}
+	}
 
+	return ntToLookaheads
+}
+
+func (p *Parser) computeClosure(conf *Configuration) *Configuration {
+	presentDotProds := make(map[int]*DotProduction)
+	prod := conf.productions[0]
+	presentDotProds[prod.dotProdId] = prod
+
+	if !prod.IsFullyComputed() && prod.NextSymbol().T == NONTERMINAL {
 		nextNt := prod.NextSymbol().Val
-		var lookahead *utils.Set[string]
-		if prod.HasLookaheadSymbol() {
-			laSym := prod.LookaheadSymbol()
-			if laSym.T == TERMINAL {
-				lookahead = utils.SetOf[string](laSym.Val)
-			} else {
-				lookahead = p.firstSets[laSym.Val]
-			}
-		} else {
-			lookahead = prod.lookahead
-		}
-
+		lookaheads := p.buildLookaheads(prod.lookahead, nextNt)
 		for _, closureProd := range p.closures[nextNt] {
 			dotProd := p.makeDotProd(closureProd)
+			lookahead := lookaheads[closureProd.From]
+
 			if alreadyAddedDotProd, ok := presentDotProds[dotProd.dotProdId]; ok {
 				alreadyAddedDotProd.lookahead.AddAll(lookahead.GetAll())
 			} else {
@@ -171,7 +188,7 @@ func (p *Parser) computeClosure(conf *Configuration) *Configuration {
 			}
 		}
 	}
-	
+
 	// TODO consider sorting it based on dotprodId, or better using tree instead of hashmap
 	res := EmptyConfiguration()
 	for _, dp := range presentDotProds {
@@ -179,6 +196,7 @@ func (p *Parser) computeClosure(conf *Configuration) *Configuration {
 	}
 	return res
 }
+
 
 func (p *Parser) addConfiguration(conf *Configuration) (confId int) {
 	confId = len(p.configurations)
@@ -227,11 +245,13 @@ func (p *Parser) expandConfiguration(conf *Configuration, confId int) {
 }
 
 func (p *Parser) buildConfigurationAutomaton() {
+	if len(p.nonTerminalToProds[p.grammar.StartNonterminal]) != 1 {
+		panic("expected single production from artificially added start symbol")
+	} 
+
 	startConf := EmptyConfiguration()
-	for _, prod := range p.nonTerminalToProds[p.grammar.StartNonterminal] {
-		startConf.AddDotProd(p.makeDotProd(prod))
-	}
-	p.computeClosure(startConf)
+	startConf.AddDotProd(p.makeDotProd(p.nonTerminalToProds[p.grammar.StartNonterminal][0]))
+	startConf = p.computeClosure(startConf)
 	p.addConfiguration(startConf)
 	expandedConfigurationsCount := 0
 

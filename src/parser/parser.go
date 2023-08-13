@@ -1,7 +1,6 @@
 package parsers
 
 import (
-	"fmt"
 	. "grammars"
 	tokens "tokenizers"
 	"utils"
@@ -31,5 +30,11 @@ func New(grammar *Grammar, tokenizer *tokens.Tokenizer) *Parser {
 
 func (p *Parser) BuildParseTree() {
 	p.initDataStructures()
-	fmt.Println("x")
+}
+
+
+func (p *Parser) PrintConfigurations() {
+	for id, c := range p.configurations {
+		c.Print(id)
+	}
 }

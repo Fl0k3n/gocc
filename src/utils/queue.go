@@ -25,10 +25,10 @@ func (q *Queue[T]) Push(val T) {
 
 	if q.head == nil {
 		q.head = newNode
-		q.tail = newNode
 	} else {
 		q.tail.next = newNode
 	}
+	q.tail = newNode
 }
 
 func (q *Queue[T]) Size() int {
@@ -39,15 +39,17 @@ func (q *Queue[T]) Pop() T {
 	if q.size == 0 {
 		panic("Pop from empty queue")
 	}
-	res := q.tail.data
-	q.size--
+	res := q.head.data
 
 	if q.size == 1 {
 		q.head = nil
 		q.tail = nil
 	} else {
-		q.tail = q.tail.prev
-		q.tail.next = nil
+		nxt := q.head.next
+		nxt.prev = nil
+		q.head = nxt
 	}
+
+	q.size--
 	return res
 }
