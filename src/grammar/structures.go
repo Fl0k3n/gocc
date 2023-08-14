@@ -1,5 +1,7 @@
 package grammars
 
+import "regexp"
+
 type SymbolT int
 
 const (
@@ -40,6 +42,8 @@ type Grammar struct {
 	Nonterminals []string
 	StartNonterminal string
 	Productions []*Production
+	StringsToTokenTypes map[string]string
+	RegexesToTokenTypes map[*regexp.Regexp]string
 }
 
 func newEmptyGrammar() *Grammar {
@@ -48,6 +52,8 @@ func newEmptyGrammar() *Grammar {
 		Nonterminals: make([]string, 0),
 		StartNonterminal: "",
 		Productions: make([]*Production, 0),
+		StringsToTokenTypes: make(map[string]string),
+		RegexesToTokenTypes: make(map[*regexp.Regexp]string),
 	}
 }
 

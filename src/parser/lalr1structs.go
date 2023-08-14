@@ -37,24 +37,24 @@ func (at *ActionTable) RegisterConfiguration() {
 	at.tab = append(at.tab, make(Actions))
 }
 
-func (at *ActionTable) AddReduceEntry(confId int, terminal string, prod *Production) {
+func (at *ActionTable) AddReduceEntry(confId State, terminal string, prod *Production) {
 	at.tab[confId][terminal] = ReduceAction{
 		prod: prod,
 	}
 }
 
-func (at *ActionTable) AddShiftEntry(confId int, terminal string, nextState int) {
+func (at *ActionTable) AddShiftEntry(confId State, terminal string, nextState int) {
 	at.tab[confId][terminal] = ShiftAction{
 		nextState: State(nextState),
 	}
 }
 
-func (at *ActionTable) GetAction(confId int, terminal string) (Action, error) {
-	if act, ok := at.tab[confId][terminal]; ok {
+func (at *ActionTable) GetAction(state State, terminal string) (Action, error) {
+	if act, ok := at.tab[state][terminal]; ok {
 		return act, nil
 	}
 	return ReduceAction{}, errors.New(fmt.Sprintf(
-		"no action to take from configuration %d using terminal %s", confId, terminal))
+		"no action to take from configuration %d using terminal %s", state, terminal))
 }
 
 type Gotos map[string]State
@@ -73,16 +73,16 @@ func (gt *GotoTable) RegisterConfiguration() {
 	gt.tab = append(gt.tab, make(Gotos))
 }
 
-func (gt *GotoTable) AddEntry(confId int, nonterminal string, nextState int) {
+func (gt *GotoTable) AddEntry(confId State, nonterminal string, nextState int) {
 	gt.tab[confId][nonterminal] = State(nextState)
 }
 
-func (gt *GotoTable) GetEntry(confId int, nonterminal string) (State, error) {
-	if ent, ok := gt.tab[confId][nonterminal]; ok {
+func (gt *GotoTable) GetEntry(state State, nonterminal string) (State, error) {
+	if ent, ok := gt.tab[state][nonterminal]; ok {
 		return ent, nil
 	}
 	return -1, errors.New(fmt.Sprintf(
-		"no goto entry to take from configuration %d using nonterminal %s", confId, nonterminal))
+		"no goto entry to take from configuration %d using nonterminal %s", state, nonterminal))
 }
 
 type DotProduction struct {
@@ -140,9 +140,11 @@ func EmptyConfiguration() *Configuration {
 	}
 }
 
-func ConfigurationFrom(dotProd *DotProduction) *Configuration {
+func ConfigurationFrom(dotprods ...*DotProduction) *Configuration {
 	conf := EmptyConfiguration()
-	conf.AddDotProd(dotProd)
+	for _, dotprod := range dotprods {
+		conf.AddDotProd(dotprod)
+	}
 	return conf
 }
 
@@ -171,6 +173,30 @@ func (c *Configuration) AddDotProd(prod *DotProduction)  {
 		sb.WriteString("," + strconv.Itoa(prod.dotProdId))
 	}
 	c.key = ConfigurationKey(sb.String())
+}
+
+func (c *Configuration) JoinProdsByNextSymbol() map[string][]*DotProduction {
+	res := make(map[string][]*DotProduction)
+	for _, prod := range c.productions {
+		if !prod.IsFullyComputed() {
+			if prods, ok := res[prod.NextSymbol().Val]; ok {
+				res[prod.NextSymbol().Val] = append(prods, prod)
+			} else {
+				res[prod.NextSymbol().Val] = []*DotProduction{prod}
+			}
+		}
+	}
+	return res
+}
+
+func (c *Configuration) getFullyComputedProds() []*DotProduction {
+	res := make([]*DotProduction, 0)
+	for _, prod := range c.productions {
+		if prod.IsFullyComputed() {
+			res = append(res, prod)
+		}
+	}
+	return res
 }
 
 func (c *Configuration) Print(confId int) {

@@ -2,6 +2,7 @@ package tokenizers
 
 import (
 	"bufio"
+	"grammars"
 	"os"
 	"strings"
 	"utils"
@@ -10,10 +11,11 @@ import (
 const BUFF_BOUND = 8
 
 type Tokenizer struct {
-	buff *utils.BoundedList[string]
 	inputPath string
+	grammar *grammars.Grammar
 	inputFile *os.File
 	inputScanner *bufio.Scanner
+	buff *utils.BoundedList[Token]
 	LineIdx int
 	currentLine string
 	lineParseIdx int
@@ -22,7 +24,7 @@ type Tokenizer struct {
 	moveBackRequestsCounter int
 }
 
-func New(inputPath string) (*Tokenizer, error) {
+func New(inputPath string, grammar *grammars.Grammar) (*Tokenizer, error) {
 	file, err := os.Open(inputPath)
 	if err != nil {
 		return nil, err
@@ -30,9 +32,10 @@ func New(inputPath string) (*Tokenizer, error) {
 
 	return &Tokenizer{
 		inputPath:  inputPath,
+		grammar: grammar,
 		inputFile:  file,
 		inputScanner: bufio.NewScanner(file),
-		buff: utils.NewBoundedList[string](BUFF_BOUND),
+		buff: utils.NewBoundedList[Token](BUFF_BOUND),
 		LineIdx: 0,
 		currentLine: "",
 		lineParseIdx: 0,
@@ -70,12 +73,32 @@ func (this *Tokenizer) readNextNonCommentLine() bool {
 	return false
 }
 
-func (this *Tokenizer) getNextToken() string {
+
+func (this *Tokenizer) getNextToken() Token {
 	startIdx := this.lineParseIdx
+
 	lastIdx := nextIndexOfNotToken(this.currentLine, startIdx)
-	token := this.currentLine[startIdx:lastIdx]
+	tokenVal := this.currentLine[startIdx:lastIdx]
 	this.lineParseIdx = nextIndexOfNotSpace(this.currentLine, lastIdx)
-	return token
+
+	if tokenType, ok := this.grammar.StringsToTokenTypes[tokenVal]; ok {
+		return Token{
+			V: tokenVal,
+			T: tokenType,
+		}
+	}
+	for regex, tokenType := range this.grammar.RegexesToTokenTypes {
+		if regex.MatchString(tokenVal) {
+			return Token{
+				V: tokenVal,
+				T: tokenType,
+			}
+		}
+	}
+	return Token{
+		T: UNKNOWN_TOKEN,
+		V: tokenVal,
+	}
 }
 
 func (this *Tokenizer) MoveBack() {
@@ -85,7 +108,7 @@ func (this *Tokenizer) MoveBack() {
 	}
 }
 
-func (this *Tokenizer) Lookahead() string {
+func (this *Tokenizer) Lookahead() Token {
 	this.Advance()
 	token := this.LastToken()
 	this.MoveBack()
@@ -100,7 +123,7 @@ func (this *Tokenizer) Advance() {
 
 	if this.lineParseIdx >= len(this.currentLine) {
 		if !this.readNextNonCommentLine() {
-			this.buff.Append(EOF)
+			this.buff.Append(EOF_TOKEN)
 			return
 		}
 		this.lineParseIdx = 0
@@ -110,6 +133,6 @@ func (this *Tokenizer) Advance() {
 	this.buff.Append(token)
 }
 
-func (this *Tokenizer) LastToken() string {
+func (this *Tokenizer) LastToken() Token {
 	return this.buff.NthNewest(this.moveBackRequestsCounter)
 }

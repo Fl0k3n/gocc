@@ -4,6 +4,11 @@ import (
 	"strings"
 )
 
+type Token struct {
+	T string
+	V string
+}
+
 // returns -1 if no singleline comment
 func indexOfSingleLineComment(line string) int {
 	return strings.Index(line, SINGLE_LINE_COMMENT)
@@ -90,7 +95,7 @@ func nextIndexOfNotToken(line string, startInclusive int) int {
 		return nextIndexNotHaving(line, startInclusive+1, isNumber)
 	}
 	if isLetterOrUnderscore(curChar) {
-		return nextIndexNotHaving(line, startInclusive+1, isLetterOrUnderscore)
+		return nextIndexNotHaving(line, startInclusive+1, func (char byte) bool {return isNumber(char) || isLetterOrUnderscore(char) })
 	}
 	if startInclusive + 2 < len(line) && is3CharOperator(line[startInclusive:startInclusive+3]) {
 		return startInclusive + 3

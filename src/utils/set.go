@@ -1,5 +1,7 @@
 package utils
 
+import "fmt"
+
 type Set [T comparable] struct {
 	data map[T]struct{}
 }
@@ -53,6 +55,40 @@ func (s* Set[T]) With(vals ...T) *Set[T] {
 		res.Add(k)
 	}
 	return res
+}
+
+func (s* Set[T]) Equals(other *Set[T]) bool {
+	if s.Size() != other.Size() {
+		return false
+	}
+	for k := range s.data {
+		if !other.Has(k) {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Set[T]) Difference(other *Set[T]) *Set[T] {
+	res := NewSet[T]()
+	for k := range s.data {
+		if !other.Has(k) {
+			res.Add(k)
+		}
+	}
+	return res
+}
+
+func (s *Set[T]) IsEmpty() bool {
+	return len(s.data) == 0
+}
+
+func (s *Set[T]) Print() {
+	vals := make([]T, 0)
+	for k := range s.data {
+		vals = append(vals, k)
+	}
+	fmt.Println(vals)
 }
 
 func SetOf[T comparable](vals ...T) *Set[T] {

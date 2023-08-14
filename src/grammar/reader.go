@@ -3,6 +3,7 @@ package grammars
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -11,12 +12,13 @@ import (
 
 const TOKEN_PREFIX = "%token"
 const START_PREFIX = "%start"
-const PRODUCTIONS_PREFIX = "%%"
+const SECTON_DELIMETER = "%%"
 const PRODUCTION_END_SYMBOL = ";"
-
+// {L}({L}|{D})*
 const ARTIFICIAL_START = "S_0"
 
 var TERMINAL_REGEX = regexp.MustCompile(`'.+?'`)
+var REGEX_DEF_USAGE_REGEX = regexp.MustCompile(`\{.+?\}`)
 
 type Reader struct {
 	inputFile *os.File
@@ -26,6 +28,7 @@ type Reader struct {
 	tokens *utils.Set[string]
 	terminals *utils.Set[string]
 	nonTerminals *utils.Set[string]
+	regexDefinitions map[string]string
 	prodCounter int
 }
 
@@ -43,6 +46,7 @@ func NewReader(inputPath string) (*Reader, error){
 		tokens: utils.NewSet[string](),
 		terminals: utils.NewSet[string](),
 		nonTerminals: utils.NewSet[string](),
+		regexDefinitions: make(map[string]string),
 		prodCounter: 0,
 	}, nil
 }
@@ -91,7 +95,7 @@ func (r *Reader) advanceToProductions() error {
 		if err := r.readNextNonemptyLine(); err != nil {
 			return err
 		}
-		if strings.HasPrefix(r.currentLine, PRODUCTIONS_PREFIX) {
+		if strings.HasPrefix(r.currentLine, SECTON_DELIMETER) {
 			break
 		}
 	}
@@ -102,6 +106,9 @@ func (r *Reader) readAndFlattenProduction() ([]*Production, error) {
 	productions := make([]*Production, 0)
 
 	if err := r.readNextNonemptyLine(); err != nil {
+		return productions, nil
+	}
+	if r.currentLine == SECTON_DELIMETER {
 		return productions, nil
 	}
 
@@ -155,6 +162,63 @@ func (r *Reader) readProductions() error {
 	}
 }
 
+func (r *Reader) readRegexDefinitions() error {
+	for {
+		if err := r.readNextNonemptyLine(); err != nil {
+			return errors.New("Expected regex definitions terminator")
+		}
+		if r.currentLine == SECTON_DELIMETER {
+			return nil
+		}
+		fields := strings.Fields(r.currentLine)
+		if len(fields) != 2 {
+			return errors.New("Invalid regex definition")
+		}
+		r.regexDefinitions[fields[0]] = fields[1]
+	}
+}
+
+func (r *Reader) substituteRegexDefinitionUsages(regex string) string {
+	res := REGEX_DEF_USAGE_REGEX.ReplaceAllStringFunc(regex, func (defToReplace string) string {
+		return r.regexDefinitions[defToReplace[1:len(defToReplace)-1]]
+	})
+	if !strings.HasPrefix(res, "^") {
+		res = "^" + res 
+	}
+	if !strings.HasSuffix(res, "$") {
+		res = res + "$"
+	}
+	return res
+}
+
+func (r *Reader) readTokenDefinitions() error {
+	for {
+		if err := r.readNextNonemptyLine(); err != nil {
+			return errors.New("Expected token definitions terminator")
+		}
+		if r.currentLine == SECTON_DELIMETER {
+			return nil
+		}
+
+		fields := strings.Fields(r.currentLine)
+		if len(fields) != 2 {
+			return errors.New("Invalid token definition")
+		}
+		def := fields[0]
+		token := fields[1]
+		if strings.HasPrefix(def, "\"") {
+			r.grammar.StringsToTokenTypes[def[1:len(def)-1]] = token
+		} else {
+			subtituted := r.substituteRegexDefinitionUsages(def)
+			if reg, err := regexp.Compile(subtituted); err != nil {
+				return errors.New(fmt.Sprintf("Invalid regex definition %s for token %s", subtituted, token))
+			} else {
+				r.grammar.RegexesToTokenTypes[reg] = token
+			}
+		}
+	}
+}
+
 func (r *Reader) fillGrammarSymbols() error {
 	r.grammar.Terminals = r.terminals.GetAll()
 	r.grammar.Nonterminals = r.nonTerminals.GetAll()
@@ -178,6 +242,8 @@ func (r *Reader) Read() (*Grammar, error) {
 		Then(r.readStartNonterminal).
 		Then(r.advanceToProductions).
 		Then(r.readProductions).
+		Then(r.readRegexDefinitions).
+		Then(r.readTokenDefinitions).
 		Then(r.fillGrammarSymbols).
 		Then(r.augmentWithArtificialStart).
 		Error()
