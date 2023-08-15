@@ -252,6 +252,21 @@ func (ab *ASTBuilder) buildTypeName(prod *grammars.Production) (node ASTNode, er
 	return
 }
 
+func (ab *ASTBuilder) buildArgumentExpressionList(prod *grammars.Production) (node ASTNode, err error) {
+	if len(prod.To) == 1 {
+		expr := ab.reductionStack.Pop().(Expression)
+		node = ArgumentExpressionList{
+			Expressions: []*Expression{&expr},
+		}
+	} else {
+		ab.tokenStack.Pop()
+		expr := ab.reductionStack.Pop().(Expression)
+		ael := ab.reductionStack.Pop().(ArgumentExpressionList)
+		ael.Expressions = append(ael.Expressions, &expr)
+		node = ael
+	}
+	return
+}
 
 func (ab *ASTBuilder) OnReduce(prod *grammars.Production) error {
 	var err error = nil
@@ -274,11 +289,13 @@ func (ab *ASTBuilder) OnReduce(prod *grammars.Production) error {
 			node, err = ab.buildUnaryOperator(prod)
 		case "type_name":
 			node, err = ab.buildTypeName(prod)
+		case "argument_expression_list":
+			node, err = ab.buildArgumentExpressionList(prod)
 		default:
 			supported = false
 		}
 	}
-	
+
 	if err != nil {
 		return err
 	}

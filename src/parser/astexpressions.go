@@ -1,8 +1,5 @@
 package parsers
 
-type ASTNode interface {}
-
-
 type IdentifierExpression struct {
 	Identifier string
 }
@@ -53,7 +50,7 @@ type IncDecPostfixExpression struct {
 }
 
 type ArgumentExpressionList struct {
-	Expressions []*AssigmentExpression
+	Expressions []*Expression
 }
 
 type IncDecUnaryExpression struct {
@@ -98,36 +95,8 @@ type CompositeExpression struct {
 	Expressions []*Expression
 }
 
-type TypeName struct {
-	name string
-}
-
 type ConstantExpression struct {
 	Expression *Expression
 }
 
 type Expression interface {}
-
-
-type DeclarationSpecifiers struct {
-
-}
-
-type Declarator struct {
-
-}
-
-type DeclarationList struct {
-
-}
-
-type CompoundStatement struct {
-
-}
-
-type FunctionDefinition struct {
-	DeclarationSpecifiers *DeclarationSpecifiers
-	Declarator *Declarator
-	DeclarationList *DeclarationList
-	Body *CompoundStatement
-}

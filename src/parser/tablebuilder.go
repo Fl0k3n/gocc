@@ -54,6 +54,9 @@ func (tb *TableBuilder) initNonterminalToProductionsMap() {
 			tb.nonTerminalToProds[prod.From] = prods
 		}
 	}
+	if len(tb.nonTerminalToProds[tb.grammar.StartNonterminal]) != 1 {
+		panic("expected single production from artificially added start symbol")
+	} 
 }
 
 func (tb *TableBuilder) initClosuresMap() {
@@ -399,18 +402,16 @@ func (tb *TableBuilder) fillTables() {
 	}
 }
 
-func (tb *TableBuilder) BuildConfigurationAutomaton() (*ActionTable, *GotoTable) {
-	tb.initDataStructures()
-	if len(tb.nonTerminalToProds[tb.grammar.StartNonterminal]) != 1 {
-		panic("expected single production from artificially added start symbol")
-	} 
-
+func (tb *TableBuilder) createInitialConfiguration() {
 	startConf := EmptyConfiguration()
 	initialProd := tb.makeDotProd(tb.nonTerminalToProds[tb.grammar.StartNonterminal][0])
 	initialProd.lookahead = utils.SetOf[string](tokenizers.EOF)
 	startConf.AddDotProd(initialProd)
 	startConf = tb.computeClosure(startConf)
 	tb.addConfiguration(startConf)
+}
+
+func (tb *TableBuilder) expandConfigurations() {
 	expandedConfigurationsCount := 0
 
 	for expandedConfigurationsCount < len(tb.configurations) {
@@ -418,6 +419,12 @@ func (tb *TableBuilder) BuildConfigurationAutomaton() (*ActionTable, *GotoTable)
 		tb.expandConfiguration(conf, expandedConfigurationsCount)
 		expandedConfigurationsCount++
 	}
+}
+
+func (tb *TableBuilder) BuildConfigurationAutomaton() (*ActionTable, *GotoTable) {
+	tb.initDataStructures()
+	tb.createInitialConfiguration()
+	tb.expandConfigurations()
 	tb.mergeAllConfigurations()
 	tb.fillTables()
 	return tb.actionTable, tb.gotoTable
