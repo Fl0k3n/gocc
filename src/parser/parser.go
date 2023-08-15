@@ -14,6 +14,7 @@ type Parser struct {
 	actionTable *ActionTable
 	gotoTable *GotoTable
 	stateStack *utils.Stack[State]
+	astBuilder *ASTBuilder
 }
 
 
@@ -25,42 +26,56 @@ func New(grammar *grammars.Grammar, tokenizer *tokens.Tokenizer,
 		actionTable: actionTable,
 		gotoTable: gotoTable,
 		stateStack: utils.NewStack[State](),
+		astBuilder: newASTBuilder(),
 	}
 }
 
 func NewForGrammar(grammar *grammars.Grammar, tokenizer *tokens.Tokenizer) *Parser {
 	tb := NewTableBuilder(grammar)
 	act, got := tb.BuildConfigurationAutomaton()
-	// tb.PrintConfigurations()
+	return New(grammar, tokenizer, act, got)
+}
+
+func NewFromFile(grammar *grammars.Grammar, tokenizer *tokens.Tokenizer, 
+				 actionTabFile string, gotoTabFile string) *Parser {
+	tb := NewTableBuilder(grammar)
+	act, got := tb.DeserializeTables(actionTabFile, gotoTabFile)
 	return New(grammar, tokenizer, act, got)
 }
 
 func (p *Parser) shift(action ShiftAction) {
 	p.tokenizer.Advance()
-	// p.stateStack.Push(p.tokenizer.LastToken().T)
-	// p.currentState = action.nextState
-	p.stateStack.Push(action.nextState)
-	fmt.Printf("Shift %d\n", action.nextState)
+	p.astBuilder.OnShift(p.tokenizer.LastToken())
+	p.stateStack.Push(action.NextState)
+	fmt.Printf("Shift %d\n", action.NextState)
 }
 
-func (p *Parser) reduce(action ReduceAction) {
-	prod := action.prod
+func (p *Parser) reduce(action ReduceAction) error {
+	prod := action.Prod
 	p.stateStack.PopMany(len(prod.To))
+	if err := p.astBuilder.OnReduce(prod); err != nil {
+		return err
+	}
 	if nextState, err := p.gotoTable.GetEntry(p.stateStack.Peek(), prod.From); err == nil {
 		p.stateStack.Push(nextState)
 		fmt.Printf("Reduce %s, goto %d\n", prod.From, nextState)
 	} else {
-		panic(err)
+		if p.stateStack.Peek() != INITIAL_STATE {
+			return err
+		}
 	}
+	return nil
 }
 
-func (p *Parser) BuildParseTree() {
-	p.stateStack.Push(0)
+func (p *Parser) BuildParseTree() (ASTNode, error) {
+	var err error
+	var token tokenizers.Token
+
+	p.stateStack.Push(INITIAL_STATE)
 	for {
-		token := p.tokenizer.Lookahead()
+		token = p.tokenizer.Lookahead()
 		if token.T == tokenizers.EOF {
-			if p.stateStack.Peek() == 0 {
-				// TODO fixit
+			if p.stateStack.Peek() == INITIAL_STATE {
 				break
 			}
 		}
@@ -70,13 +85,19 @@ func (p *Parser) BuildParseTree() {
 			case ShiftAction:
 				p.shift(action.(ShiftAction))
 			case ReduceAction:
-				p.reduce(action.(ReduceAction))
+				if err = p.reduce(action.(ReduceAction)); err != nil {
+					goto parserError
+				}
 			}
 		} else {
-			fmt.Println(err)
-			fmt.Printf("syntax error in line %d\n in state %d, no lookahead for token %s\n",
-						p.tokenizer.LineIdx, p.stateStack.Peek(), token)
-			return
+			goto parserError
 		}
 	}
+	return p.astBuilder.GetParsedTree()
+
+parserError:
+	fmt.Println(err)
+	fmt.Printf("syntax error in line %d\n in state %d, no lookahead for token %s\n",
+				p.tokenizer.LineIdx, p.stateStack.Peek(), token)
+	return nil, err
 }

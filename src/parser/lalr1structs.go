@@ -13,13 +13,15 @@ import (
 
 type State int
 
+const INITIAL_STATE = State(0)
+
 type Action interface {
 }
 type ReduceAction struct {
-	prod *Production
+	Prod *Production
 }
 type ShiftAction struct {
-	nextState State
+	NextState State
 }
 type Actions map[string]Action
 
@@ -39,13 +41,13 @@ func (at *ActionTable) RegisterConfiguration() {
 
 func (at *ActionTable) AddReduceEntry(confId State, terminal string, prod *Production) {
 	at.tab[confId][terminal] = ReduceAction{
-		prod: prod,
+		Prod: prod,
 	}
 }
 
 func (at *ActionTable) AddShiftEntry(confId State, terminal string, nextState int) {
 	at.tab[confId][terminal] = ShiftAction{
-		nextState: State(nextState),
+		NextState: State(nextState),
 	}
 }
 

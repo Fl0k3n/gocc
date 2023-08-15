@@ -181,14 +181,32 @@ func testParser() {
 		fmt.Println(err)
 		return
 	}
-	tokenizer, err := tokenizers.New("../resources/csrc/simple.c", grammar)
+	tokenizer, err := tokenizers.New("../resources/csrc/exprs.c", grammar)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 	defer tokenizer.Finish()
-	p := parsers.NewForGrammar(grammar, tokenizer)
+	// p := parsers.NewForGrammar(grammar, tokenizer)
+	p := parsers.NewFromFile(grammar, tokenizer, "/home/flok3n/misc/acttab.gob", "/home/flok3n/misc/gototab.gob")
 	p.BuildParseTree()
+}
+
+func serializeTables() {
+	grammarReader, err := grammars.NewReader("../resources/ansi_c_grammar.y")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer grammarReader.Finish()
+	grammar, err := grammarReader.Read()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	tb := parsers.NewTableBuilder(grammar)
+	tb.BuildConfigurationAutomaton()
+	tb.SerializeTables("/home/flok3n/misc/acttab.gob", "/home/flok3n/misc/gototab.gob")
 }
 
 func main() {
@@ -198,5 +216,6 @@ func main() {
 	// testTokenizer()
 	// testTableBuilder()
 	// testTableBuilder2()
+	// serializeTables()
 }
 

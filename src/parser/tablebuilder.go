@@ -1,7 +1,10 @@
 package parsers
 
 import (
+	"bytes"
+	"encoding/gob"
 	. "grammars"
+	"os"
 	"tokenizers"
 	"utils"
 )
@@ -418,6 +421,63 @@ func (tb *TableBuilder) BuildConfigurationAutomaton() (*ActionTable, *GotoTable)
 	tb.mergeAllConfigurations()
 	tb.fillTables()
 	return tb.actionTable, tb.gotoTable
+}
+
+func (tb *TableBuilder) SerializeTables(actionsFilename string, gotosFilename string) {
+	actionsFile, err := os.OpenFile(actionsFilename, os.O_WRONLY | os.O_TRUNC | os.O_CREATE, 0644); 
+	if err != nil {
+		panic(err)
+	}
+	defer actionsFile.Close()
+	gotosFile, err := os.OpenFile(gotosFilename, os.O_WRONLY | os.O_TRUNC | os.O_CREATE, 0644); 
+	if err != nil {
+		panic(err)
+	}
+	defer gotosFile.Close()
+	gob.Register(ShiftAction{})
+	gob.Register(ReduceAction{})
+	actionsBuff := new(bytes.Buffer)
+	gotosBuff := new(bytes.Buffer)
+	e := gob.NewEncoder(actionsBuff)
+	if err := e.Encode(tb.actionTable.tab); err != nil {
+		panic(err)
+	}
+	if _, err := actionsFile.Write(actionsBuff.Bytes()); err != nil {
+		panic(err)
+	}
+	e = gob.NewEncoder(gotosBuff)
+	if err := e.Encode(tb.gotoTable.tab); err != nil {
+		panic(err)
+	}
+	if _, err := gotosFile.Write(gotosBuff.Bytes()); err != nil {
+		panic(err)
+	}
+}
+
+func (tb *TableBuilder) DeserializeTables(actionsFilename string, gotosFilename string) (*ActionTable, *GotoTable) {
+	actionsFile, err := os.Open(actionsFilename); 
+	if err != nil {
+		panic(err)
+	}
+	defer actionsFile.Close()
+	gotosFile, err := os.Open(gotosFilename); 
+	if err != nil {
+		panic(err)
+	}
+	defer gotosFile.Close()
+	var decodedActTab []Actions
+	var decodedGotoTab []Gotos
+	gob.Register(ShiftAction{})
+	gob.Register(ReduceAction{})
+	e := gob.NewDecoder(actionsFile)
+	if err := e.Decode(&decodedActTab); err != nil {
+		panic(err)
+	}
+	e = gob.NewDecoder(gotosFile)
+	if err := e.Decode(&decodedGotoTab); err != nil {
+		panic(err)
+	}
+	return &ActionTable{tab: decodedActTab}, &GotoTable{tab: decodedGotoTab}
 }
 
 func (tb *TableBuilder) PrintConfigurations() {
