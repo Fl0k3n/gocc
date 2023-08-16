@@ -8,10 +8,13 @@ import (
 	"utils"
 )
 
+type NodeBuilder func(*grammars.Production) (ASTNode, error)
+
 type ASTBuilder struct {
 	reductionStack *utils.Stack[ASTNode]
 	tokenStack *utils.Stack[tok.Token]
-	expressionBuilders map[string]func(*grammars.Production) (ASTNode, error)
+	expressionBuilders map[string]NodeBuilder
+	miscBuilders map[string]NodeBuilder 
 }
 
 func newASTBuilder() *ASTBuilder {
@@ -19,7 +22,7 @@ func newASTBuilder() *ASTBuilder {
 		tokenStack: utils.NewStack[tok.Token](),
 		reductionStack: utils.NewStack[ASTNode](),
 	}
-	ab.expressionBuilders = map[string]func(*grammars.Production) (ASTNode, error){
+	ab.expressionBuilders = map[string]NodeBuilder{
 		"postfix": ab.buildPostfixExpression,
 		"unary": ab.buildUnaryExpression,
 		"cast": ab.buildCastExpression,
@@ -36,6 +39,45 @@ func newASTBuilder() *ASTBuilder {
 		"conditional": ab.buildConditionalExpression,
 		"assignment": ab.buildAssigmentExpression,
 		"constant": ab.buildConstantExpression,
+	}
+	ab.miscBuilders = map[string]NodeBuilder{
+		"expression": ab.buildExpression,
+		"assignment_operator": ab.buildAssigmentOperator,
+		"unary_operator": ab.buildUnaryOperator,
+		"type_name": ab.buildTypeName,
+		"argument_expression_list": ab.buildArgumentExpressionList,
+		"translation_unit": ab.buildTranslationUnit,
+		"external_declaration": ab.buildExternalDeclaration,
+		"function_definition": ab.buildFunctionDefinition,
+		"type_specifier": ab.buildTypeSpecifier,
+		"enum_specifier": ab.buildEnumSpecifier,
+		"enumerator_list": ab.buildEnumeratorList,
+		"enumerator": ab.buildEnumerator,
+		"struct_or_union_specifier": ab.buildStructSpecifier,
+		"struct_or_union": ab.buildStructOrUnion,
+		"struct_declaration_list": ab.buildStructDeclarationList,
+		"struct_declaration": ab.buildStructDeclaration,
+		"specifier_qualifier_list": ab.buildSpecifierQualifierList,
+		"struct_declarator_list": ab.buildStructDeclaratorList,
+		"struct_declarator": ab.buildStructDeclarator,
+		"declarator": ab.buildDeclarator,
+		"pointer": ab.buildPointer,
+		"type_qualifier_list": ab.buildTypeQualifierList,
+		"type_qualifier": ab.buildTypeQualifier,
+		"direct_declarator": ab.buildDirectDeclarator,
+		"parameter_type_list": ab.buildParameterTypeList,
+		"parameter_list": ab.buildParameterList,
+		"parameter_declaration": ab.buildParameterDeclaration,
+		"declaration_specifiers": ab.buildDeclarationSpecifiers,
+		"storage_class_specifier": ab.buildStorageClassSpecifier,
+		"abstract_declarator": ab.buildAbstractDeclarator,
+		"direct_abstract_declarator": ab.buildDirectAbstractDeclarator,
+		"initializer_list": ab.buildInitializerList,
+		"initializer": ab.buildInitializer,
+		"declaration": ab.buildDeclaration,
+		"declaration_list": ab.buildDeclarationList,
+		"init_declarator_list": ab.buildInitDeclaratorList,
+		"init_declarator": ab.buildInitDeclarator,
 	}
 	return ab
 }
@@ -248,7 +290,16 @@ func (ab *ASTBuilder) buildUnaryOperator(prod *grammars.Production) (node ASTNod
 }
 
 func (ab *ASTBuilder) buildTypeName(prod *grammars.Production) (node ASTNode, err error) {
-	node = ab.tokenStack.Pop().V
+	var ad *AbstractDeclarator = nil
+	if len(prod.To) == 2 {
+		a := ab.reductionStack.Pop().(AbstractDeclarator)
+		ad = &a
+	}
+	sql := ab.reductionStack.Pop().(SpecifierQulifierList)
+	node = TypeName{
+		AbstractDeclarator: ad,	
+		SpecifierQulifierList: &sql,
+	}
 	return
 }
 
@@ -300,7 +351,7 @@ func (ab *ASTBuilder) buildLabeledStatement(prod *grammars.Production) (node AST
 }
 
 func (ab *ASTBuilder) buildCompoundStatement(prod *grammars.Production) (node ASTNode, err error) {
-	ab.reductionStack.PopMany(prod.SymbolsOfType(grammars.TERMINAL))
+	ab.tokenStack.PopMany(prod.SymbolsOfType(grammars.TERMINAL))
 	var decList *DeclarationList = nil
 	var stmntList *StatementList = nil
 	if prod.To[1].Val == "declaration_list" {
@@ -399,7 +450,7 @@ func (ab *ASTBuilder) buildIterationStatement(prod *grammars.Production) (node A
 
 func (ab *ASTBuilder) buildJumpStatement(prod *grammars.Production) (node ASTNode, err error) {
 	firstSym := prod.To[0]
-	if len(prod.To) == 1 {
+	if len(prod.To) == 2 {
 		ab.tokenStack.PopMany(2)
 		switch firstSym.Val {
 		case "CONTINUE":
@@ -494,13 +545,504 @@ func (ab *ASTBuilder) buildTranslationUnit(prod *grammars.Production) (node ASTN
 	return
 }
 
+func (ab *ASTBuilder) buildTypeSpecifier(prod *grammars.Production) (node ASTNode, err error) {
+	if prod.To[0].T == grammars.TERMINAL {
+		typeName := ab.tokenStack.Pop().V
+		node = DirectTypeSpecifier{
+			TypeName: typeName,
+		}
+	} else {
+		node = ab.reductionStack.Pop()
+	} 
+	return
+}
+
+func (ab *ASTBuilder) buildEnumSpecifier(prod *grammars.Production) (node ASTNode, err error) {
+	var ident *string = nil
+	var enumList *EnumeratorList = nil
+	if len(prod.To) > 2 {
+		ab.tokenStack.PopMany(2)
+		el := ab.reductionStack.Pop().(EnumeratorList)
+		enumList = &el
+	} 
+	if prod.To[1].Val == "IDENTIFIER" {
+		iden := ab.tokenStack.Pop().V
+		ident = &iden
+	}
+	ab.tokenStack.Pop()
+	node = EnumTypeSpecifier{
+		Identifier: ident,
+		EnumeratorList: enumList,
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildStructSpecifier(prod *grammars.Production) (node ASTNode, err error) {
+	var ident *string = nil
+	var structDecList *StructDeclarationList = nil
+	if len(prod.To) > 2 {
+		ab.tokenStack.PopMany(2)
+		sl := ab.reductionStack.Pop().(StructDeclarationList)
+		structDecList = &sl
+	} 
+	if prod.To[1].Val == "IDENTIFIER" {
+		iden := ab.tokenStack.Pop().V
+		ident = &iden
+	}
+	node = StructTypeSpecifier{
+		Identifier: ident,
+		StructDeclarationList: structDecList,
+	}
+	ab.reductionStack.Pop()
+	return
+}
+
+func (ab *ASTBuilder) buildEnumeratorList(prod *grammars.Production) (node ASTNode, err error) {
+	if len(prod.To) == 1 {
+		enum := ab.reductionStack.Pop().(Enumerator)
+		node = EnumeratorList{
+			Enumerators: []*Enumerator{&enum},
+		}
+	} else {
+		enum := ab.reductionStack.Pop().(Enumerator)
+		el := ab.reductionStack.Pop().(EnumeratorList)
+		el.Enumerators = append(el.Enumerators, &enum)
+		node = el
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildStructDeclarationList(prod *grammars.Production) (node ASTNode, err error) {
+	if len(prod.To) == 1 {
+		sd := ab.reductionStack.Pop().(StructDeclaration)
+		node = StructDeclarationList{
+			StructDeclarations: []*StructDeclaration{&sd},
+		}
+	} else {
+		sd := ab.reductionStack.Pop().(StructDeclaration)
+		sdl := ab.reductionStack.Pop().(StructDeclarationList)
+		sdl.StructDeclarations = append(sdl.StructDeclarations, &sd)
+		node = sdl
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildStructDeclaration(prod *grammars.Production) (node ASTNode, err error) {
+	ab.tokenStack.Pop()
+	sdl := ab.reductionStack.Pop().(StructDeclaratorList)
+	sql := ab.reductionStack.Pop().(SpecifierQulifierList)
+	node = StructDeclaration{
+		SpecifierQulifierList: &sql,
+		StructDeclaratorList: &sdl,
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildSpecifierQualifierList(prod *grammars.Production) (node ASTNode, err error) {
+	var n SpecifierQulifierList
+	if len(prod.To) == 2 {
+		n = ab.reductionStack.Pop().(SpecifierQulifierList)
+	} else {
+		n = SpecifierQulifierList{
+			TypeSpecifiers: make([]*TypeSpecifier, 0),
+			TypeQualifiers: make([]*TypeQualifier, 0),
+		}
+	}
+	if prod.To[0].Val == "type_specifier" {
+		ts := ab.reductionStack.Pop().(TypeSpecifier)
+		n.TypeSpecifiers = append(n.TypeSpecifiers, &ts)
+	} else {
+		tq := ab.reductionStack.Pop().(TypeQualifier)
+		n.TypeQualifiers = append(n.TypeQualifiers, &tq)
+	}
+	node = n
+	return
+}
+
+func (ab *ASTBuilder) buildStructDeclaratorList(prod *grammars.Production) (node ASTNode, err error) {
+	if len(prod.To) == 1 {
+		sd := ab.reductionStack.Pop().(StructDeclarator)
+		node = StructDeclaratorList{
+			StructDeclarators: []*StructDeclarator{&sd},
+		}
+	} else {
+		sd := ab.reductionStack.Pop().(StructDeclarator)
+		sdl := ab.reductionStack.Pop().(StructDeclaratorList)
+		sdl.StructDeclarators = append(sdl.StructDeclarators, &sd)
+		node = sdl
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildStructDeclarator(prod *grammars.Production) (node ASTNode, err error) {
+	var expr *Expression = nil
+	if prod.To[len(prod.To) - 1].Val == "constant_expression" {
+		e := ab.reductionStack.Pop().(Expression)
+		expr = &e
+		ab.tokenStack.Pop()
+	}
+	decl := ab.reductionStack.Pop().(Declarator)
+	node = StructDeclarator{
+		Declarator: &decl,
+		Expression: expr,
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildStructOrUnion(prod *grammars.Production) (node ASTNode, err error) {
+	node = ab.tokenStack.Pop().V
+	return
+}
+
+func (ab *ASTBuilder) buildDeclarator(prod *grammars.Production) (node ASTNode, err error) {
+	decl := ab.reductionStack.Pop().(DirectDeclarator)
+	if len(prod.To) == 1 {
+		node = Declarator{
+			Pointer: nil,
+			DirectDeclarator: &decl,
+		}
+	} else {
+		ptr := ab.reductionStack.Pop().(Pointer)
+		node = Declarator{
+			Pointer: &ptr,
+			DirectDeclarator: &decl,
+		}
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildPointer(prod *grammars.Production) (node ASTNode, err error) {
+	ab.tokenStack.Pop()
+	var tql *TypeQualifierList
+	var ptr *Pointer
+	if prod.To[len(prod.To) - 1].Val == "pointer" {
+		p := ab.reductionStack.Pop().(Pointer)
+		ptr = &p
+	}
+	if len(prod.To) > 1 && prod.To[1].Val == "type_qualifier_list" {
+		t := ab.reductionStack.Pop().(TypeQualifierList)
+		tql = &t
+	}
+	node = Pointer{
+		TypeQualifierList: tql,
+		NestedPointer: ptr,
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildTypeQualifierList(prod *grammars.Production) (node ASTNode, err error) {
+	if len(prod.To) == 1 {
+		tq := ab.reductionStack.Pop().(TypeQualifier)
+		node = TypeQualifierList{
+			TypeQualifiers: []*TypeQualifier{&tq},
+		}
+	} else {
+		tq := ab.reductionStack.Pop().(TypeQualifier)
+		tql := ab.reductionStack.Pop().(TypeQualifierList)
+		tql.TypeQualifiers = append(tql.TypeQualifiers, &tq)
+		node = tql
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildTypeQualifier(prod *grammars.Production) (node ASTNode, err error) {
+	node = TypeQualifier(ab.tokenStack.Pop().V)
+	return
+}
+
+func (ab *ASTBuilder) buildDirectDeclarator(prod *grammars.Production) (node ASTNode, err error) {
+	if len(prod.To) == 1 {
+		ident := ab.tokenStack.Pop().V
+		node = DirectIdentifierDeclarator{
+			Identifier: ident,
+		}
+	} else if prod.To[1].Val == "[" {
+		ab.tokenStack.PopMany(2)
+		var expr *Expression = nil
+		if prod.To[2].Val == "constant_expression" {
+			e := ab.reductionStack.Pop().(Expression)
+			expr = &e
+		}
+		decl := ab.reductionStack.Pop().(DirectDeclarator)
+		node = DirectArrayDeclarator{
+			Declarator: &decl,
+			ArrayExpression: expr,
+		}
+	} else {
+		ab.tokenStack.PopMany(2)
+		var ptl *ParameterTypeList = nil
+		var il *IdentifierList = nil
+		if prod.To[2].T == grammars.NONTERMINAL {
+			if prod.To[2].Val == "parameter_type_list" {
+				p := ab.reductionStack.Pop().(ParameterTypeList)
+				ptl = &p
+			} else {
+				i := ab.reductionStack.Pop().(IdentifierList)
+				il = &i
+			}
+		}
+		decl := ab.reductionStack.Pop().(DirectDeclarator)
+		node = DirectFunctionDeclarator{
+			Declarator: &decl,
+			ParameterTypeList: ptl,
+			IndentifierList: il,
+		}
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildParameterTypeList(prod *grammars.Production) (node ASTNode, err error) {
+	if len(prod.To) == 1 {
+		pl := ab.reductionStack.Pop().(ParameterList)
+		node = ParameterTypeList{
+			ParameterList: &pl,
+		}
+	} else {
+		panic("ellipsis not supported")
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildParameterList(prod *grammars.Production) (node ASTNode, err error) {
+	if len(prod.To) == 1 {
+		pd := ab.reductionStack.Pop().(ParameterDeclaration)
+		node = ParameterList{
+			ParameterDeclarations: []*ParameterDeclaration{&pd},
+		}
+	} else {
+		pd := ab.reductionStack.Pop().(ParameterDeclaration)
+		pl := ab.reductionStack.Pop().(ParameterList)
+		pl.ParameterDeclarations = append(pl.ParameterDeclarations, &pd)
+		node = pl
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildParameterDeclaration(prod *grammars.Production) (node ASTNode, err error) {
+	var dec *Declarator = nil
+	var adec *AbstractDeclarator = nil
+	if len(prod.To) > 1 {
+		if prod.To[1].Val == "declarator" {
+			d := ab.reductionStack.Pop().(Declarator)
+			dec = &d
+		} else {
+			ad := ab.reductionStack.Pop().(AbstractDeclarator)
+			adec = &ad
+		}
+	}
+	dspec := ab.reductionStack.Pop().(DeclarationSpecifiers)
+	node = ParameterDeclaration{
+		DeclarationSpecifiers: &dspec,
+		Declarator: dec,
+		AbstractDeclarator: adec,
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildDeclarationSpecifiers(prod *grammars.Production) (node ASTNode, err error) {
+	var n DeclarationSpecifiers
+	if len(prod.To) == 2 {
+		n = ab.reductionStack.Pop().(DeclarationSpecifiers)
+	} else {
+		n = DeclarationSpecifiers{
+			TypeSpecifiers: make([]*TypeSpecifier, 0),
+			TypeQualifiers: make([]*TypeQualifier, 0),
+			StorageClassSpecifiers: make([]*StorageClassSpecifier, 0),
+		}
+	}
+	switch prod.To[0].Val {
+	case "type_specifier":
+		ts := ab.reductionStack.Pop().(TypeSpecifier)
+		n.TypeSpecifiers = append(n.TypeSpecifiers, &ts)
+	case "type_qualifier":
+		tq := ab.reductionStack.Pop().(TypeQualifier)
+		n.TypeQualifiers = append(n.TypeQualifiers, &tq)
+	default:
+		scs := ab.reductionStack.Pop().(StorageClassSpecifier)
+		n.StorageClassSpecifiers = append(n.StorageClassSpecifiers, &scs)
+	}
+	node = n
+	return
+}
+
+func (ab *ASTBuilder) buildStorageClassSpecifier(prod *grammars.Production) (node ASTNode, err error) {
+	node = StorageClassSpecifier(ab.tokenStack.Pop().V)
+	return
+}
+
+func (ab *ASTBuilder) buildAbstractDeclarator(prod *grammars.Production) (node ASTNode, err error) {
+	var ptr *Pointer = nil
+	var dad *DirectAbstractDeclarator = nil
+	if len(prod.To) == 2 || prod.To[0].Val != "pointer" {
+		d := ab.reductionStack.Pop().(DirectAbstractDeclarator)
+		dad = &d
+	}
+	if prod.To[0].Val == "pointer" {
+		p := ab.reductionStack.Pop().(Pointer)
+		ptr = &p
+	}
+	node = AbstractDeclarator{
+		Pointer: ptr,
+		DirectAbstractDeclarator: dad,
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildDirectAbstractDeclarator(prod *grammars.Production) (node ASTNode, err error) {
+	ab.tokenStack.PopMany(prod.SymbolsOfType(grammars.TERMINAL))
+
+	if prod.To[1].Val == "abstract_declarator" {
+		node = ab.reductionStack.Pop()
+	} else if prod.To[len(prod.To) - 1].Val == "]" {
+		var expr *Expression = nil
+		var dad *DirectAbstractDeclarator = nil
+		if prod.To[len(prod.To) - 2].Val == "constant_expression" { 
+			e := ab.reductionStack.Pop().(Expression)
+			expr = &e
+		}
+		if prod.To[0].Val == "direct_abstract_declarator" {
+			d := ab.reductionStack.Pop().(DirectAbstractDeclarator)
+			dad = &d
+		}
+		node = DirectAbstractArrayDeclarator{
+			Expression: expr,
+			DirectAbstractDeclarator: dad,
+		}
+	} else {
+		var ptl *ParameterTypeList = nil
+		var dad *DirectAbstractDeclarator = nil
+		if prod.To[len(prod.To) - 2].Val == "parameter_type_list" { 
+			p := ab.reductionStack.Pop().(ParameterTypeList)
+			ptl = &p
+		}
+		if prod.To[0].Val == "direct_abstract_declarator" {
+			d := ab.reductionStack.Pop().(DirectAbstractDeclarator)
+			dad = &d
+		}
+		node = DirectAbstractFunctionDeclarator{
+			ParameterTypeList: ptl,
+			DirectAbstractDeclarator: dad,
+		}
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildInitializerList(prod *grammars.Production) (node ASTNode, err error) {
+	if len(prod.To) == 1 {
+		il := ab.reductionStack.Pop().(Initializer)
+		node = InitializerList{
+			Initlizers: []*Initializer{&il},
+		}
+	} else {
+		il := ab.reductionStack.Pop().(Initializer)
+		ill := ab.reductionStack.Pop().(InitializerList)
+		ill.Initlizers = append(ill.Initlizers, &il)
+		node = ill
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildInitializer(prod *grammars.Production) (node ASTNode, err error) {
+	if prod.To[0].Val == "assignment_expression" {
+		expr := ab.reductionStack.Pop().(Expression)
+		node = Initializer{
+			Expression: &expr,
+			InitializerList: nil,
+		}
+	} else {
+		ab.reductionStack.PopMany(prod.SymbolsOfType(grammars.TERMINAL))
+		il := ab.reductionStack.Pop().(InitializerList)
+		node = Initializer{
+			Expression: nil,
+			InitializerList: &il,
+		}
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildDeclaration(prod *grammars.Production) (node ASTNode, err error) {
+	var idl *InitDeclaratorList = nil 
+	ab.tokenStack.Pop()
+	if prod.To[1].Val == "init_declarator_list" {
+		i := ab.reductionStack.Pop().(InitDeclaratorList)
+		idl = &i
+	}
+	ds := ab.reductionStack.Pop().(DeclarationSpecifiers)
+	node = Declaration{
+		DeclarationSpecifiers: &ds,
+		InitDeclaratorList: idl,
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildDeclarationList(prod *grammars.Production) (node ASTNode, err error) {
+	if len(prod.To) == 1 {
+		dec := ab.reductionStack.Pop().(Declaration)
+		node = DeclarationList{
+			Declarations: []*Declaration{&dec},
+		}
+	} else {
+		dec := ab.reductionStack.Pop().(Declaration)
+		dl := ab.reductionStack.Pop().(DeclarationList)
+		dl.Declarations = append(dl.Declarations, &dec)
+		node = dl
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildInitDeclaratorList(prod *grammars.Production) (node ASTNode, err error) {
+	if len(prod.To) == 1 {
+		id := ab.reductionStack.Pop().(InitDeclarator)
+		node = InitDeclaratorList{
+			InitDeclarators: []*InitDeclarator{&id},
+		}
+	} else {
+		ab.tokenStack.Pop()
+		id := ab.reductionStack.Pop().(InitDeclarator)
+		idl := ab.reductionStack.Pop().(InitDeclaratorList)
+		idl.InitDeclarators = append(idl.InitDeclarators, &id)
+		node = idl
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildInitDeclarator(prod *grammars.Production) (node ASTNode, err error) {
+	var ini *Initializer
+	if len(prod.To)	> 1 {
+		ab.tokenStack.Pop()
+		i := ab.reductionStack.Pop().(Initializer)
+		ini = &i
+	}
+	dec := ab.reductionStack.Pop().(Declarator)
+	node = InitDeclarator{
+		Declarator: &dec,
+		Initializer: ini,
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildEnumerator(prod *grammars.Production) (node ASTNode, err error) {
+	var expr *Expression = nil
+	if len(prod.To) > 1 {
+		e := ab.reductionStack.Pop().(Expression)
+		expr = &e
+		ab.tokenStack.Pop()
+	}
+	ident := ab.tokenStack.Pop().V
+	node = Enumerator{
+		Identifier: ident,
+		Expression: expr,
+	}
+	return
+}
+
 func (ab *ASTBuilder) reduceStatement(prod *grammars.Production) (node ASTNode, err error) {
 	switch prod.From {
 	case "statement":
 		node, err = ab.buildStatement(prod)
 	case "labeled_statement":
 		node, err = ab.buildLabeledStatement(prod)
-	case "compund_statement":
+	case "compound_statement":
 		node, err = ab.buildCompoundStatement(prod)
 	case "expression_statement":
 		node, err = ab.buildExpressionStatement(prod)
@@ -519,7 +1061,6 @@ func (ab *ASTBuilder) reduceStatement(prod *grammars.Production) (node ASTNode, 
 func (ab *ASTBuilder) OnReduce(prod *grammars.Production) error {
 	var err error = nil
 	var node ASTNode
-	supported := true
 	if prod.From == "primary_expression" {
 		node, err = ab.buildPrimaryExpression(prod)
 	} else if strings.HasSuffix(prod.From, "_expression") {
@@ -530,34 +1071,20 @@ func (ab *ASTBuilder) OnReduce(prod *grammars.Production) error {
 	} else if strings.Contains(prod.From, "statement") {
 		node, err = ab.reduceStatement(prod)
 	} else {
-		switch prod.From {
-		case "expression":
-			node, err = ab.buildExpression(prod)
-		case "assignment_operator":
-			node, err = ab.buildAssigmentOperator(prod)
-		case "unary_operator":
-			node, err = ab.buildUnaryOperator(prod)
-		case "type_name":
-			node, err = ab.buildTypeName(prod)
-		case "argument_expression_list":
-			node, err = ab.buildArgumentExpressionList(prod)
-		case "translation_unit":
-			node, err = ab.buildTranslationUnit(prod)
-		case "external_declaration":
-			node, err = ab.buildExternalDeclaration(prod)
-		case "function_definition":
-			node, err = ab.buildFunctionDefinition(prod)
-		default:
-			supported = false
+		if builder, ok := ab.miscBuilders[prod.From]; ok {
+			node, err = builder(prod)
+		} else {
+			panic("Unsupported production from " + prod.From)
 		}
 	}
 
 	if err != nil {
 		return err
 	}
-	if supported { 
-		ab.reductionStack.Push(node)
+	if node == nil {
+		panic("GOT NIL")
 	}
+	ab.reductionStack.Push(node)
 	return nil
 }
 

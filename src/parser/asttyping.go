@@ -4,7 +4,8 @@ type ASTNode interface {}
 
 
 type TypeName struct {
-	name string
+	SpecifierQulifierList *SpecifierQulifierList
+	AbstractDeclarator *AbstractDeclarator
 }
 
 type TypeQualifier string
@@ -109,7 +110,7 @@ type StructDeclarationList struct {
 }
 
 type Enumerator struct {
-	Identifier StringLiteralExpression
+	Identifier string
 	Expression *Expression
 }
 
@@ -118,7 +119,7 @@ type EnumeratorList struct {
 }
 
 type StructTypeSpecifier struct {
-	Identifier string
+	Identifier *string
 	StructDeclarationList *StructDeclarationList
 }
 

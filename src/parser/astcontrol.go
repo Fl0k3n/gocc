@@ -90,10 +90,7 @@ type FunctionDefinition struct {
 	Body *CompoundStatement
 }
 
-type ExternalDeclaration struct {
-	FunctionDefinition *FunctionDefinition
-	Declaration *Declaration
-}
+type ExternalDeclaration interface {}
 
 type TranslationUnit struct {
 	ExternalDeclarations []*ExternalDeclaration

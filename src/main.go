@@ -181,7 +181,7 @@ func testParser() {
 		fmt.Println(err)
 		return
 	}
-	tokenizer, err := tokenizers.New("../resources/csrc/exprs.c", grammar)
+	tokenizer, err := tokenizers.New("../resources/csrc/functions.c", grammar)
 	if err != nil {
 		fmt.Println(err)
 		return
