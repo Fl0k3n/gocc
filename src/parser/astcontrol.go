@@ -23,7 +23,7 @@ type JumpStatement interface {}
 type ForIterationStatement struct {
 	Initializer *ExpressionStatement
 	Condition *ExpressionStatement
-	Updated *Expression
+	Updater *Expression
 	Body *Statement
 }
 

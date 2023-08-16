@@ -37,6 +37,16 @@ type Production struct {
 	To []Symbol
 }
 
+func (p *Production) SymbolsOfType(symType SymbolT) int {
+	res := 0
+	for _, sym := range p.To {
+		if sym.T == symType {
+			res++
+		}
+	}
+	return res
+}
+
 type Grammar struct {
 	Terminals []string
 	Nonterminals []string

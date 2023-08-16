@@ -268,6 +268,254 @@ func (ab *ASTBuilder) buildArgumentExpressionList(prod *grammars.Production) (no
 	return
 }
 
+func (ab *ASTBuilder) buildStatement(prod *grammars.Production) (node ASTNode, err error) {
+	node = ab.reductionStack.Pop()
+	return
+}
+
+func (ab *ASTBuilder) buildLabeledStatement(prod *grammars.Production) (node ASTNode, err error) {
+	ab.tokenStack.Pop()
+	stmnt := ab.reductionStack.Pop().(Statement)
+	switch prod.To[0].Val {
+	case "IDENTIFIER":
+		ident := ab.tokenStack.Pop().V
+		node = IdentifierLabeledStatement{
+			Identifier: ident,
+			Statement: &stmnt,
+		}
+	case "CASE":
+		ab.tokenStack.Pop()
+		expr := ab.reductionStack.Pop().(Expression)
+		node = CaseLabeledStatement{
+			Statement: &stmnt,
+			Expression: &expr,
+		}
+	case "DEFAULT":
+		ab.tokenStack.Pop()
+		node = DefaultLabeledStatement{
+			Statement: &stmnt,
+		}
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildCompoundStatement(prod *grammars.Production) (node ASTNode, err error) {
+	ab.reductionStack.PopMany(prod.SymbolsOfType(grammars.TERMINAL))
+	var decList *DeclarationList = nil
+	var stmntList *StatementList = nil
+	if prod.To[1].Val == "declaration_list" {
+		if prod.To[2].Val == "statement_list" {
+			stl := ab.reductionStack.Pop().(StatementList)
+			stmntList = &stl
+		}
+		dl := ab.reductionStack.Pop().(DeclarationList)
+		decList = &dl
+	} else if prod.To[1].Val == "statement_list" {
+		stl := ab.reductionStack.Pop().(StatementList)
+		stmntList = &stl
+	}
+	node = CompoundStatement{
+		DeclarationList: decList,
+		StatementList: stmntList,
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildExpressionStatement(prod *grammars.Production) (node ASTNode, err error) {
+	ab.tokenStack.Pop()
+	if len(prod.To) == 1 {
+		// a bit of a hack but for any program it will never be called with empty stack
+		node = ab.reductionStack.Pop()
+	} else {
+		expr := ab.reductionStack.Pop().(Expression)
+		node = ExpressionStatement{
+			Expression: &expr,
+		}
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildSelectionStatement(prod *grammars.Production) (node ASTNode, err error) {
+	ab.tokenStack.PopMany(prod.SymbolsOfType(grammars.TERMINAL))
+	if prod.To[0].Val == "IF" {
+		var elseStmnt *Statement = nil
+		if len(prod.To) == 7 {
+			stmnt := ab.reductionStack.Pop().(Statement)
+			elseStmnt = &stmnt
+		}
+		ifStmnt := ab.reductionStack.Pop().(Statement)
+		cond := ab.reductionStack.Pop().(Expression)
+		node = IfSelectionStatement{
+			Condition: &cond,
+			IfStatement: &ifStmnt,
+			ElseStatement: elseStmnt,
+		}
+	} else {
+		body := ab.reductionStack.Pop().(Statement)
+		cond := ab.reductionStack.Pop().(Expression)
+		node = SwitchSelectionStatement{
+			SwitchExpression: &cond,
+			SwitchBody: &body,
+		}
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildIterationStatement(prod *grammars.Production) (node ASTNode, err error) {
+	ab.tokenStack.PopMany(prod.SymbolsOfType(grammars.TERMINAL))
+	switch prod.To[0].Val {
+	case "WHILE":
+		stmnt := ab.reductionStack.Pop().(Statement)
+		cond := ab.reductionStack.Pop().(Expression)
+		node = WhileIterationStatement{
+			Condition: &cond,
+			Body: &stmnt,
+		}
+	case "DO":
+		cond := ab.reductionStack.Pop().(Expression)
+		stmnt := ab.reductionStack.Pop().(Statement)
+		node = DoWhileIterationStatement{
+			Condition: &cond,
+			Body: &stmnt,
+		}
+	case "FOR":
+		stmnt := ab.reductionStack.Pop().(Statement)
+		var updater *Expression = nil
+		if len(prod.To) == 7 {
+			expr := ab.reductionStack.Pop().(Expression)
+			updater = &expr
+		}
+		cond := ab.reductionStack.Pop().(ExpressionStatement)
+		initializer := ab.reductionStack.Pop().(ExpressionStatement)
+		node = ForIterationStatement{
+			Initializer: &initializer,
+			Condition: &cond,
+			Updater: updater,
+			Body: &stmnt,
+		}
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildJumpStatement(prod *grammars.Production) (node ASTNode, err error) {
+	firstSym := prod.To[0]
+	if len(prod.To) == 1 {
+		ab.tokenStack.PopMany(2)
+		switch firstSym.Val {
+		case "CONTINUE":
+			node = LoopControlJumpStatement{
+				ControlOption: CONTINUE,
+			}
+		case "BREAK":
+			node = LoopControlJumpStatement{
+				ControlOption: BREAK,
+			}
+		case "RETURN":
+			node = ReturnJumpStatement{
+				Expression: nil,
+			}
+		}
+	} else if firstSym.Val == "GOTO" {
+		ab.tokenStack.Pop()
+		label := ab.tokenStack.Pop().V
+		node = GotoJumpStatement{
+			Label: label,
+		}
+		ab.tokenStack.Pop()
+	} else {
+		ab.tokenStack.PopMany(2)
+		expr := ab.reductionStack.Pop().(Expression)
+		node = ReturnJumpStatement{
+			Expression: &expr,
+		}
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildStatementList(prod *grammars.Production) (node ASTNode, err error) {
+	if len(prod.To) == 1 {
+		stmnt := ab.reductionStack.Pop().(Statement)
+		node = StatementList{
+			Statements: []*Statement{&stmnt},
+		}
+	} else {
+		stmnt := ab.reductionStack.Pop().(Statement)
+		stmntList := ab.reductionStack.Pop().(StatementList)
+		stmntList.Statements = append(stmntList.Statements, &stmnt)
+		node = stmntList
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildFunctionDefinition(prod *grammars.Production) (node ASTNode, err error) {
+	cs := ab.reductionStack.Pop().(CompoundStatement)
+	var decSpecs *DeclarationSpecifiers = nil
+	var dec *Declarator = nil
+	var decList *DeclarationList = nil 
+	if prod.To[len(prod.To) - 2].Val == "declarator" {
+		dc := ab.reductionStack.Pop().(Declarator)
+		dec = &dc
+	} else {
+		dl := ab.reductionStack.Pop().(DeclarationList)
+		decList = &dl
+		dc := ab.reductionStack.Pop().(Declarator)
+		dec = &dc
+	}
+	if prod.To[0].Val == "declaration_specifiers" {
+		ds := ab.reductionStack.Pop().(DeclarationSpecifiers)
+		decSpecs = &ds
+	}
+	node = FunctionDefinition{
+		DeclarationSpecifiers: decSpecs,
+		Declarator: dec,
+		DeclarationList: decList,
+		Body: &cs,
+	}
+	return
+}
+
+func (ab *ASTBuilder) buildExternalDeclaration(prod *grammars.Production) (node ASTNode, err error) {
+	node = ab.reductionStack.Pop()
+	return
+}
+
+func (ab *ASTBuilder) buildTranslationUnit(prod *grammars.Production) (node ASTNode, err error) {
+	if len(prod.To) == 1 {
+		dec := ab.reductionStack.Pop().(ExternalDeclaration)
+		node = TranslationUnit{
+			ExternalDeclarations: []*ExternalDeclaration{&dec},
+		}
+	} else {
+		dec := ab.reductionStack.Pop().(ExternalDeclaration)
+		tu := ab.reductionStack.Pop().(TranslationUnit)
+		tu.ExternalDeclarations = append(tu.ExternalDeclarations, &dec)
+		node = tu
+	}
+	return
+}
+
+func (ab *ASTBuilder) reduceStatement(prod *grammars.Production) (node ASTNode, err error) {
+	switch prod.From {
+	case "statement":
+		node, err = ab.buildStatement(prod)
+	case "labeled_statement":
+		node, err = ab.buildLabeledStatement(prod)
+	case "compund_statement":
+		node, err = ab.buildCompoundStatement(prod)
+	case "expression_statement":
+		node, err = ab.buildExpressionStatement(prod)
+	case "selection_statement":
+		node, err = ab.buildSelectionStatement(prod)
+	case "iteration_statement":
+		node, err = ab.buildIterationStatement(prod)
+	case "jump_statement":
+		node, err = ab.buildJumpStatement(prod)
+	case "statement_list":
+		node, err = ab.buildStatementList(prod)
+	}
+	return
+}
+
 func (ab *ASTBuilder) OnReduce(prod *grammars.Production) error {
 	var err error = nil
 	var node ASTNode
@@ -279,6 +527,8 @@ func (ab *ASTBuilder) OnReduce(prod *grammars.Production) error {
 			return nil
 		}
 		node, err = ab.expressionBuilders[prod.From[:len(prod.From) - 11]](prod)
+	} else if strings.Contains(prod.From, "statement") {
+		node, err = ab.reduceStatement(prod)
 	} else {
 		switch prod.From {
 		case "expression":
@@ -291,6 +541,12 @@ func (ab *ASTBuilder) OnReduce(prod *grammars.Production) error {
 			node, err = ab.buildTypeName(prod)
 		case "argument_expression_list":
 			node, err = ab.buildArgumentExpressionList(prod)
+		case "translation_unit":
+			node, err = ab.buildTranslationUnit(prod)
+		case "external_declaration":
+			node, err = ab.buildExternalDeclaration(prod)
+		case "function_definition":
+			node, err = ab.buildFunctionDefinition(prod)
 		default:
 			supported = false
 		}
