@@ -1,7 +1,6 @@
-package parsers
+package ast
 
-type ASTNode interface {}
-
+type Node interface {}
 
 type TypeName struct {
 	SpecifierQulifierList *SpecifierQulifierList

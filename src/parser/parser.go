@@ -1,6 +1,7 @@
 package parsers
 
 import (
+	"ast"
 	"fmt"
 	"grammars"
 	"tokenizers"
@@ -14,7 +15,7 @@ type Parser struct {
 	actionTable *ActionTable
 	gotoTable *GotoTable
 	stateStack *utils.Stack[State]
-	astBuilder *ASTBuilder
+	astBuilder *ast.Builder
 }
 
 
@@ -26,7 +27,7 @@ func New(grammar *grammars.Grammar, tokenizer *tokens.Tokenizer,
 		actionTable: actionTable,
 		gotoTable: gotoTable,
 		stateStack: utils.NewStack[State](),
-		astBuilder: newASTBuilder(),
+		astBuilder: ast.NewBuilder(),
 	}
 }
 
@@ -53,8 +54,10 @@ func (p *Parser) shift(action ShiftAction) {
 func (p *Parser) reduce(action ReduceAction) error {
 	prod := action.Prod
 	p.stateStack.PopMany(len(prod.To))
-	if err := p.astBuilder.OnReduce(prod); err != nil {
-		return err
+	if p.stateStack.Peek() != INITIAL_STATE {
+		if err := p.astBuilder.OnReduce(prod); err != nil {
+			return err
+		}
 	}
 	if nextState, err := p.gotoTable.GetEntry(p.stateStack.Peek(), prod.From); err == nil {
 		p.stateStack.Push(nextState)
@@ -67,7 +70,7 @@ func (p *Parser) reduce(action ReduceAction) error {
 	return nil
 }
 
-func (p *Parser) BuildParseTree() (ASTNode, error) {
+func (p *Parser) BuildParseTree() (ast.Node, error) {
 	var err error
 	var token tokenizers.Token
 

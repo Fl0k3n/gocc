@@ -1,4 +1,4 @@
-package parsers
+package ast
 
 type ReturnJumpStatement struct {
 	Expression *Expression

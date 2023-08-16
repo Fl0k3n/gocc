@@ -1,4 +1,4 @@
-package parsers
+package ast
 
 type IdentifierExpression struct {
 	Identifier string
