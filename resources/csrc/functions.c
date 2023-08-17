@@ -1,3 +1,7 @@
+// void f() {
+//     a + b;
+// }
+
 int f0(int, int, int);
 
 

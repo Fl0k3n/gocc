@@ -15,6 +15,7 @@ type Builder struct {
 	tokenStack *utils.Stack[tok.Token]
 	expressionBuilders map[string]NodeBuilder
 	miscBuilders map[string]NodeBuilder 
+	lineNumber int
 }
 
 func NewBuilder() *Builder {
@@ -82,17 +83,30 @@ func NewBuilder() *Builder {
 	return ab
 }
 
+func (ab *Builder) lineInfoFor(node Node) LineInfo {
+	return LineInfo{
+		LineNumber: ab.lineNumber,
+		Owner: node,
+	}
+}
+
 func (ab *Builder) buildPrimaryExpression(prod *grammars.Production) (node Node, err error) {
 	if len(prod.To) == 1 {
 		sym := prod.To[0]
 		token := ab.tokenStack.Pop()
 		switch sym.Val { 
 		case "IDENTIFIER":
-			node = &IdentifierExpression{Identifier: token.V}
+			ie := IdentifierExpression{Identifier: token.V}
+			ie.LineInfo = ab.lineInfoFor(ie)
+			node = ie
 		case "CONSTANT":
-			node = &ConstantValExpression{Constant: token.V}
+			ce := ConstantValExpression{Constant: token.V}
+			ce.LineInfo = ab.lineInfoFor(ce)
+			node = ce
 		case "STRING_LITERAL":
-			node = &StringLiteralExpression{StringLiteral: token.V}
+			sli := StringLiteralExpression{StringLiteral: token.V}
+			sli.LineInfo = ab.lineInfoFor(sli)
+			node = sli
 		default:
 			panic("Invalid primary expression")
 		} 
@@ -110,25 +124,31 @@ func (ab *Builder) buildPostfixExpression(prod *grammars.Production) (node Node,
 		ab.tokenStack.PopMany(2)
 		arrExpr := ab.reductionStack.Pop().(Expression)
 		postfixExpr := ab.reductionStack.Pop().(Expression)
-		node = ArrayAccessPostfixExpression{
+		aape := ArrayAccessPostfixExpression{
 			PostfixExpression: &postfixExpr,
 			ArrayExpression: &arrExpr,
 		}
+		aape.LineInfo = ab.lineInfoFor(aape)
+		node = aape
 	case "(":
 		ab.tokenStack.PopMany(2)
 		if prod.To[2].Val == "argument_expression_list" {
 			ael := ab.reductionStack.Pop().(ArgumentExpressionList)
 			funcExpr := ab.reductionStack.Pop().(Expression)
-			node = FunctionCallPostfixExpression{
+			fcpe := FunctionCallPostfixExpression{
 				FunctionAccessor: &funcExpr,
 				Args: &ael,
 			}
+			fcpe.LineInfo = ab.lineInfoFor(fcpe)
+			node = fcpe
 		} else {
 			funcExpr := ab.reductionStack.Pop().(Expression)
-			node = FunctionCallPostfixExpression{
+			fcpe := FunctionCallPostfixExpression{
 				FunctionAccessor: &funcExpr,
 				Args: nil,
 			}
+			fcpe.LineInfo = ab.lineInfoFor(fcpe)
+			node = fcpe
 		}
 	case "PTR_OP", ".":
 		ab.tokenStack.Pop()
@@ -139,11 +159,13 @@ func (ab *Builder) buildPostfixExpression(prod *grammars.Production) (node Node,
 		} else {
 			accessMethod = DOT_ACCESS
 		}
-		node = StructAccessPostfixExpression{
+		sape := StructAccessPostfixExpression{
 			StructAccessor: &expr,
 			AccessMethod: accessMethod,
 			FieldIdentifier: ab.tokenStack.Pop().V,
 		}
+		sape.LineInfo = ab.lineInfoFor(sape)
+		node = sape
 	case "INC_OP", "DEC_OP":
 		ab.tokenStack.Pop()
 		expr := ab.reductionStack.Pop().(Expression)
@@ -153,10 +175,12 @@ func (ab *Builder) buildPostfixExpression(prod *grammars.Production) (node Node,
 		} else {
 			op = DEC
 		}
-		node = IncDecPostfixExpression{
+		idpe := IncDecPostfixExpression{
 			PostfixExpression: &expr,
 			Operator: op,
 		}
+		idpe.LineInfo = ab.lineInfoFor(idpe)
+		node = idpe
 	default:
 		panic("Invalid postfix expression")
 	}
@@ -174,33 +198,41 @@ func (ab *Builder) buildUnaryExpression(prod *grammars.Production) (node Node, e
 		} else {
 			op = DEC
 		}
-		node = IncDecUnaryExpression{
+		idue := IncDecUnaryExpression{
 			UnaryExpression: &expr,
 			Operator: op,
 		}
+		idue.LineInfo = ab.lineInfoFor(idue)
+		node = idue
 	case "SIZEOF":
 		if prod.To[1].Val == "(" {
 			ab.reductionStack.PopMany(3)
 			typeName := ab.reductionStack.Pop().(TypeName)
-			node = SizeofUnaryExpression{
+			sue := SizeofUnaryExpression{
 				TypeName: &typeName,
 				NestedUnaryExpression: nil,
 			}
+			sue.LineInfo = ab.lineInfoFor(sue)
+			node = sue
 		} else {
 			ab.tokenStack.Pop()
 			expr := ab.reductionStack.Pop().(Expression)
-			node = SizeofUnaryExpression{
+			sue := SizeofUnaryExpression{
 				TypeName: nil,
 				NestedUnaryExpression: &expr,
 			}
+			sue.LineInfo = ab.lineInfoFor(sue)
+			node = sue
 		}
 	case "unary_operator":
 		castExpr := ab.reductionStack.Pop().(Expression)
-		unaryOp := ab.reductionStack.Pop().(string)
-		node = CastUnaryExpression{
+		unaryOp := ab.reductionStack.Pop().(StringPrimitive)
+		cue := CastUnaryExpression{
 			CastExpression: &castExpr,
-			Operator: unaryOp,
+			Operator: unaryOp.val,
 		}
+		cue.LineInfo = ab.lineInfoFor(cue)
+		node = cue
 	default: 
 		panic("Invalid unary expression")
 	}
@@ -211,10 +243,12 @@ func (ab *Builder) buildCastExpression(prod *grammars.Production) (node Node, er
 	ab.tokenStack.PopMany(2)
 	castExpr := ab.reductionStack.Pop().(Expression)
 	typeName := ab.reductionStack.Pop().(TypeName)
-	node = TypeCastCastExpression{
+	n := TypeCastCastExpression{
 		Typename: &typeName,
 		Expression: &castExpr,
 	}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	return
 }
 
@@ -229,11 +263,14 @@ func (ab *Builder) buildArithmeticBinaryExpression(prod *grammars.Production) (n
 	op := ab.tokenStack.Pop().V
 	rhs := ab.reductionStack.Pop().(Expression)
 	lhs := ab.reductionStack.Pop().(Expression)
-	node = BinaryArithmeticExpression{
+	
+	n := BinaryArithmeticExpression{
 		LhsExpression: &lhs,
 		Operator: op,
 		RhsExpression: &rhs,
 	}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	return
 }
 
@@ -242,23 +279,27 @@ func (ab *Builder) buildConditionalExpression(prod *grammars.Production) (node N
 	elseExpr := ab.reductionStack.Pop().(Expression)
 	ifExpr := ab.reductionStack.Pop().(Expression)
 	conditionExpr := ab.reductionStack.Pop().(Expression)
-	node = &ConditionalExpression{
+	n := ConditionalExpression{
 		Condition: &conditionExpr,
 		IfTrueExpression: &ifExpr,
 		ElseExpression: &elseExpr,
 	}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	return
 }
 
 func (ab *Builder) buildAssigmentExpression(prod *grammars.Production) (node Node, err error) {
 	rhs := ab.reductionStack.Pop().(Expression)
-	assigmentOp := ab.reductionStack.Pop().(string)
+	assigmentOp := ab.reductionStack.Pop().(StringPrimitive)
 	lhs := ab.reductionStack.Pop().(Expression)
-	node = AssigmentExpression{
+	n := AssigmentExpression{
 		LhsExpression: &lhs,
-		Operator: assigmentOp,
+		Operator: assigmentOp.val,
 		RhsExpression: &rhs,
 	}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	return
 }
 
@@ -273,19 +314,25 @@ func (ab *Builder) buildExpression(prod *grammars.Production) (node Node, err er
 
 func (ab *Builder) buildConstantExpression(prod *grammars.Production) (node Node, err error) {
 	expr := ab.reductionStack.Pop().(Expression)
-	node = ConstantExpression{
+	n := ConstantExpression{
 		Expression: &expr,
 	}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	return
 }
 
 func (ab *Builder) buildAssigmentOperator(prod *grammars.Production) (node Node, err error) {
-	node = ab.tokenStack.Pop().V
+	n := StringPrimitive{val: ab.tokenStack.Pop().V}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	return
 }
 
 func (ab *Builder) buildUnaryOperator(prod *grammars.Production) (node Node, err error) {
-	node = ab.tokenStack.Pop().V
+	n := StringPrimitive{val: ab.tokenStack.Pop().V}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	return
 }
 
@@ -296,24 +343,28 @@ func (ab *Builder) buildTypeName(prod *grammars.Production) (node Node, err erro
 		ad = &a
 	}
 	sql := ab.reductionStack.Pop().(SpecifierQulifierList)
-	node = TypeName{
+	n := TypeName{
 		AbstractDeclarator: ad,	
 		SpecifierQulifierList: &sql,
 	}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	return
 }
 
 func (ab *Builder) buildArgumentExpressionList(prod *grammars.Production) (node Node, err error) {
 	if len(prod.To) == 1 {
 		expr := ab.reductionStack.Pop().(Expression)
-		node = ArgumentExpressionList{
-			Expressions: []*Expression{&expr},
+		n := ArgumentExpressionList{
+			Expressions: []Expression{expr},
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	} else {
 		ab.tokenStack.Pop()
 		expr := ab.reductionStack.Pop().(Expression)
 		ael := ab.reductionStack.Pop().(ArgumentExpressionList)
-		ael.Expressions = append(ael.Expressions, &expr)
+		ael.Expressions = append(ael.Expressions, expr)
 		node = ael
 	}
 	return
@@ -330,22 +381,28 @@ func (ab *Builder) buildLabeledStatement(prod *grammars.Production) (node Node, 
 	switch prod.To[0].Val {
 	case "IDENTIFIER":
 		ident := ab.tokenStack.Pop().V
-		node = IdentifierLabeledStatement{
+		n := IdentifierLabeledStatement{
 			Identifier: ident,
 			Statement: &stmnt,
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	case "CASE":
 		ab.tokenStack.Pop()
 		expr := ab.reductionStack.Pop().(Expression)
-		node = CaseLabeledStatement{
+		n := CaseLabeledStatement{
 			Statement: &stmnt,
 			Expression: &expr,
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	case "DEFAULT":
 		ab.tokenStack.Pop()
-		node = DefaultLabeledStatement{
+		n := DefaultLabeledStatement{
 			Statement: &stmnt,
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	}
 	return
 }
@@ -365,10 +422,12 @@ func (ab *Builder) buildCompoundStatement(prod *grammars.Production) (node Node,
 		stl := ab.reductionStack.Pop().(StatementList)
 		stmntList = &stl
 	}
-	node = CompoundStatement{
+	n := CompoundStatement{
 		DeclarationList: decList,
 		StatementList: stmntList,
 	}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	return
 }
 
@@ -379,9 +438,11 @@ func (ab *Builder) buildExpressionStatement(prod *grammars.Production) (node Nod
 		node = ab.reductionStack.Pop()
 	} else {
 		expr := ab.reductionStack.Pop().(Expression)
-		node = ExpressionStatement{
+		n := ExpressionStatement{
 			Expression: &expr,
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	}
 	return
 }
@@ -396,18 +457,22 @@ func (ab *Builder) buildSelectionStatement(prod *grammars.Production) (node Node
 		}
 		ifStmnt := ab.reductionStack.Pop().(Statement)
 		cond := ab.reductionStack.Pop().(Expression)
-		node = IfSelectionStatement{
+		n := IfSelectionStatement{
 			Condition: &cond,
 			IfStatement: &ifStmnt,
 			ElseStatement: elseStmnt,
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	} else {
 		body := ab.reductionStack.Pop().(Statement)
 		cond := ab.reductionStack.Pop().(Expression)
-		node = SwitchSelectionStatement{
+		n := SwitchSelectionStatement{
 			SwitchExpression: &cond,
 			SwitchBody: &body,
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	}
 	return
 }
@@ -418,17 +483,21 @@ func (ab *Builder) buildIterationStatement(prod *grammars.Production) (node Node
 	case "WHILE":
 		stmnt := ab.reductionStack.Pop().(Statement)
 		cond := ab.reductionStack.Pop().(Expression)
-		node = WhileIterationStatement{
+		n := WhileIterationStatement{
 			Condition: &cond,
 			Body: &stmnt,
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	case "DO":
 		cond := ab.reductionStack.Pop().(Expression)
 		stmnt := ab.reductionStack.Pop().(Statement)
-		node = DoWhileIterationStatement{
+		n := DoWhileIterationStatement{
 			Condition: &cond,
 			Body: &stmnt,
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	case "FOR":
 		stmnt := ab.reductionStack.Pop().(Statement)
 		var updater *Expression = nil
@@ -438,12 +507,14 @@ func (ab *Builder) buildIterationStatement(prod *grammars.Production) (node Node
 		}
 		cond := ab.reductionStack.Pop().(ExpressionStatement)
 		initializer := ab.reductionStack.Pop().(ExpressionStatement)
-		node = ForIterationStatement{
+		n := ForIterationStatement{
 			Initializer: &initializer,
 			Condition: &cond,
 			Updater: updater,
 			Body: &stmnt,
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	}
 	return
 }
@@ -454,31 +525,41 @@ func (ab *Builder) buildJumpStatement(prod *grammars.Production) (node Node, err
 		ab.tokenStack.PopMany(2)
 		switch firstSym.Val {
 		case "CONTINUE":
-			node = LoopControlJumpStatement{
+			n := LoopControlJumpStatement{
 				ControlOption: CONTINUE,
 			}
+			n.LineInfo = ab.lineInfoFor(n)
+			node = n
 		case "BREAK":
-			node = LoopControlJumpStatement{
+			n := LoopControlJumpStatement{
 				ControlOption: BREAK,
 			}
+			n.LineInfo = ab.lineInfoFor(n)
+			node = n
 		case "RETURN":
-			node = ReturnJumpStatement{
+			n := ReturnJumpStatement{
 				Expression: nil,
 			}
+			n.LineInfo = ab.lineInfoFor(n)
+			node = n
 		}
 	} else if firstSym.Val == "GOTO" {
 		ab.tokenStack.Pop()
 		label := ab.tokenStack.Pop().V
-		node = GotoJumpStatement{
+		n  := GotoJumpStatement{
 			Label: label,
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 		ab.tokenStack.Pop()
 	} else {
 		ab.tokenStack.PopMany(2)
 		expr := ab.reductionStack.Pop().(Expression)
-		node = ReturnJumpStatement{
+		n := ReturnJumpStatement{
 			Expression: &expr,
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	}
 	return
 }
@@ -486,13 +567,15 @@ func (ab *Builder) buildJumpStatement(prod *grammars.Production) (node Node, err
 func (ab *Builder) buildStatementList(prod *grammars.Production) (node Node, err error) {
 	if len(prod.To) == 1 {
 		stmnt := ab.reductionStack.Pop().(Statement)
-		node = StatementList{
-			Statements: []*Statement{&stmnt},
+		n := StatementList{
+			Statements: []Statement{stmnt},
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	} else {
 		stmnt := ab.reductionStack.Pop().(Statement)
 		stmntList := ab.reductionStack.Pop().(StatementList)
-		stmntList.Statements = append(stmntList.Statements, &stmnt)
+		stmntList.Statements = append(stmntList.Statements, stmnt)
 		node = stmntList
 	}
 	return
@@ -516,12 +599,14 @@ func (ab *Builder) buildFunctionDefinition(prod *grammars.Production) (node Node
 		ds := ab.reductionStack.Pop().(DeclarationSpecifiers)
 		decSpecs = &ds
 	}
-	node = FunctionDefinition{
+	n := FunctionDefinition{
 		DeclarationSpecifiers: decSpecs,
 		Declarator: dec,
 		DeclarationList: decList,
 		Body: &cs,
 	}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	return
 }
 
@@ -533,13 +618,16 @@ func (ab *Builder) buildExternalDeclaration(prod *grammars.Production) (node Nod
 func (ab *Builder) buildTranslationUnit(prod *grammars.Production) (node Node, err error) {
 	if len(prod.To) == 1 {
 		dec := ab.reductionStack.Pop().(ExternalDeclaration)
-		node = TranslationUnit{
-			ExternalDeclarations: []*ExternalDeclaration{&dec},
+		n := TranslationUnit{
+			ExternalDeclarations: []ExternalDeclaration{dec},
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	} else {
 		dec := ab.reductionStack.Pop().(ExternalDeclaration)
 		tu := ab.reductionStack.Pop().(TranslationUnit)
-		tu.ExternalDeclarations = append(tu.ExternalDeclarations, &dec)
+		tu.ExternalDeclarations = append(tu.ExternalDeclarations, dec)
+		tu.LineInfo = ab.lineInfoFor(tu)
 		node = tu
 	}
 	return
@@ -548,9 +636,11 @@ func (ab *Builder) buildTranslationUnit(prod *grammars.Production) (node Node, e
 func (ab *Builder) buildTypeSpecifier(prod *grammars.Production) (node Node, err error) {
 	if prod.To[0].T == grammars.TERMINAL {
 		typeName := ab.tokenStack.Pop().V
-		node = DirectTypeSpecifier{
+		n := DirectTypeSpecifier{
 			TypeName: typeName,
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	} else {
 		node = ab.reductionStack.Pop()
 	} 
@@ -570,10 +660,12 @@ func (ab *Builder) buildEnumSpecifier(prod *grammars.Production) (node Node, err
 		ident = &iden
 	}
 	ab.tokenStack.Pop()
-	node = EnumTypeSpecifier{
+	n := EnumTypeSpecifier{
 		Identifier: ident,
 		EnumeratorList: enumList,
 	}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	return
 }
 
@@ -589,10 +681,12 @@ func (ab *Builder) buildStructSpecifier(prod *grammars.Production) (node Node, e
 		iden := ab.tokenStack.Pop().V
 		ident = &iden
 	}
-	node = StructTypeSpecifier{
+	n := StructTypeSpecifier{
 		Identifier: ident,
 		StructDeclarationList: structDecList,
 	}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	ab.reductionStack.Pop()
 	return
 }
@@ -600,13 +694,16 @@ func (ab *Builder) buildStructSpecifier(prod *grammars.Production) (node Node, e
 func (ab *Builder) buildEnumeratorList(prod *grammars.Production) (node Node, err error) {
 	if len(prod.To) == 1 {
 		enum := ab.reductionStack.Pop().(Enumerator)
-		node = EnumeratorList{
+		n := EnumeratorList{
 			Enumerators: []*Enumerator{&enum},
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	} else {
 		enum := ab.reductionStack.Pop().(Enumerator)
 		el := ab.reductionStack.Pop().(EnumeratorList)
 		el.Enumerators = append(el.Enumerators, &enum)
+		el.LineInfo = ab.lineInfoFor(el)
 		node = el
 	}
 	return
@@ -615,13 +712,16 @@ func (ab *Builder) buildEnumeratorList(prod *grammars.Production) (node Node, er
 func (ab *Builder) buildStructDeclarationList(prod *grammars.Production) (node Node, err error) {
 	if len(prod.To) == 1 {
 		sd := ab.reductionStack.Pop().(StructDeclaration)
-		node = StructDeclarationList{
+		n := StructDeclarationList{
 			StructDeclarations: []*StructDeclaration{&sd},
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	} else {
 		sd := ab.reductionStack.Pop().(StructDeclaration)
 		sdl := ab.reductionStack.Pop().(StructDeclarationList)
 		sdl.StructDeclarations = append(sdl.StructDeclarations, &sd)
+		sdl.LineInfo = ab.lineInfoFor(sdl)
 		node = sdl
 	}
 	return
@@ -631,10 +731,12 @@ func (ab *Builder) buildStructDeclaration(prod *grammars.Production) (node Node,
 	ab.tokenStack.Pop()
 	sdl := ab.reductionStack.Pop().(StructDeclaratorList)
 	sql := ab.reductionStack.Pop().(SpecifierQulifierList)
-	node = StructDeclaration{
+	n := StructDeclaration{
 		SpecifierQulifierList: &sql,
 		StructDeclaratorList: &sdl,
 	}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	return
 }
 
@@ -655,6 +757,7 @@ func (ab *Builder) buildSpecifierQualifierList(prod *grammars.Production) (node 
 		tq := ab.reductionStack.Pop().(TypeQualifier)
 		n.TypeQualifiers = append(n.TypeQualifiers, &tq)
 	}
+	n.LineInfo = ab.lineInfoFor(n)
 	node = n
 	return
 }
@@ -662,13 +765,16 @@ func (ab *Builder) buildSpecifierQualifierList(prod *grammars.Production) (node 
 func (ab *Builder) buildStructDeclaratorList(prod *grammars.Production) (node Node, err error) {
 	if len(prod.To) == 1 {
 		sd := ab.reductionStack.Pop().(StructDeclarator)
-		node = StructDeclaratorList{
+		n := StructDeclaratorList{
 			StructDeclarators: []*StructDeclarator{&sd},
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	} else {
 		sd := ab.reductionStack.Pop().(StructDeclarator)
 		sdl := ab.reductionStack.Pop().(StructDeclaratorList)
 		sdl.StructDeclarators = append(sdl.StructDeclarators, &sd)
+		sdl.LineInfo = ab.lineInfoFor(sdl)
 		node = sdl
 	}
 	return
@@ -682,32 +788,37 @@ func (ab *Builder) buildStructDeclarator(prod *grammars.Production) (node Node, 
 		ab.tokenStack.Pop()
 	}
 	decl := ab.reductionStack.Pop().(Declarator)
-	node = StructDeclarator{
+	n := StructDeclarator{
 		Declarator: &decl,
 		Expression: expr,
 	}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	return
 }
 
 func (ab *Builder) buildStructOrUnion(prod *grammars.Production) (node Node, err error) {
-	node = ab.tokenStack.Pop().V
+	node = StringPrimitive{val: ab.tokenStack.Pop().V}
 	return
 }
 
 func (ab *Builder) buildDeclarator(prod *grammars.Production) (node Node, err error) {
 	decl := ab.reductionStack.Pop().(DirectDeclarator)
+	var n Declarator
 	if len(prod.To) == 1 {
-		node = Declarator{
+		n = Declarator{
 			Pointer: nil,
 			DirectDeclarator: &decl,
 		}
 	} else {
 		ptr := ab.reductionStack.Pop().(Pointer)
-		node = Declarator{
+		n = Declarator{
 			Pointer: &ptr,
 			DirectDeclarator: &decl,
 		}
 	}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	return
 }
 
@@ -723,39 +834,46 @@ func (ab *Builder) buildPointer(prod *grammars.Production) (node Node, err error
 		t := ab.reductionStack.Pop().(TypeQualifierList)
 		tql = &t
 	}
-	node = Pointer{
+	n := Pointer{
 		TypeQualifierList: tql,
 		NestedPointer: ptr,
 	}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	return
 }
 
 func (ab *Builder) buildTypeQualifierList(prod *grammars.Production) (node Node, err error) {
 	if len(prod.To) == 1 {
 		tq := ab.reductionStack.Pop().(TypeQualifier)
-		node = TypeQualifierList{
+		n := TypeQualifierList{
 			TypeQualifiers: []*TypeQualifier{&tq},
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	} else {
 		tq := ab.reductionStack.Pop().(TypeQualifier)
 		tql := ab.reductionStack.Pop().(TypeQualifierList)
 		tql.TypeQualifiers = append(tql.TypeQualifiers, &tq)
+		tql.LineInfo = ab.lineInfoFor(tql)
 		node = tql
 	}
 	return
 }
 
 func (ab *Builder) buildTypeQualifier(prod *grammars.Production) (node Node, err error) {
-	node = TypeQualifier(ab.tokenStack.Pop().V)
+	node = TypeQualifier{val: ab.tokenStack.Pop().V}
 	return
 }
 
 func (ab *Builder) buildDirectDeclarator(prod *grammars.Production) (node Node, err error) {
 	if len(prod.To) == 1 {
 		ident := ab.tokenStack.Pop().V
-		node = DirectIdentifierDeclarator{
+		n := DirectIdentifierDeclarator{
 			Identifier: ident,
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	} else if prod.To[1].Val == "[" {
 		ab.tokenStack.PopMany(2)
 		var expr *Expression = nil
@@ -764,10 +882,12 @@ func (ab *Builder) buildDirectDeclarator(prod *grammars.Production) (node Node, 
 			expr = &e
 		}
 		decl := ab.reductionStack.Pop().(DirectDeclarator)
-		node = DirectArrayDeclarator{
+		n := DirectArrayDeclarator{
 			Declarator: &decl,
 			ArrayExpression: expr,
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	} else {
 		ab.tokenStack.PopMany(2)
 		var ptl *ParameterTypeList = nil
@@ -782,11 +902,13 @@ func (ab *Builder) buildDirectDeclarator(prod *grammars.Production) (node Node, 
 			}
 		}
 		decl := ab.reductionStack.Pop().(DirectDeclarator)
-		node = DirectFunctionDeclarator{
+		n := DirectFunctionDeclarator{
 			Declarator: &decl,
 			ParameterTypeList: ptl,
 			IndentifierList: il,
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	}
 	return
 }
@@ -794,9 +916,11 @@ func (ab *Builder) buildDirectDeclarator(prod *grammars.Production) (node Node, 
 func (ab *Builder) buildParameterTypeList(prod *grammars.Production) (node Node, err error) {
 	if len(prod.To) == 1 {
 		pl := ab.reductionStack.Pop().(ParameterList)
-		node = ParameterTypeList{
+		n := ParameterTypeList{
 			ParameterList: &pl,
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	} else {
 		panic("ellipsis not supported")
 	}
@@ -806,13 +930,16 @@ func (ab *Builder) buildParameterTypeList(prod *grammars.Production) (node Node,
 func (ab *Builder) buildParameterList(prod *grammars.Production) (node Node, err error) {
 	if len(prod.To) == 1 {
 		pd := ab.reductionStack.Pop().(ParameterDeclaration)
-		node = ParameterList{
+		n := ParameterList{
 			ParameterDeclarations: []*ParameterDeclaration{&pd},
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	} else {
 		pd := ab.reductionStack.Pop().(ParameterDeclaration)
 		pl := ab.reductionStack.Pop().(ParameterList)
 		pl.ParameterDeclarations = append(pl.ParameterDeclarations, &pd)
+		pl.LineInfo = ab.lineInfoFor(pl)
 		node = pl
 	}
 	return
@@ -831,11 +958,13 @@ func (ab *Builder) buildParameterDeclaration(prod *grammars.Production) (node No
 		}
 	}
 	dspec := ab.reductionStack.Pop().(DeclarationSpecifiers)
-	node = ParameterDeclaration{
+	n := ParameterDeclaration{
 		DeclarationSpecifiers: &dspec,
 		Declarator: dec,
 		AbstractDeclarator: adec,
 	}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	return
 }
 
@@ -845,7 +974,7 @@ func (ab *Builder) buildDeclarationSpecifiers(prod *grammars.Production) (node N
 		n = ab.reductionStack.Pop().(DeclarationSpecifiers)
 	} else {
 		n = DeclarationSpecifiers{
-			TypeSpecifiers: make([]*TypeSpecifier, 0),
+			TypeSpecifiers: make([]TypeSpecifier, 0),
 			TypeQualifiers: make([]*TypeQualifier, 0),
 			StorageClassSpecifiers: make([]*StorageClassSpecifier, 0),
 		}
@@ -853,7 +982,7 @@ func (ab *Builder) buildDeclarationSpecifiers(prod *grammars.Production) (node N
 	switch prod.To[0].Val {
 	case "type_specifier":
 		ts := ab.reductionStack.Pop().(TypeSpecifier)
-		n.TypeSpecifiers = append(n.TypeSpecifiers, &ts)
+		n.TypeSpecifiers = append(n.TypeSpecifiers, ts)
 	case "type_qualifier":
 		tq := ab.reductionStack.Pop().(TypeQualifier)
 		n.TypeQualifiers = append(n.TypeQualifiers, &tq)
@@ -861,12 +990,15 @@ func (ab *Builder) buildDeclarationSpecifiers(prod *grammars.Production) (node N
 		scs := ab.reductionStack.Pop().(StorageClassSpecifier)
 		n.StorageClassSpecifiers = append(n.StorageClassSpecifiers, &scs)
 	}
+	n.LineInfo = ab.lineInfoFor(n)
 	node = n
 	return
 }
 
 func (ab *Builder) buildStorageClassSpecifier(prod *grammars.Production) (node Node, err error) {
-	node = StorageClassSpecifier(ab.tokenStack.Pop().V)
+	n := StorageClassSpecifier{val: ab.tokenStack.Pop().V}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	return
 }
 
@@ -881,10 +1013,12 @@ func (ab *Builder) buildAbstractDeclarator(prod *grammars.Production) (node Node
 		p := ab.reductionStack.Pop().(Pointer)
 		ptr = &p
 	}
-	node = AbstractDeclarator{
+	n := AbstractDeclarator{
 		Pointer: ptr,
 		DirectAbstractDeclarator: dad,
 	}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	return
 }
 
@@ -904,10 +1038,12 @@ func (ab *Builder) buildDirectAbstractDeclarator(prod *grammars.Production) (nod
 			d := ab.reductionStack.Pop().(DirectAbstractDeclarator)
 			dad = &d
 		}
-		node = DirectAbstractArrayDeclarator{
+		n := DirectAbstractArrayDeclarator{
 			Expression: expr,
 			DirectAbstractDeclarator: dad,
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	} else {
 		var ptl *ParameterTypeList = nil
 		var dad *DirectAbstractDeclarator = nil
@@ -919,10 +1055,12 @@ func (ab *Builder) buildDirectAbstractDeclarator(prod *grammars.Production) (nod
 			d := ab.reductionStack.Pop().(DirectAbstractDeclarator)
 			dad = &d
 		}
-		node = DirectAbstractFunctionDeclarator{
+		n := DirectAbstractFunctionDeclarator{
 			ParameterTypeList: ptl,
 			DirectAbstractDeclarator: dad,
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	}
 	return
 }
@@ -930,33 +1068,40 @@ func (ab *Builder) buildDirectAbstractDeclarator(prod *grammars.Production) (nod
 func (ab *Builder) buildInitializerList(prod *grammars.Production) (node Node, err error) {
 	if len(prod.To) == 1 {
 		il := ab.reductionStack.Pop().(Initializer)
-		node = InitializerList{
+		n := InitializerList{
 			Initlizers: []*Initializer{&il},
+			LineInfo: LineInfo{},
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	} else {
 		il := ab.reductionStack.Pop().(Initializer)
 		ill := ab.reductionStack.Pop().(InitializerList)
 		ill.Initlizers = append(ill.Initlizers, &il)
+		ill.LineInfo = ab.lineInfoFor(ill)
 		node = ill
 	}
 	return
 }
 
 func (ab *Builder) buildInitializer(prod *grammars.Production) (node Node, err error) {
+	var n Initializer
 	if prod.To[0].Val == "assignment_expression" {
 		expr := ab.reductionStack.Pop().(Expression)
-		node = Initializer{
+		n = Initializer{
 			Expression: &expr,
 			InitializerList: nil,
 		}
 	} else {
 		ab.reductionStack.PopMany(prod.SymbolsOfType(grammars.TERMINAL))
 		il := ab.reductionStack.Pop().(InitializerList)
-		node = Initializer{
+		n = Initializer{
 			Expression: nil,
 			InitializerList: &il,
 		}
 	}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	return
 }
 
@@ -968,23 +1113,28 @@ func (ab *Builder) buildDeclaration(prod *grammars.Production) (node Node, err e
 		idl = &i
 	}
 	ds := ab.reductionStack.Pop().(DeclarationSpecifiers)
-	node = Declaration{
+	n := Declaration{
 		DeclarationSpecifiers: &ds,
 		InitDeclaratorList: idl,
 	}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	return
 }
 
 func (ab *Builder) buildDeclarationList(prod *grammars.Production) (node Node, err error) {
 	if len(prod.To) == 1 {
 		dec := ab.reductionStack.Pop().(Declaration)
-		node = DeclarationList{
+		n := DeclarationList{
 			Declarations: []*Declaration{&dec},
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	} else {
 		dec := ab.reductionStack.Pop().(Declaration)
 		dl := ab.reductionStack.Pop().(DeclarationList)
 		dl.Declarations = append(dl.Declarations, &dec)
+		dl.LineInfo = ab.lineInfoFor(dl)
 		node = dl
 	}
 	return
@@ -993,14 +1143,17 @@ func (ab *Builder) buildDeclarationList(prod *grammars.Production) (node Node, e
 func (ab *Builder) buildInitDeclaratorList(prod *grammars.Production) (node Node, err error) {
 	if len(prod.To) == 1 {
 		id := ab.reductionStack.Pop().(InitDeclarator)
-		node = InitDeclaratorList{
+		n := InitDeclaratorList{
 			InitDeclarators: []*InitDeclarator{&id},
 		}
+		n.LineInfo = ab.lineInfoFor(n)
+		node = n
 	} else {
 		ab.tokenStack.Pop()
 		id := ab.reductionStack.Pop().(InitDeclarator)
 		idl := ab.reductionStack.Pop().(InitDeclaratorList)
 		idl.InitDeclarators = append(idl.InitDeclarators, &id)
+		idl.LineInfo = ab.lineInfoFor(idl)
 		node = idl
 	}
 	return
@@ -1014,10 +1167,12 @@ func (ab *Builder) buildInitDeclarator(prod *grammars.Production) (node Node, er
 		ini = &i
 	}
 	dec := ab.reductionStack.Pop().(Declarator)
-	node = InitDeclarator{
+	n := InitDeclarator{
 		Declarator: &dec,
 		Initializer: ini,
 	}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	return
 }
 
@@ -1029,10 +1184,12 @@ func (ab *Builder) buildEnumerator(prod *grammars.Production) (node Node, err er
 		ab.tokenStack.Pop()
 	}
 	ident := ab.tokenStack.Pop().V
-	node = Enumerator{
+	n := Enumerator{
 		Identifier: ident,
 		Expression: expr,
 	}
+	n.LineInfo = ab.lineInfoFor(n)
+	node = n
 	return
 }
 
@@ -1058,9 +1215,10 @@ func (ab *Builder) reduceStatement(prod *grammars.Production) (node Node, err er
 	return
 }
 
-func (ab *Builder) OnReduce(prod *grammars.Production) error {
+func (ab *Builder) OnReduce(prod *grammars.Production, lineInfo *LineInfo) error {
 	var err error = nil
 	var node Node
+	ab.lineNumber = lineInfo.LineNumber
 	if prod.From == "primary_expression" {
 		node, err = ab.buildPrimaryExpression(prod)
 	} else if strings.HasSuffix(prod.From, "_expression") {
@@ -1082,8 +1240,9 @@ func (ab *Builder) OnReduce(prod *grammars.Production) error {
 		return err
 	}
 	if node == nil {
-		panic("GOT NIL")
+		panic("Reduction failed, got nil for production from " + prod.From)
 	}
+
 	ab.reductionStack.Push(node)
 	return nil
 }
@@ -1092,10 +1251,11 @@ func (ab *Builder) OnShift(tok tok.Token) {
 	ab.tokenStack.Push(tok)
 }
 
-func (ab *Builder) GetParsedTree() (Node, error) {
+func (ab *Builder) GetParsedTree() (TranslationUnit, error) {
 	if ab.reductionStack.Size() == 0 {
-		return nil, errors.New("Empty AST")
+		var tr TranslationUnit
+		return tr, errors.New("Empty AST")
 	}
-	return ab.reductionStack.Peek(), nil
+	return ab.reductionStack.Peek().(TranslationUnit), nil
 }
 

@@ -54,12 +54,13 @@ func (p *Parser) shift(action ShiftAction) {
 func (p *Parser) reduce(action ReduceAction) error {
 	prod := action.Prod
 	p.stateStack.PopMany(len(prod.To))
-	if p.stateStack.Peek() != INITIAL_STATE {
-		if err := p.astBuilder.OnReduce(prod); err != nil {
-			return err
-		}
-	}
 	if nextState, err := p.gotoTable.GetEntry(p.stateStack.Peek(), prod.From); err == nil {
+		lineInfo := ast.LineInfo{LineNumber: p.tokenizer.LineIdx}
+		if err := p.astBuilder.OnReduce(prod, &lineInfo); err != nil {
+			if nextState != INITIAL_STATE {
+				return err
+			}
+		}
 		p.stateStack.Push(nextState)
 		fmt.Printf("Reduce %s, goto %d\n", prod.From, nextState)
 	} else {
@@ -70,11 +71,12 @@ func (p *Parser) reduce(action ReduceAction) error {
 	return nil
 }
 
-func (p *Parser) BuildParseTree() (ast.Node, error) {
+func (p *Parser) BuildParseTree() (ast.TranslationUnit, error) {
 	var err error
 	var token tokenizers.Token
 
 	p.stateStack.Push(INITIAL_STATE)
+
 	for {
 		token = p.tokenizer.Lookahead()
 		if token.T == tokenizers.EOF {
@@ -82,13 +84,12 @@ func (p *Parser) BuildParseTree() (ast.Node, error) {
 				break
 			}
 		}
-
 		if action, err := p.actionTable.GetAction(p.stateStack.Peek(), token.T); err == nil  {
-			switch action.(type) {
+			switch act := action.(type) {
 			case ShiftAction:
-				p.shift(action.(ShiftAction))
+				p.shift(act)
 			case ReduceAction:
-				if err = p.reduce(action.(ReduceAction)); err != nil {
+				if err = p.reduce(act); err != nil {
 					goto parserError
 				}
 			}
@@ -96,11 +97,11 @@ func (p *Parser) BuildParseTree() (ast.Node, error) {
 			goto parserError
 		}
 	}
-	return p.astBuilder.GetParsedTree()
 
+	return p.astBuilder.GetParsedTree()
 parserError:
 	fmt.Println(err)
 	fmt.Printf("syntax error in line %d\n in state %d, no lookahead for token %s\n",
 				p.tokenizer.LineIdx, p.stateStack.Peek(), token)
-	return nil, err
+	return ast.TranslationUnit{}, err
 }

@@ -75,7 +75,7 @@ func testTableBuilder() {
 	// 	fmt.Println(err)
 	// 	return
 	// }
-	
+
 	tb := parsers.NewTableBuilder(grammar)
 	tb.BuildConfigurationAutomaton()
 	tb.PrintConfigurations()
@@ -110,7 +110,7 @@ func testTableBuilder2() {
 	// 	fmt.Println(err)
 	// 	return
 	// }
-	
+
 	tb := parsers.NewTableBuilder(grammar)
 	tb.BuildConfigurationAutomaton()
 	tb.PrintConfigurations()
@@ -139,7 +139,6 @@ func testParserSimple() {
 	p := parsers.NewForGrammar(grammar, tokenizer)
 	p.BuildParseTree()
 }
-
 
 func testParserSimple2() {
 	grammar := &grammars.Grammar{
@@ -189,7 +188,12 @@ func testParser() {
 	defer tokenizer.Finish()
 	// p := parsers.NewForGrammar(grammar, tokenizer)
 	p := parsers.NewFromFile(grammar, tokenizer, "/home/flok3n/misc/acttab.gob", "/home/flok3n/misc/gototab.gob")
-	p.BuildParseTree()
+	tu, err := p.BuildParseTree()
+	if err != nil {
+		fmt.Println("Parser error")
+		fmt.Println(err)
+	}
+	fmt.Println(tu.GetLineBounds())
 }
 
 func serializeTables() {
@@ -209,6 +213,7 @@ func serializeTables() {
 	tb.SerializeTables("/home/flok3n/misc/acttab.gob", "/home/flok3n/misc/gototab.gob")
 }
 
+
 func main() {
 	// testParserSimple2()
 	testParser()
@@ -218,4 +223,3 @@ func main() {
 	// testTableBuilder2()
 	// serializeTables()
 }
-
