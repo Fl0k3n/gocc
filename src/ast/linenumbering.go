@@ -18,16 +18,16 @@ type LineInfo struct {
 func (li LineInfo) GetChildren() []LineInfoNode {
 	res := make([]LineInfoNode, 0)
 	for _, f := range reflect.VisibleFields(reflect.Indirect(reflect.ValueOf(li.Owner)).Type()) {
-		if f.Name == "owner" {
+		if f.Name == "Owner" {
 			continue
 		}
 		if f.Type.Kind() == reflect.Ptr {
 			val := reflect.Indirect(reflect.Indirect(reflect.ValueOf(li.Owner))).FieldByName(f.Name)
 			if v, implements := val.Interface().(LineInfoNode); implements {
-				// need to use reflection to check for nil value
-				if (reflect.Indirect(reflect.ValueOf(v)) != reflect.Value{}) {
-					res = append(res, v)
-				} 
+				// need to use reflection to check for nil value, probably not needed as nil doesnt pass type assertion
+				// if (reflect.Indirect(reflect.ValueOf(v)) != reflect.Value{}) {
+				res = append(res, v)
+				// } 
 			}
 		} else if f.Type.Kind() == reflect.Slice {
 			slice := reflect.Indirect(reflect.Indirect(reflect.ValueOf(li.Owner))).FieldByName(f.Name)

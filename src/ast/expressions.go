@@ -16,13 +16,13 @@ type StringLiteralExpression struct {
 }
 
 type ArrayAccessPostfixExpression struct {
-	PostfixExpression *Expression
-	ArrayExpression *Expression
+	PostfixExpression Expression
+	ArrayExpression Expression
 	LineInfo
 }
 
 type FunctionCallPostfixExpression struct {
-	FunctionAccessor *Expression
+	FunctionAccessor Expression
 	Args *ArgumentExpressionList
 	LineInfo
 }
@@ -34,7 +34,7 @@ const (
 )
 
 type StructAccessPostfixExpression struct {
-	StructAccessor *Expression
+	StructAccessor Expression
 	FieldIdentifier string
 	AccessMethod AccessMethod
 	LineInfo
@@ -47,7 +47,7 @@ const (
 )
 
 type IncDecPostfixExpression struct {
-	PostfixExpression *Expression
+	PostfixExpression Expression
 	Operator IncDecOperator
 	LineInfo
 }
@@ -58,47 +58,47 @@ type ArgumentExpressionList struct {
 }
 
 type IncDecUnaryExpression struct {
-	UnaryExpression *Expression
+	UnaryExpression Expression
 	Operator IncDecOperator
 	LineInfo
 }
 
 type CastUnaryExpression struct {
-	CastExpression *Expression
+	CastExpression Expression
 	Operator string
 	LineInfo
 }
 
 type SizeofUnaryExpression struct {
 	TypeName *TypeName
-	NestedUnaryExpression *Expression
+	NestedUnaryExpression Expression
 	LineInfo
 }
 
 type TypeCastCastExpression struct {
 	Typename *TypeName
-	Expression *Expression
+	Expression Expression
 	LineInfo
 }
 
 type BinaryArithmeticExpression struct {
-	LhsExpression *Expression
+	LhsExpression Expression
 	Operator string
-	RhsExpression *Expression
+	RhsExpression Expression
 	LineInfo
 }
 
 type ConditionalExpression struct {
-	Condition *Expression
-	IfTrueExpression *Expression
-	ElseExpression *Expression
+	Condition Expression
+	IfTrueExpression Expression
+	ElseExpression Expression
 	LineInfo
 }
 
 type AssigmentExpression struct {
-	LhsExpression *Expression
+	LhsExpression Expression
 	Operator string
-	RhsExpression *Expression
+	RhsExpression Expression
 	LineInfo
 }
 
@@ -108,7 +108,7 @@ type CompositeExpression struct {
 }
 
 type ConstantExpression struct {
-	Expression *Expression
+	Expression Expression
 	LineInfo
 }
 

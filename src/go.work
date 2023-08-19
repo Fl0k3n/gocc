@@ -5,6 +5,8 @@ use (
 	./ast
 	./grammar
 	./parser
+	./symtab
 	./tokenizer
+	./typesystem
 	./utils
 )

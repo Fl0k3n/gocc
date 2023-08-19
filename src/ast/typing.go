@@ -9,7 +9,7 @@ type TypeName struct {
 }
 
 type StringPrimitive struct {
-	val string
+	Val string
 	LineInfo
 }
 
@@ -37,7 +37,7 @@ type DirectAbstractFunctionDeclarator struct {
 }
 
 type DirectAbstractArrayDeclarator struct {
-	Expression *Expression
+	Expression Expression
 	DirectAbstractDeclarator *DirectAbstractDeclarator
 	LineInfo
 }
@@ -74,15 +74,15 @@ type IdentifierList struct {
 }
 
 type DirectFunctionDeclarator struct {
-	Declarator *DirectDeclarator
+	Declarator DirectDeclarator
 	ParameterTypeList *ParameterTypeList
 	IndentifierList *IdentifierList
 	LineInfo
 }
 
 type DirectArrayDeclarator struct {
-	Declarator *DirectDeclarator
-	ArrayExpression *Expression
+	Declarator DirectDeclarator
+	ArrayExpression Expression
 	LineInfo
 }
 
@@ -106,14 +106,14 @@ type Pointer struct {
 }
 
 type Declarator struct {
-	DirectDeclarator *DirectDeclarator
+	DirectDeclarator DirectDeclarator
 	Pointer *Pointer
 	LineInfo
 }
 
 type StructDeclarator struct {
 	Declarator *Declarator
-	Expression *Expression
+	Expression Expression
 	LineInfo
 }
 
@@ -135,7 +135,7 @@ type StructDeclarationList struct {
 
 type Enumerator struct {
 	Identifier string
-	Expression *Expression
+	Expression Expression
 	LineInfo
 }
 
@@ -169,7 +169,7 @@ type InitializerList struct {
 }
 
 type Initializer struct {
-	Expression *Expression
+	Expression Expression
 	InitializerList *InitializerList
 	LineInfo
 }

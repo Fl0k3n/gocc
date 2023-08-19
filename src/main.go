@@ -6,6 +6,7 @@ import (
 	"parsers"
 	"regexp"
 	"tokenizers"
+	"types"
 )
 
 func testGrammarReader() {
@@ -193,7 +194,9 @@ func testParser() {
 		fmt.Println("Parser error")
 		fmt.Println(err)
 	}
-	fmt.Println(tu.GetLineBounds())
+	// fmt.Println(tu.GetLineBounds())
+	typ := types.NewEngine()
+	typ.AugmentASTWithTypeInfo(&tu)
 }
 
 func serializeTables() {

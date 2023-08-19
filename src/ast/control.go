@@ -1,7 +1,7 @@
 package ast
 
 type ReturnJumpStatement struct {
-	Expression *Expression
+	Expression Expression
 	LineInfo
 }
 
@@ -24,21 +24,21 @@ type GotoJumpStatement struct {
 type JumpStatement interface {}
 
 type ForIterationStatement struct {
-	Initializer *ExpressionStatement
-	Condition *ExpressionStatement
-	Updater *Expression
+	Initializer ExpressionStatement
+	Condition ExpressionStatement
+	Updater Expression
 	Body *Statement
 	LineInfo
 }
 
 type DoWhileIterationStatement struct {
 	Body *Statement
-	Condition *Expression
+	Condition Expression
 	LineInfo
 }
 
 type WhileIterationStatement struct {
-	Condition *Expression
+	Condition Expression
 	Body *Statement
 	LineInfo
 }
@@ -46,13 +46,13 @@ type WhileIterationStatement struct {
 type IterationStatement interface {}
 
 type SwitchSelectionStatement struct {
-	SwitchExpression *Expression
+	SwitchExpression Expression
 	SwitchBody *Statement
 	LineInfo
 }
 
 type IfSelectionStatement struct {
-	Condition *Expression
+	Condition Expression
 	IfStatement *Statement
 	ElseStatement *Statement
 	LineInfo
@@ -61,7 +61,7 @@ type IfSelectionStatement struct {
 type SelectionStatement interface {}
 
 type ExpressionStatement struct {
-	Expression *Expression
+	Expression Expression
 	LineInfo
 }
 
@@ -72,7 +72,7 @@ type IdentifierLabeledStatement struct {
 }
 
 type CaseLabeledStatement struct {
-	Expression *Expression
+	Expression Expression
 	Statement *Statement
 	LineInfo
 }
