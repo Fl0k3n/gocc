@@ -3,15 +3,18 @@
 // }
 
 // int* a;
+// int a, * b;
 
-struct A {
-    int b;
+enum TEST {
+    FIRST,
+    SECOND
 };
 
-struct Q {
-    int a;
-    struct A m;
-};
+// int f(int a, int b) {
+//     return a + b;
+// }
+
+// int* a(int v, int q);
 
 // int x() {
 //     struct Q q;

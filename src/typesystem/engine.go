@@ -36,7 +36,7 @@ func (e *Engine) getDefinedType(name string) (Ctype, error) {
 	if res, ok := e.definitionTab[name]; ok {
 		return res.Ctype, nil
 	}
-	return Ctype(nil), errors.New("Undefined type " + name)
+	return VOID_POINTER, errors.New("Undefined type " + name)
 }
 
 func (e *Engine) getDefinedTypeFromSpecifier(ts ast.TypeSpecifier) (Ctype, error) {
@@ -53,10 +53,6 @@ func (e *Engine) getDefinedTypeFromSpecifier(ts ast.TypeSpecifier) (Ctype, error
 	panic("Unexpected type specifier")
 }
 
-func (e *Engine) augmentFunctionDefinition(fun *ast.FunctionDefinition) {
-	fmt.Println("ok")
-}
-
 func (e *Engine) wrapInAnonymousPointers(ptr *ast.Pointer, target Ctype) PointerCtype {
 	// TODO qualifiers
 	wrapped := PointerCtype{name: ANONYMOUS, Target: target}
@@ -67,33 +63,45 @@ func (e *Engine) wrapInAnonymousPointers(ptr *ast.Pointer, target Ctype) Pointer
 	return wrapped
 }
 
-func (e *Engine) extractFunctionParamTypes(paramList *ast.ParameterTypeList) []Ctype {
+func (e *Engine) getPartialTypeFromSpecifiers(tss []ast.TypeSpecifier) (Ctype, error) {
+	if len(tss) > 1 {
+		return e.getCombinedBuiltin(tss)
+	} else {
+		return e.getDefinedTypeFromSpecifier(tss[0])
+	}
+}
+
+func (e *Engine) extractFunctionParamTypesAndNames(paramList *ast.ParameterTypeList) ([]Ctype, []string) {
 	// TODO varargs
-	res := make([]Ctype, 0)
+	types := make([]Ctype, 0)
+	orderedNames := make([]string, 0)
 	names := utils.NewSet[string]()
 	for _, param := range paramList.ParameterList.ParameterDeclarations {
-		// TODO handle qualifiers and unsigned/signed
-		spec := param.DeclarationSpecifiers
-		e.assert(len(spec.TypeSpecifiers) == 1, "Struct field must have single type specifier", param.LineInfo)
-		typeSpec := param.DeclarationSpecifiers.TypeSpecifiers[0]
-		if partialType, err := e.getDefinedTypeFromSpecifier(typeSpec); err != nil {
-			e.registerTypeError("Undefined type " + getTypeName(typeSpec), getLineInfo(typeSpec))
-			// TODO cast this to void* 
-		} else if param.AbstractDeclarator != nil {
-			res = append(res, e.extractType(param.AbstractDeclarator, partialType))
+		// TODO handle qualifiers
+		partialType, err := e.getPartialTypeFromSpecifiers(param.DeclarationSpecifiers.TypeSpecifiers)
+		if err != nil {
+			partialType = VOID_POINTER
+			e.registerTypeError(err.Error(), getLineInfo(param.LineInfo))
+		}
+		paramName := ANONYMOUS
+		if param.AbstractDeclarator != nil {
+			types = append(types, e.extractType(param.AbstractDeclarator, partialType))
 		} else if param.Declarator != nil {
 			t, name := e.extractTypeAndName(param.Declarator, partialType)
-			res = append(res, t)
+			types = append(types, t)
 			if names.Has(name) {
 				e.registerTypeError("Parameter list names must be unique", param.LineInfo)
+				paramName = ANONYMOUS
 			} else {
 				names.Add(name)
+				paramName = name
 			}
 		} else {
-			res = append(res, partialType)
+			types = append(types, partialType)
 		}
+		orderedNames = append(orderedNames, paramName)
 	}
-	return res
+	return types, orderedNames
 }
 
 // concrete variable/struct field oriented, dimension sizes inside arrays required etc
@@ -138,13 +146,15 @@ func (e *Engine) extractDirectTypeAndName(ddec ast.DirectDeclarator, declaratorP
 			return
 		}
 		funcParams := []Ctype{}
+		paramNames := []string{}
+
 		if directDec.ParameterTypeList != nil {
-			funcParams = e.extractFunctionParamTypes(directDec.ParameterTypeList)
+			funcParams, paramNames = e.extractFunctionParamTypesAndNames(directDec.ParameterTypeList)
 		}
 		if declaratorPointer != nil {
 			lhsType = setPointersLowestLevel(declaratorPointer, lhsType)
 		}
-		fptr := FunctionPtrCtype{name: ANONYMOUS, ReturnType: lhsType, ParamTypes:  funcParams}
+		fptr := FunctionPtrCtype{name: ANONYMOUS, ReturnType: lhsType, ParamTypes: funcParams, ParamNames: paramNames}
 		t, name = e.extractDirectTypeAndName(directDec.Declarator, nil, fptr)
 		switch t.(type) {
 		case PointerCtype, ArrayCtype, FunctionPtrCtype:
@@ -205,13 +215,14 @@ func (e *Engine) extractDirectType(ddec ast.DirectAbstractDeclarator, declarator
 		t = e.extractDirectType(directDec.DirectAbstractDeclarator, nil, arr)
 	case ast.DirectAbstractFunctionDeclarator:
 		funcParams := []Ctype{}
+		paramNames := []string{}
 		if directDec.ParameterTypeList != nil {
-			funcParams = e.extractFunctionParamTypes(directDec.ParameterTypeList)
+			funcParams, paramNames = e.extractFunctionParamTypesAndNames(directDec.ParameterTypeList)
 		}
 		if declaratorPointer != nil {
 			lhsType = setPointersLowestLevel(declaratorPointer, lhsType)
 		}
-		fptr := FunctionPtrCtype{name: ANONYMOUS, ReturnType: lhsType, ParamTypes:  funcParams}
+		fptr := FunctionPtrCtype{name: ANONYMOUS, ReturnType: lhsType, ParamTypes: funcParams, ParamNames: paramNames}
 		t = e.extractDirectType(directDec.DirectAbstractDeclarator, nil, fptr)
 		switch t.(type) {
 		case PointerCtype, ArrayCtype, FunctionPtrCtype:
@@ -235,8 +246,7 @@ func (e *Engine) extractType(dec *ast.AbstractDeclarator, lhsType Ctype) (t Ctyp
 	return e.extractDirectType(dec.DirectAbstractDeclarator, ptr, lhsType)
 }
 
-func (e *Engine) makeStructCtype(ts *ast.StructTypeSpecifier, typedefName *string) (StructCtype, error) {
-	e.assert(typedefName != nil || ts.Identifier != nil, "Invalid anonymous struct with no type name", ts.LineInfo)
+func (e *Engine) makeStructCtype(ts *ast.StructTypeSpecifier) (StructCtype, error) {
 	var name string = ANONYMOUS
 	if ts.Identifier != nil {
 		name = *ts.Identifier
@@ -246,81 +256,203 @@ func (e *Engine) makeStructCtype(ts *ast.StructTypeSpecifier, typedefName *strin
 	for _, dec := range ts.StructDeclarationList.StructDeclarations {
 		e.assert(len(dec.SpecifierQulifierList.TypeSpecifiers) == 1, "Struct field must have single type specifier", dec.LineInfo)
 		// TODO handle qualifiers
-		typeSpec := dec.SpecifierQulifierList.TypeSpecifiers[0]
-		if partialType, err := e.getDefinedTypeFromSpecifier(typeSpec); err != nil {
-			e.registerTypeError("Undefined type " + getTypeName(typeSpec), getLineInfo(typeSpec))
-			// just ignore this field and continue
-		} else {
-			for _, declaratorsForThatType := range dec.StructDeclaratorList.StructDeclarators {
-				e.assert(declaratorsForThatType.Expression == nil, "Bit fields are unsupported atm", dec.LineInfo)
-				fieldType, name := e.extractTypeAndName(declaratorsForThatType.Declarator, partialType)
-				fields = append(fields, fieldType)
-				names = append(names, name)
-			}
+		partialType, err := e.getPartialTypeFromSpecifiers(dec.SpecifierQulifierList.TypeSpecifiers)
+		if err != nil {
+			e.registerTypeError(err.Error(), dec.LineInfo)
+			partialType = VOID_POINTER
+		}
+		for _, declaratorsForThatType := range dec.StructDeclaratorList.StructDeclarators {
+			e.assert(declaratorsForThatType.Expression == nil, "Bit fields are unsupported atm", dec.LineInfo)
+			fieldType, name := e.extractTypeAndName(declaratorsForThatType.Declarator, partialType)
+			fields = append(fields, fieldType)
+			names = append(names, name)
 		}
 	}
 
 	return NewStruct(name, fields, names), nil
 }
 
-func (e *Engine) defineStruct(structType StructCtype, name string, definitionLine ast.LineInfo) {
+func (e *Engine) defineType(t Ctype, name string, definitionLine ast.LineInfo) {
 	if prevDef, alreadyDefined := e.definitionTab[name]; alreadyDefined {
-		e.registerTypeError(fmt.Sprintf("Redefinition of struct %s, previously defined at %d",
-									 structType.name, prevDef.DeclarationLine), definitionLine)
+		if t.Name() != name {
+			e.registerTypeError(fmt.Sprintf("Redefinition of type %s, previously defined at %d",
+										t.Name(), prevDef.DeclarationLine), definitionLine)
+		}
 	} else {
-		e.definitionTab[name] = TypeDefinition{Ctype: structType, DeclarationLine: definitionLine.LineNumber}
+		e.definitionTab[name] = TypeDefinition{Ctype: t, DeclarationLine: definitionLine.LineNumber}
 	}
 }
 
-func (e *Engine) createAndDefineType(ts ast.TypeSpecifier, typedefName *string) (Ctype, error) {
-	switch dts := ts.(type) {
+func (e *Engine) getCombinedBuiltin(tss []ast.TypeSpecifier) (Ctype, error) {
+	strRepr := ""
+	for _, ts := range tss {
+		if directTs, isDirect := ts.(ast.DirectTypeSpecifier); !isDirect {
+			e.registerTypeError("Illegal declaration", directTs.LineInfo)
+			return VOID_POINTER, errors.New("Invalid combined builtin")
+		} else {
+			strRepr += directTs.TypeName
+		}
+	}
+	if !IsBuiltin(strRepr) {
+		e.registerTypeError("Undefined type", tss[0].(ast.DirectTypeSpecifier).LineInfo)
+		return VOID_POINTER, errors.New("Invalid combined builtin")
+	}
+	return BuiltinFrom(strRepr), nil
+}
+
+func (e *Engine) createSimpleType(ds *ast.DeclarationSpecifiers, ctx DeclarationContext) Ctype {
+	if !ctx.allowsStorageClassSpecifiers {
+		e.assert(len(ds.StorageClassSpecifiers) == 0, "Storage specifier is illegal in this context", ds.LineInfo)
+		ds.StorageClassSpecifiers = make([]*ast.StorageClassSpecifier, 0)
+	}
+	e.assert(len(ds.StorageClassSpecifiers) <= 1, "Only single storage class specifier is allowed", ds.LineInfo)
+	if !e.assert(len(ds.TypeSpecifiers) > 0, "Illegal declaration", ds.LineInfo) {
+		return VOID_POINTER
+	}
+
+	if len(ds.TypeSpecifiers) > 1 {
+		res, err := e.getCombinedBuiltin(ds.TypeSpecifiers)
+		if err != nil {
+			e.registerTypeError(err.Error(), ds.LineInfo)
+			res = VOID_POINTER
+		}
+		return res
+	}
+
+	typespec := ds.TypeSpecifiers[0]
+
+	switch dts := typespec.(type) {
 	case ast.DirectTypeSpecifier:
 		if IsBuiltin(dts.TypeName) {
-			return BuiltinFrom(dts.TypeName), nil
+			return BuiltinFrom(dts.TypeName)
 		} else {
-			return e.getDefinedType(dts.TypeName)
+			if res, err := e.getDefinedType(dts.TypeName); err != nil {
+				e.registerTypeError("Undefined type " + dts.TypeName, dts.LineInfo)
+				return VOID_POINTER
+			} else {
+				return res
+			}
 		}
 	case ast.StructTypeSpecifier:
-		if structType, err := e.makeStructCtype(&dts, typedefName); err != nil {
-			return nil, err
+		if structType, err := e.makeStructCtype(&dts); err != nil {
+			return VOID_POINTER
 		} else {
 			if structType.Name() != ANONYMOUS {
-				e.defineStruct(structType, makeStructFullName(structType.Name()), dts.LineInfo)
+				e.defineType(structType, makeStructFullName(structType.Name()), dts.LineInfo)
 			}
-			if typedefName != nil {
-				e.defineStruct(structType, *typedefName, dts.LineInfo)
-			}
-			return structType, nil
+			return structType
 		}
 	case ast.EnumTypeSpecifier:
-		return BuiltinFrom("int"), nil // TODO
+		return BuiltinFrom("int") // TODO
 	default:
 		panic("Unexpected Type Specifier")
 	}
 }
 
-func (e *Engine) handleDeclaration(dec *ast.Declaration) {
+func (e *Engine) createType(dec *ast.Declaration, ctx DeclarationContext) (types []Ctype, names []string)  {
 	ds := dec.DeclarationSpecifiers
-	hasTypedef := false
+	if !ctx.allowsStorageClassSpecifiers {
+		e.assert(len(ds.StorageClassSpecifiers) == 0, "Storage specifier is illegal in this context", ds.LineInfo)
+		ds.StorageClassSpecifiers = make([]*ast.StorageClassSpecifier, 0)
+	}
 	e.assert(len(ds.StorageClassSpecifiers) <= 1, "Only single storage class specifier is allowed", ds.LineInfo)
-	if len(ds.StorageClassSpecifiers) == 1 {
-		if ds.StorageClassSpecifiers[0].Val == "extern" {
-			e.assert(dec.InitDeclaratorList == nil, "Extern value can't be initialized", dec.LineInfo)
-		} else if ds.StorageClassSpecifiers[0].Val == "typedef" {
-			e.assert(dec.InitDeclaratorList == nil, "Typedef value can't be initialized", dec.LineInfo)
-			hasTypedef = true
+	if !e.assert(len(ds.TypeSpecifiers) > 0, "Illegal declaration", ds.LineInfo) {
+		return []Ctype{VOID_POINTER}, names
+	}
+	
+	hasTypedef := false
+	if len(ds.StorageClassSpecifiers) > 0 && ds.StorageClassSpecifiers[0].Val == TYPEDEF {
+		hasTypedef = true
+	}
+
+	if dec.InitDeclaratorList == nil {
+		return []Ctype{e.createSimpleType(dec.DeclarationSpecifiers, ctx)}, names
+	} else {
+		var partialType Ctype
+		partialType, err := e.getPartialTypeFromSpecifiers(ds.TypeSpecifiers)
+		if err != nil {
+			if sts, isStruct := ds.TypeSpecifiers[0].(ast.StructTypeSpecifier); isStruct && sts.StructDeclarationList != nil {
+				partialType = e.createSimpleType(ds, ctx)
+			} else {
+				e.registerTypeError(err.Error(), ds.LineInfo)
+				return []Ctype{VOID_POINTER}, []string{""} // TODO try to get this name anyway
+			}
+		}
+		for _, initDec := range dec.InitDeclaratorList.InitDeclarators {
+			e.assert(ctx.allowsInitialization || initDec.Initializer == nil, "Initializer illegal here", initDec.LineInfo)
+			t, name := e.extractTypeAndName(initDec.Declarator, partialType)
+			types = append(types, t)
+			if hasTypedef {
+				e.defineType(t, name, initDec.LineInfo);
+			} else {
+				names = append(names, name)
+			}
+			if initDec.Initializer != nil {
+				if hasTypedef {
+					e.registerTypeError("Initialization is invalid after typedef", initDec.LineInfo)
+				} else {
+					// TODO type check initializer
+				}
+			}
 		}
 	}
-	// TODO qualifiers, and combine type specifiers (unsigned/signed), and typedef
-	if hasTypedef {
-		panic("support typedef")
+	return
+}
+
+func (e *Engine) handleDeclaration(dec *ast.Declaration, allowStorageClassSpecifiers bool) {
+	// TODO qualifiers
+	types, names := e.createType(dec, DeclarationContext{
+		allowsInitialization: true,
+		allowsStorageClassSpecifiers: true,
+	})
+	fmt.Println(types)
+	fmt.Println(names)
+}
+
+func (e *Engine) createFunctionDefinition(fun *ast.FunctionDefinition) FunctionDefinition {
+	if fun.DeclarationList != nil {
+		panic("got declaration list")
 	}
-	t, err := e.createAndDefineType(ds.TypeSpecifiers[0], nil)
+	if fun.DeclarationSpecifiers == nil {
+		panic("didnt get declaration specifiers")
+	}
+	// TODO qualifiers
+	e.assert(len(fun.DeclarationSpecifiers.StorageClassSpecifiers) == 0,
+			"Function definition can't have storage specifiers", fun.LineInfo)
+	baseRetType, err := e.getPartialTypeFromSpecifiers(fun.DeclarationSpecifiers.TypeSpecifiers)
 	if err != nil {
-		//TODO
-		panic(err)
+		baseRetType = VOID_POINTER
+		e.registerTypeError(err.Error(), fun.LineInfo)
 	}
-	fmt.Println(t)
+	t, name := e.extractTypeAndName(fun.Declarator, baseRetType)
+	funPtr := t.(FunctionPtrCtype)
+	return FunctionDefinition{
+		Name: name,
+		ReturnType: funPtr.ReturnType,
+		ParamTypes: funPtr.ParamTypes,
+		ParamNames: funPtr.ParamNames,
+	}
+}
+
+
+func (e *Engine) augmentFunctionDefinition(fun *ast.FunctionDefinition) {
+	fdef := e.createFunctionDefinition(fun)
+	fmt.Println(fdef)
+
+	/*
+	TODO:
+	- handle initializers (type check and note when variable is initialized explicitly)
+	- add this func def to ast func def
+	- handle enums
+	- add types to expressions
+	- eval const expressions 
+	- make symtab name -> ctype
+	- make functab name -> func def
+	- in compound statements add list with tuples (varType, varName, varInitializerExpression(?))
+	- check types in every expression
+	- define casting and compatibility rules 
+	- replace ast.Statement* with just ast.Statement
+	*/
 }
 
 func (e *Engine) AugmentASTWithTypeInfo(root *ast.TranslationUnit) []error {
@@ -330,7 +462,7 @@ func (e *Engine) AugmentASTWithTypeInfo(root *ast.TranslationUnit) []error {
 		case ast.FunctionDefinition:
 			e.augmentFunctionDefinition(&declaration)
 		case ast.Declaration:
-			e.handleDeclaration(&declaration)
+			e.handleDeclaration(&declaration, true)
 		}
 	}
 	return e.typeErrors

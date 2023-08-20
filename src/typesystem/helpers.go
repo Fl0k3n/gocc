@@ -4,6 +4,18 @@ import (
 	"ast"
 )
 
+type FunctionDefinition struct {
+	Name string
+	ReturnType Ctype
+	ParamTypes []Ctype
+	ParamNames []string
+}
+
+type DeclarationContext struct {
+	allowsStorageClassSpecifiers bool
+	allowsInitialization bool
+}
+
 func getTypeName(ts ast.TypeSpecifier) string {
 	switch dts := ts.(type) {
 	case ast.DirectTypeSpecifier:
@@ -26,18 +38,6 @@ func getLineInfo(ts ast.TypeSpecifier) ast.LineInfo {
 		return dts.LineInfo
 	}
 	panic("Unexpected type specifier")
-}
-
-func getPointersLowestLevel(ptr *PointerCtype) *PointerCtype {
-	lowestLvlPtr := ptr
-	for {
-		if nestedPtr, isNested := lowestLvlPtr.Target.(PointerCtype); isNested {
-			lowestLvlPtr = &nestedPtr
-		} else {
-			break
-		}
-	}
-	return lowestLvlPtr
 }
 
 func makeStructFullName(identifier string) string {

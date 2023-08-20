@@ -10,6 +10,7 @@ type Ctype interface {
 const ANONYMOUS = ""
 const UNSPECIFIED_ARR_SIZE = 0
 var UNKNOWN_OR_PARTIAL = Ctype(nil)
+var VOID_POINTER = PointerCtype{name: ANONYMOUS, Target: BuiltinFrom("void")}
 
 type TypeDefinition struct {
 	Ctype Ctype
@@ -177,6 +178,7 @@ type FunctionPtrCtype struct {
 	name string
 	ReturnType Ctype
 	ParamTypes []Ctype
+	ParamNames []string
 }
 
 func (fp FunctionPtrCtype) Name() string {
