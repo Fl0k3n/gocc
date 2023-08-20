@@ -8,6 +8,7 @@ type Ctype interface {
 }
 
 const ANONYMOUS = ""
+const UNSPECIFIED_ARR_SIZE = 0
 var UNKNOWN_OR_PARTIAL = Ctype(nil)
 
 type TypeDefinition struct {
@@ -18,6 +19,31 @@ type TypeDefinition struct {
 type PointerCtype struct {
 	Target Ctype
 	name string
+}
+
+func (p *PointerCtype) WithTargetOnLowestLevel(newTarget Ctype) PointerCtype {
+	if nestedPtr, isNested := p.Target.(PointerCtype); isNested {
+		p.Target = nestedPtr.WithTargetOnLowestLevel(newTarget)
+	} else {
+		p.Target = newTarget
+	}
+	return *p
+}
+
+func (p *PointerCtype) GetLowestLevelTarget() Ctype {
+	if nestedPtr, isNested := p.Target.(PointerCtype); isNested {
+		return nestedPtr.Target
+	}
+	return p.Target
+}
+
+func (p *PointerCtype) AsFunctionPointerAtLowestLevel(funcPtrTarget *FunctionPtrCtype) Ctype {
+	p.name = funcPtrTarget.name
+	if nestedPtr, isNested := p.Target.(PointerCtype); isNested {
+		p.Target = nestedPtr.AsFunctionPointerAtLowestLevel(funcPtrTarget)
+		return *p
+	}
+	return *funcPtrTarget
 }
 
 func (pc PointerCtype) Name() string {
@@ -131,10 +157,13 @@ func (ac ArrayCtype) RequiredAlignment() int {
 }
 
 func NewArray(name string, dimensions []int, nestedType Ctype) ArrayCtype {
-	size := nestedType.Size()
-	for _, dim := range dimensions {
-		// TODO check overflow/bounds
-		size *= dim
+	size := -1
+	if nestedType != UNKNOWN_OR_PARTIAL {
+		size := nestedType.Size()
+		for _, dim := range dimensions {
+			// TODO check overflow/bounds
+			size *= dim
+		}
 	}
 	return ArrayCtype{
 		name: name,

@@ -16,7 +16,7 @@ type StringPrimitive struct {
 type TypeQualifier StringPrimitive
 
 type SpecifierQulifierList struct {
-	TypeSpecifiers []*TypeSpecifier
+	TypeSpecifiers []TypeSpecifier
 	TypeQualifiers []*TypeQualifier
 	LineInfo
 }
@@ -32,13 +32,13 @@ type DeclarationSpecifiers struct {
 
 type DirectAbstractFunctionDeclarator struct {
 	ParameterTypeList *ParameterTypeList
-	DirectAbstractDeclarator *DirectAbstractDeclarator
+	DirectAbstractDeclarator DirectAbstractDeclarator
 	LineInfo
 }
 
 type DirectAbstractArrayDeclarator struct {
 	Expression Expression
-	DirectAbstractDeclarator *DirectAbstractDeclarator
+	DirectAbstractDeclarator DirectAbstractDeclarator
 	LineInfo
 }
 
@@ -46,7 +46,7 @@ type DirectAbstractDeclarator interface { }
 
 type AbstractDeclarator struct {
 	Pointer *Pointer
-	DirectAbstractDeclarator *DirectAbstractDeclarator
+	DirectAbstractDeclarator DirectAbstractDeclarator
 	LineInfo
 }
 

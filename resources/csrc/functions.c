@@ -1,10 +1,22 @@
 // void f() {
 //     a + b;
 // }
-struct Q {
-    // int(*aa)[5];
-    int (*a)(int, int);
+
+// int* a;
+
+struct A {
+    int b;
 };
+
+struct Q {
+    int a;
+    struct A m;
+};
+
+// int x() {
+//     struct Q q;
+//     q.a[0](1, 2);
+// }
 // enum X {
 //     b
 // };

@@ -1,6 +1,8 @@
 package types
 
-import "ast"
+import (
+	"ast"
+)
 
 func getTypeName(ts ast.TypeSpecifier) string {
 	switch dts := ts.(type) {
@@ -38,19 +40,16 @@ func getPointersLowestLevel(ptr *PointerCtype) *PointerCtype {
 	return lowestLvlPtr
 }
 
-func getPenultimatePointersLevel(ptr *PointerCtype) *PointerCtype {
-	var prev *PointerCtype = nil
-	lowestLvlPtr := ptr
-	for {
-		if nestedPtr, isNested := lowestLvlPtr.Target.(PointerCtype); isNested {
-			prev = lowestLvlPtr
-			lowestLvlPtr = &nestedPtr
-		} else {
-			break
-		}
-	}
-	return prev
+func makeStructFullName(identifier string) string {
+	return "struct " + identifier;
+}
 
+func setPointersLowestLevel(ptr *PointerCtype, lowestLvl Ctype) Ctype {
+	if fncPtr, isFunc := lowestLvl.(FunctionPtrCtype); isFunc {
+		return ptr.AsFunctionPointerAtLowestLevel(&fncPtr)
+	} else {
+		return ptr.WithTargetOnLowestLevel(lowestLvl)
+	}
 }
 
 func evalConstantIntegerExpression(expr ast.Expression) (int, error) {

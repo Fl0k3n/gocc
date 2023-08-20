@@ -746,13 +746,13 @@ func (ab *Builder) buildSpecifierQualifierList(prod *grammars.Production) (node 
 		n = ab.reductionStack.Pop().(SpecifierQulifierList)
 	} else {
 		n = SpecifierQulifierList{
-			TypeSpecifiers: make([]*TypeSpecifier, 0),
+			TypeSpecifiers: make([]TypeSpecifier, 0),
 			TypeQualifiers: make([]*TypeQualifier, 0),
 		}
 	}
 	if prod.To[0].Val == "type_specifier" {
 		ts := ab.reductionStack.Pop().(TypeSpecifier)
-		n.TypeSpecifiers = append(n.TypeSpecifiers, &ts)
+		n.TypeSpecifiers = append(n.TypeSpecifiers, ts)
 	} else {
 		tq := ab.reductionStack.Pop().(TypeQualifier)
 		n.TypeQualifiers = append(n.TypeQualifiers, &tq)
@@ -1009,10 +1009,10 @@ func (ab *Builder) buildStorageClassSpecifier(prod *grammars.Production) (node N
 
 func (ab *Builder) buildAbstractDeclarator(prod *grammars.Production) (node Node, err error) {
 	var ptr *Pointer = nil
-	var dad *DirectAbstractDeclarator = nil
+	var dad DirectAbstractDeclarator = nil
 	if len(prod.To) == 2 || prod.To[0].Val != "pointer" {
 		d := ab.reductionStack.Pop().(DirectAbstractDeclarator)
-		dad = &d
+		dad = d
 	}
 	if prod.To[0].Val == "pointer" {
 		p := ab.reductionStack.Pop().(Pointer)
@@ -1034,14 +1034,14 @@ func (ab *Builder) buildDirectAbstractDeclarator(prod *grammars.Production) (nod
 		node = ab.reductionStack.Pop()
 	} else if prod.To[len(prod.To) - 1].Val == "]" {
 		var expr Expression = nil
-		var dad *DirectAbstractDeclarator = nil
+		var dad DirectAbstractDeclarator = nil
 		if prod.To[len(prod.To) - 2].Val == "constant_expression" { 
 			e := ab.reductionStack.Pop().(Expression)
-			expr = &e
+			expr = e
 		}
 		if prod.To[0].Val == "direct_abstract_declarator" {
 			d := ab.reductionStack.Pop().(DirectAbstractDeclarator)
-			dad = &d
+			dad = d
 		}
 		n := DirectAbstractArrayDeclarator{
 			Expression: expr,
@@ -1051,14 +1051,14 @@ func (ab *Builder) buildDirectAbstractDeclarator(prod *grammars.Production) (nod
 		node = n
 	} else {
 		var ptl *ParameterTypeList = nil
-		var dad *DirectAbstractDeclarator = nil
+		var dad DirectAbstractDeclarator = nil
 		if prod.To[len(prod.To) - 2].Val == "parameter_type_list" { 
 			p := ab.reductionStack.Pop().(ParameterTypeList)
 			ptl = &p
 		}
 		if prod.To[0].Val == "direct_abstract_declarator" {
 			d := ab.reductionStack.Pop().(DirectAbstractDeclarator)
-			dad = &d
+			dad = d
 		}
 		n := DirectAbstractFunctionDeclarator{
 			ParameterTypeList: ptl,
