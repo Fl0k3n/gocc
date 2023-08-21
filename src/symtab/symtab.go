@@ -1,4 +1,4 @@
-package symtab
+package symtabs
 
 import "utils"
 
@@ -56,6 +56,10 @@ func (s *Symtab[T])	Lookup(symname string) (res T, ok bool) {
 		}
 	}
 	return res, false
+}
+
+func (s *Symtab[T]) HasInCurrentScope(symname string) (res T, ok bool) {
+	return s.scopeStack.Peek().Lookup(symname)
 }
 
 func (s *Symtab[T]) Define(symname string, info T) {

@@ -5,10 +5,42 @@
 // int* a;
 // int a, * b;
 
-enum TEST {
-    FIRST,
-    SECOND
-};
+// enum TEST {
+//     FIRST,
+//     SECOND
+// };
+
+
+// struct B {
+//     int z;
+// };
+
+// struct A {
+//     int x;
+//     char y;
+// } Q = {
+//     .x = 1,
+//     .y = 'c'
+// };
+typedef int TEST;
+
+TEST m;
+
+// struct B {
+//     int x;
+// };
+
+
+// void f() {
+//     int b = 1;
+//     struct A a = {
+//          x = 1,
+//        y = 'c',
+//     };
+
+//     sizeof(4.5 / 3);
+// }
+
 
 // int f(int a, int b) {
 //     return a + b;

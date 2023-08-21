@@ -1074,15 +1074,15 @@ func (ab *Builder) buildInitializerList(prod *grammars.Production) (node Node, e
 	if len(prod.To) == 1 {
 		il := ab.reductionStack.Pop().(Initializer)
 		n := InitializerList{
-			Initlizers: []*Initializer{&il},
-			LineInfo: LineInfo{},
+			Initializers: []*Initializer{&il},
 		}
 		n.LineInfo = ab.lineInfoFor(n)
 		node = n
 	} else {
+		ab.tokenStack.Pop()
 		il := ab.reductionStack.Pop().(Initializer)
 		ill := ab.reductionStack.Pop().(InitializerList)
-		ill.Initlizers = append(ill.Initlizers, &il)
+		ill.Initializers = append(ill.Initializers, &il)
 		ill.LineInfo = ab.lineInfoFor(ill)
 		node = ill
 	}
@@ -1094,11 +1094,11 @@ func (ab *Builder) buildInitializer(prod *grammars.Production) (node Node, err e
 	if prod.To[0].Val == "assignment_expression" {
 		expr := ab.reductionStack.Pop().(Expression)
 		n = Initializer{
-			Expression: &expr,
+			Expression: expr,
 			InitializerList: nil,
 		}
 	} else {
-		ab.reductionStack.PopMany(prod.SymbolsOfType(grammars.TERMINAL))
+		ab.tokenStack.PopMany(prod.SymbolsOfType(grammars.TERMINAL))
 		il := ab.reductionStack.Pop().(InitializerList)
 		n = Initializer{
 			Expression: nil,

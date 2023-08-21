@@ -459,6 +459,7 @@ IS			(u|U|l|L)*
 "while"			WHILE
 
 {L}({L}|{D})*		IDENTIFIER
+\.{L}({L}|{D})*	IDENTIFIER
 
 0[xX]{H}+{IS}?		CONSTANT
 0{D}+{IS}?		CONSTANT

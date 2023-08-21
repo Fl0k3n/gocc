@@ -4,17 +4,20 @@ import (
 	"ast"
 	"errors"
 	"fmt"
+	"symtabs"
 	"utils"
 )
 
 type Engine struct {
 	definitionTab map[string]TypeDefinition
+	symtab *symtabs.Symtab[Symbol]
 	typeErrors []error
 }
 
 func NewEngine() *Engine {
 	return &Engine{
 		definitionTab: make(map[string]TypeDefinition),
+		symtab: symtabs.NewSymtab[Symbol](),
 	}
 }
 
@@ -44,10 +47,8 @@ func (e *Engine) getDefinedTypeFromSpecifier(ts ast.TypeSpecifier) (Ctype, error
 	case ast.DirectTypeSpecifier:
 		return e.getDefinedType(dts.TypeName)
 	case ast.EnumTypeSpecifier:
-		e.assert(dts.EnumeratorList == nil, "Defined enum must be just its name, without declaration", dts.LineInfo)
 		return e.getDefinedType(*dts.Identifier)
 	case ast.StructTypeSpecifier:
-		e.assert(dts.StructDeclarationList == nil, "Defined struct type must be just its name, without fields", dts.LineInfo)
 		return e.getDefinedType(makeStructFullName(*dts.Identifier))
 	}
 	panic("Unexpected type specifier")
@@ -300,8 +301,8 @@ func (e *Engine) getCombinedBuiltin(tss []ast.TypeSpecifier) (Ctype, error) {
 	return BuiltinFrom(strRepr), nil
 }
 
-func (e *Engine) createSimpleType(ds *ast.DeclarationSpecifiers, ctx DeclarationContext) Ctype {
-	if !ctx.allowsStorageClassSpecifiers {
+func (e *Engine) createSimpleType(ds *ast.DeclarationSpecifiers, allowStorageClassSpecifiers bool) Ctype {
+	if !allowStorageClassSpecifiers {
 		e.assert(len(ds.StorageClassSpecifiers) == 0, "Storage specifier is illegal in this context", ds.LineInfo)
 		ds.StorageClassSpecifiers = make([]*ast.StorageClassSpecifier, 0)
 	}
@@ -344,20 +345,16 @@ func (e *Engine) createSimpleType(ds *ast.DeclarationSpecifiers, ctx Declaration
 		}
 	case ast.EnumTypeSpecifier:
 		return BuiltinFrom("int") // TODO
-	default:
-		panic("Unexpected Type Specifier")
 	}
+	panic("Unexpected Type Specifier")
 }
 
-func (e *Engine) createType(dec *ast.Declaration, ctx DeclarationContext) (types []Ctype, names []string)  {
+func (e *Engine) getSymbolsForTopLevelDeclarationAndDefineNewTypes(dec *ast.Declaration) []Symbol {
+	symbols := []Symbol{}
 	ds := dec.DeclarationSpecifiers
-	if !ctx.allowsStorageClassSpecifiers {
-		e.assert(len(ds.StorageClassSpecifiers) == 0, "Storage specifier is illegal in this context", ds.LineInfo)
-		ds.StorageClassSpecifiers = make([]*ast.StorageClassSpecifier, 0)
-	}
 	e.assert(len(ds.StorageClassSpecifiers) <= 1, "Only single storage class specifier is allowed", ds.LineInfo)
 	if !e.assert(len(ds.TypeSpecifiers) > 0, "Illegal declaration", ds.LineInfo) {
-		return []Ctype{VOID_POINTER}, names
+		return symbols
 	}
 	
 	hasTypedef := false
@@ -366,47 +363,40 @@ func (e *Engine) createType(dec *ast.Declaration, ctx DeclarationContext) (types
 	}
 
 	if dec.InitDeclaratorList == nil {
-		return []Ctype{e.createSimpleType(dec.DeclarationSpecifiers, ctx)}, names
-	} else {
-		var partialType Ctype
-		partialType, err := e.getPartialTypeFromSpecifiers(ds.TypeSpecifiers)
-		if err != nil {
-			if sts, isStruct := ds.TypeSpecifiers[0].(ast.StructTypeSpecifier); isStruct && sts.StructDeclarationList != nil {
-				partialType = e.createSimpleType(ds, ctx)
-			} else {
-				e.registerTypeError(err.Error(), ds.LineInfo)
-				return []Ctype{VOID_POINTER}, []string{""} // TODO try to get this name anyway
-			}
+		e.createSimpleType(dec.DeclarationSpecifiers, true)
+		return symbols
+	} 
+
+	partialType, err := e.getPartialTypeFromSpecifiers(ds.TypeSpecifiers)
+	partialTypeExtractionFailed := false
+	if err != nil {
+		if sts, isStruct := ds.TypeSpecifiers[0].(ast.StructTypeSpecifier); isStruct && sts.StructDeclarationList != nil {
+			partialType = e.createSimpleType(ds, false)
+		} else {
+			e.registerTypeError(err.Error(), ds.LineInfo)
+			partialTypeExtractionFailed = true
+			partialType = VOID_POINTER
 		}
-		for _, initDec := range dec.InitDeclaratorList.InitDeclarators {
-			e.assert(ctx.allowsInitialization || initDec.Initializer == nil, "Initializer illegal here", initDec.LineInfo)
-			t, name := e.extractTypeAndName(initDec.Declarator, partialType)
-			types = append(types, t)
+	}
+	for _, initDec := range dec.InitDeclaratorList.InitDeclarators {
+		t, name := e.extractTypeAndName(initDec.Declarator, partialType)
+		if partialTypeExtractionFailed {
+			t = VOID_POINTER
+		}
+		if hasTypedef {
+			e.defineType(t, name, initDec.LineInfo);
+		} else {
+			symbols = append(symbols, Symbol{Name: name, Type: t, LineInfo: initDec.LineInfo})
+		}
+		if initDec.Initializer != nil {
 			if hasTypedef {
-				e.defineType(t, name, initDec.LineInfo);
-			} else {
-				names = append(names, name)
-			}
-			if initDec.Initializer != nil {
-				if hasTypedef {
-					e.registerTypeError("Initialization is invalid after typedef", initDec.LineInfo)
-				} else {
-					// TODO type check initializer
-				}
+				e.registerTypeError("Initialization is invalid after typedef", initDec.LineInfo)
+			} else if !partialTypeExtractionFailed {
+				e.typeCheckInitializer(t, initDec.Initializer)
 			}
 		}
 	}
-	return
-}
-
-func (e *Engine) handleDeclaration(dec *ast.Declaration, allowStorageClassSpecifiers bool) {
-	// TODO qualifiers
-	types, names := e.createType(dec, DeclarationContext{
-		allowsInitialization: true,
-		allowsStorageClassSpecifiers: true,
-	})
-	fmt.Println(types)
-	fmt.Println(names)
+	return symbols
 }
 
 func (e *Engine) createFunctionDefinition(fun *ast.FunctionDefinition) FunctionDefinition {
@@ -435,14 +425,189 @@ func (e *Engine) createFunctionDefinition(fun *ast.FunctionDefinition) FunctionD
 }
 
 
+
+func (e *Engine) getGreaterOrEqualTypeIfCompatible(e1 ast.Expression, e2 ast.Expression) (t Ctype, err error) {
+	t1, err := e.getTypeOfExpression(e1)
+	if err != nil {
+		return nil, err
+	}
+	t2, err := e.getTypeOfExpression(e2)
+	if err != nil {
+		return nil, err
+	}
+	if isAutomaticallyCastable(t1, t2) || isAutomaticallyCastable(t2, t1) {
+		return getGreaterOrEqualType(t1, t2), nil
+	} else {
+		return nil, errors.New("Uncompatible types")
+	}
+}
+
+func (e *Engine) getTypeOfExpression(expression ast.Expression) (t Ctype, err error) {
+	switch expr := expression.(type) {
+	case ast.IdentifierExpression:
+		// TODO lookup in typing symtab
+	case ast.ConstantValExpression:
+		// TODO find out its type
+	case ast.StringLiteralExpression:
+		t = STRING_LITERAL_TYPE
+	case ast.ArrayAccessPostfixExpression:
+		return e.getTypeOfExpression(expr.PostfixExpression) 
+	case ast.FunctionCallPostfixExpression:
+		return e.getTypeOfExpression(expr.FunctionAccessor)
+	case ast.StructAccessPostfixExpression:
+		return nil, nil // TODO
+	case ast.IncDecPostfixExpression:
+		return e.getTypeOfExpression(expr.PostfixExpression)
+	case ast.IncDecUnaryExpression:
+		return e.getTypeOfExpression(expr.UnaryExpression)
+	case ast.CastUnaryExpression:
+		return nil, nil // TODO
+	case ast.SizeofUnaryExpression:
+		return BuiltinFrom("unsigned long"), nil
+	case ast.TypeCastCastExpression:
+		// TODO err on qualifiers not nil?
+		if partialType, err := e.getPartialTypeFromSpecifiers(expr.Typename.SpecifierQulifierList.TypeSpecifiers); err != nil {
+			return nil, err
+		} else {
+			return e.extractType(expr.Typename.AbstractDeclarator, partialType), nil
+		}
+	case ast.BinaryArithmeticExpression:
+		if t, isDetermined := getArithmOpTypeDeterminedByOperator(expr.Operator); isDetermined {
+			return t, nil
+		}
+		return e.getGreaterOrEqualTypeIfCompatible(expr.LhsExpression, expr.RhsExpression)
+	case ast.ConditionalExpression:
+		return e.getGreaterOrEqualTypeIfCompatible(expr.IfTrueExpression, expr.ElseExpression)
+	case ast.AssigmentExpression:
+		return e.getTypeOfExpression(expr.LhsExpression)
+	}
+	panic("unexpected expression type")
+}
+
+func (e *Engine) getInitializerMetaForStruct(initializer *ast.Initializer) (fieldTypes []Ctype, fieldNames []string, err error) {
+	if initializer.InitializerList == nil {
+		err = errors.New("Expected struct initializer")
+		return
+	}
+
+	foundNamed := false
+	for _, ini := range initializer.InitializerList.Initializers {
+		if ini.InitializerList != nil {
+			err = errors.New("Nested struct initializers are illegal")
+			return
+		}
+		expr := ini.Expression
+		if ae, isAssignment := expr.(ast.AssigmentExpression); isAssignment {
+			foundNamed = true
+			if fieldName, er := extractStructFieldInitializerIdentifierName(&ae); er != nil {
+				err = er
+				return
+			} else {
+				fieldNames = append(fieldNames, fieldName)
+				if t, typeErr := e.getTypeOfExpression(ae.RhsExpression); typeErr != nil {
+					err = typeErr
+					return
+				} else {
+					fieldTypes = append(fieldTypes, t)
+				}
+			}
+		} else {
+			if foundNamed {
+				err = errors.New("Either all fields must be named or none")
+				return
+			}
+			fieldNames = append(fieldNames, ANONYMOUS)
+			if t, er := e.getTypeOfExpression(expr); er != nil {
+				err = er
+				return
+			} else {
+				fieldTypes = append(fieldTypes, t)
+			}
+		}
+	}
+	return
+}
+
+func (e *Engine) compareStructTypeWithInitializer(structType StructCtype, fieldTypes []Ctype, fieldNames []string) (err error) {
+	if len(fieldTypes) > len(structType.NestedFieldTypes) {
+		return errors.New("Too many initializer fields")
+	}
+	for idx, fieldType := range fieldTypes {
+		name := fieldNames[idx]
+		if name == ANONYMOUS {
+			if !isAutomaticallyCastable(fieldType, structType.NestedFieldTypes[idx]) {
+				return errors.New("Invalid initializer type")
+			}
+		} else {
+			if sfieldType, _, err  := structType.MaybeField(name); err != nil {
+				return errors.New("No field named " + name)
+			} else if !isAutomaticallyCastable(fieldType, sfieldType) {
+				return errors.New("Invalid initializer type")
+			}
+		}
+	}
+	return nil
+}
+
+func (e *Engine) typeCheckInitializer(targetType Ctype, initializer *ast.Initializer) error {
+	if structType, isStruct := targetType.(StructCtype); isStruct {
+		fieldTypes, fieldNames, err := e.getInitializerMetaForStruct(initializer)
+		if err != nil {
+			return err
+		}
+		if err := e.compareStructTypeWithInitializer(structType, fieldTypes, fieldNames); err != nil {
+			return err 
+		}
+	} else {
+		expr := initializer.Expression
+		if _, isAssignment := expr.(ast.AssigmentExpression); isAssignment {
+			return errors.New("Illegal assignment expression in initializer")
+		}
+		if initializerType, err := e.getTypeOfExpression(expr); err != nil {
+			if !isAutomaticallyCastable(initializerType, targetType) {
+				return errors.New("Invalid initializer type")
+			}
+		}
+	}
+	return nil
+}
+
+func (e *Engine) getDeclarationSymbolsAndTypeCheckInitializers(dec *ast.Declaration) ([]Symbol, error) {
+	if dec.InitDeclaratorList == nil {
+		return nil, errors.New("Missing indentifier")
+	}
+	e.assert(len(dec.DeclarationSpecifiers.StorageClassSpecifiers) == 0, "Storage class specifiers illegal here", dec.LineInfo)
+
+	partialType, err := e.getPartialTypeFromSpecifiers(dec.DeclarationSpecifiers.TypeSpecifiers)
+	if err != nil {
+		return nil, err
+	}	
+
+	symbols := make([]Symbol, 0)
+	for _, initDecl := range dec.InitDeclaratorList.InitDeclarators {
+		t, name := e.extractTypeAndName(initDecl.Declarator, partialType)
+		if initDecl.Initializer != nil {
+			if err := e.typeCheckInitializer(t, initDecl.Initializer); err != nil {
+				return nil, err
+			}
+		}
+		symbols = append(symbols, Symbol{Name: name, Type: t, LineInfo: initDecl.LineInfo})
+	}
+	return symbols, nil
+}
+
 func (e *Engine) augmentFunctionDefinition(fun *ast.FunctionDefinition) {
 	fdef := e.createFunctionDefinition(fun)
 	fmt.Println(fdef)
-
+	if fun.Body.DeclarationList != nil {
+		for _, dec := range fun.Body.DeclarationList.Declarations {
+			e.getDeclarationSymbolsAndTypeCheckInitializers(dec)
+		}
+	}
 	/*
 	TODO:
+	- in parser after reduction of typespecifier check if its a typedef and if so add type name to tokenizer
 	- handle initializers (type check and note when variable is initialized explicitly)
-	- add this func def to ast func def
 	- handle enums
 	- add types to expressions
 	- eval const expressions 
@@ -455,16 +620,35 @@ func (e *Engine) augmentFunctionDefinition(fun *ast.FunctionDefinition) {
 	*/
 }
 
-func (e *Engine) AugmentASTWithTypeInfo(root *ast.TranslationUnit) []error {
+func (e *Engine) defineSymbol(sym Symbol) {
+	if prevDef, ok := e.symtab.HasInCurrentScope(sym.Name); ok {
+		e.registerTypeError(fmt.Sprintf("Redefinition of symbol %s previously defined in %d",
+							sym.Name, prevDef.LineInfo.LineNumber), sym.LineInfo)
+	} else {
+		e.symtab.Define(sym.Name, sym)
+	}
+}
+
+func (e *Engine) handleTopLevelDeclaration(dec *ast.Declaration) {
+	definedSymbols := e.getSymbolsForTopLevelDeclarationAndDefineNewTypes(dec)
+	for _, sym := range definedSymbols {
+		e.defineSymbol(sym)
+	}
+}
+
+func (e *Engine) enterGlobalScope() {
+	e.symtab.EnterScope()
+}
+
+func (e *Engine) DefineTypesAndRunTypeChecking(root *ast.TranslationUnit) {
 	e.typeErrors = make([]error, 0)
+	e.enterGlobalScope()
 	for _, dec := range root.ExternalDeclarations {
 		switch declaration := dec.(type) {
 		case ast.FunctionDefinition:
 			e.augmentFunctionDefinition(&declaration)
 		case ast.Declaration:
-			e.handleDeclaration(&declaration, true)
+			e.handleTopLevelDeclaration(&declaration)
 		}
 	}
-	return e.typeErrors
 }
-

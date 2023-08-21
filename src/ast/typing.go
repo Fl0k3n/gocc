@@ -164,7 +164,7 @@ type EnumTypeSpecifier struct {
 type TypeSpecifier interface {}
 
 type InitializerList struct {
-	Initlizers []*Initializer
+	Initializers []*Initializer
 	LineInfo
 }
 

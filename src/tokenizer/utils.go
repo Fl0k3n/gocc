@@ -94,6 +94,9 @@ func nextIndexOfNotToken(line string, startInclusive int) int {
 		// .123
 		return nextIndexNotHaving(line, startInclusive+1, isNumber)
 	}
+	if curChar == '.' && startInclusive + 1 < len(line) && isLetterOrUnderscore(line[startInclusive+1]) {
+		return nextIndexNotHaving(line, startInclusive+1, func (char byte) bool {return isNumber(char) || isLetterOrUnderscore(char) })
+	}
 	if isLetterOrUnderscore(curChar) {
 		return nextIndexNotHaving(line, startInclusive+1, func (char byte) bool {return isNumber(char) || isLetterOrUnderscore(char) })
 	}

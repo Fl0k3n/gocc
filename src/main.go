@@ -32,8 +32,8 @@ func testTokenizer() {
 	}
 	defer grammarReader.Finish()
 	grammar, err := grammarReader.Read()
-	tokenizer, err := tokenizers.New("../resources/csrc/simple.c", grammar)
-	// tokenizer, err := tokenizers.New("../resources/csrc/functions.c", grammar)
+	// tokenizer, err := tokenizers.New("../resources/csrc/simple.c", grammar)
+	tokenizer, err := tokenizers.New("../resources/csrc/functions.c", grammar)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -196,7 +196,7 @@ func testParser() {
 	}
 	// fmt.Println(tu.GetLineBounds())
 	typ := types.NewEngine()
-	typ.AugmentASTWithTypeInfo(&tu)
+	typ.DefineTypesAndRunTypeChecking(&tu)
 }
 
 func serializeTables() {
@@ -219,10 +219,10 @@ func serializeTables() {
 
 func main() {
 	// testParserSimple2()
-	testParser()
+	// testParser()
 	// testGrammarReader()
 	// testTokenizer()
 	// testTableBuilder()
 	// testTableBuilder2()
-	// serializeTables()
+	serializeTables()
 }

@@ -69,3 +69,5 @@ var alignment = map[Builtin]int {
 	UNSIGNED_LONG: 8,
 	LONG_DOUBLE: 16,
 }
+
+var STRING_LITERAL_TYPE = PointerCtype{name: ANONYMOUS, Target: BuiltinFrom("char")}

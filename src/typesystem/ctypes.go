@@ -1,5 +1,7 @@
 package types
 
+import "errors"
+
 
 type Ctype interface {
 	Name() string
@@ -129,6 +131,15 @@ func (cc StructCtype) RequiredAlignment() int {
 	return cc.NestedFieldTypes[0].RequiredAlignment()
 }
 
+func (cc *StructCtype) MaybeField(name string) (t Ctype, offset int, err error) {
+	for idx, fname := range cc.NestedFieldNames {
+		if fname == name {
+			return cc.NestedFieldTypes[idx], cc.AlignedFieldOffsets[idx], nil
+		}
+	}
+	return nil, 0, errors.New("No field named " + name)
+}
+
 func (cc *StructCtype) Field(name string) (t Ctype, offset int) {
 	for idx, fname := range cc.NestedFieldNames {
 		if fname == name {
@@ -192,3 +203,20 @@ func (fp FunctionPtrCtype) Size() int {
 func (fp FunctionPtrCtype) RequiredAlignment() int {
 	return POINTER_ALIGNMENT
 }
+
+// type StringLiteralCtype struct {
+// 	size int
+// }
+
+// func (sl StringLiteralCtype) Name() string {
+// 	return ANONYMOUS
+// }
+
+// // including null terminator
+// func (sl StringLiteralCtype) Size() int {
+// 	return sl.size
+// }
+
+// func (sl StringLiteralCtype) RequiredAlignment() int {
+// 	return POINTER_ALIGNMENT
+// }

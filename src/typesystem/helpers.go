@@ -2,6 +2,8 @@ package types
 
 import (
 	"ast"
+	"errors"
+	"strings"
 )
 
 type FunctionDefinition struct {
@@ -9,6 +11,12 @@ type FunctionDefinition struct {
 	ReturnType Ctype
 	ParamTypes []Ctype
 	ParamNames []string
+}
+
+type Symbol struct {
+	Name string
+	Type Ctype
+	LineInfo ast.LineInfo
 }
 
 type DeclarationContext struct {
@@ -50,6 +58,17 @@ func setPointersLowestLevel(ptr *PointerCtype, lowestLvl Ctype) Ctype {
 	} else {
 		return ptr.WithTargetOnLowestLevel(lowestLvl)
 	}
+}
+
+func extractStructFieldInitializerIdentifierName(ae *ast.AssigmentExpression) (string, error) {
+	if ie, isIdentifier := ae.LhsExpression.(ast.IdentifierExpression); isIdentifier {
+		ident := ie.Identifier
+		if !strings.HasPrefix(ident, ".") {
+			return "", errors.New("Field must be prefixed with dot")
+		}
+		return ident[1:], nil
+	}
+	return "", errors.New("Expression is not an identifier")
 }
 
 func evalConstantIntegerExpression(expr ast.Expression) (int, error) {
