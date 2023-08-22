@@ -22,6 +22,7 @@ type Tokenizer struct {
 	multilineCommentInContext bool
 	panicOnFailedAdvance bool
 	moveBackRequestsCounter int
+	typeNames *utils.Set[string]
 }
 
 func New(inputPath string, grammar *grammars.Grammar) (*Tokenizer, error) {
@@ -41,6 +42,7 @@ func New(inputPath string, grammar *grammars.Grammar) (*Tokenizer, error) {
 		lineParseIdx: 0,
 		multilineCommentInContext: false,
 		moveBackRequestsCounter: 0,
+		typeNames: utils.NewSet[string](),
 	}, nil
 }
 
@@ -73,14 +75,19 @@ func (this *Tokenizer) readNextNonCommentLine() bool {
 	return false
 }
 
-
 func (this *Tokenizer) getNextToken() Token {
 	startIdx := this.lineParseIdx
 
 	lastIdx := nextIndexOfNotToken(this.currentLine, startIdx)
 	tokenVal := this.currentLine[startIdx:lastIdx]
 	this.lineParseIdx = nextIndexOfNotSpace(this.currentLine, lastIdx)
-
+	
+	if this.typeNames.Has(tokenVal) {
+		return Token{
+			V: tokenVal,
+			T: this.grammar.TypeNameTokenType,
+		}
+	}
 	if tokenType, ok := this.grammar.StringsToTokenTypes[tokenVal]; ok {
 		return Token{
 			V: tokenVal,
@@ -108,9 +115,16 @@ func (this *Tokenizer) MoveBack() {
 	}
 }
 
+func (this *Tokenizer) DefineTypeName(typeName string) {
+	this.typeNames.Add(typeName)
+}
+
 func (this *Tokenizer) Lookahead() Token {
 	this.Advance()
 	token := this.LastToken()
+	if token.T == "IDENTIFIER" && this.typeNames.Has(token.V) {
+		token.T = this.grammar.TypeNameTokenType
+	}
 	this.MoveBack()
 	return token
 }

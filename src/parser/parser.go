@@ -27,7 +27,7 @@ func New(grammar *grammars.Grammar, tokenizer *tokens.Tokenizer,
 		actionTable: actionTable,
 		gotoTable: gotoTable,
 		stateStack: utils.NewStack[State](),
-		astBuilder: ast.NewBuilder(),
+		astBuilder: ast.NewBuilder(tokenizer),
 	}
 }
 

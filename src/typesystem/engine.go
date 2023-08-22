@@ -442,30 +442,63 @@ func (e *Engine) getGreaterOrEqualTypeIfCompatible(e1 ast.Expression, e2 ast.Exp
 	}
 }
 
-func (e *Engine) getTypeOfExpression(expression ast.Expression) (t Ctype, err error) {
+func (e *Engine) getTypeOfExpression(expression ast.Expression) (Ctype, error) {
 	switch expr := expression.(type) {
 	case ast.IdentifierExpression:
-		// TODO lookup in typing symtab
+		// TODO handle normal functions, maybe add symbols function name -> return type
+		if sym, ok := e.symtab.Lookup(expr.Identifier); ok {
+			return sym.Type, nil
+		} else {
+			return nil, errors.New("Undefined identifier " + expr.Identifier)
+		}
 	case ast.ConstantValExpression:
-		// TODO find out its type
+		return getTypeOfConstantValExpression(expr), nil
 	case ast.StringLiteralExpression:
-		t = STRING_LITERAL_TYPE
+		return STRING_LITERAL_TYPE, nil
 	case ast.ArrayAccessPostfixExpression:
 		return e.getTypeOfExpression(expr.PostfixExpression) 
 	case ast.FunctionCallPostfixExpression:
 		return e.getTypeOfExpression(expr.FunctionAccessor)
 	case ast.StructAccessPostfixExpression:
-		return nil, nil // TODO
+		t, err := e.getTypeOfExpression(expr.StructAccessor)
+		if err != nil {
+			return nil, err
+		}
+		var maybeStructT Ctype
+		if expr.AccessMethod == ast.POINTER_ACCESS {
+			if ptrToStruct, isPtr := t.(PointerCtype); isPtr {
+				maybeStructT = ptrToStruct.Target
+			} else {
+				return nil, errors.New("Pointer field access valid only for pointers to structs")
+			}
+		} else {
+			maybeStructT = t
+		}
+		if structType, isStruct := maybeStructT.(StructCtype); isStruct {
+			if fieldType, _ ,err := structType.MaybeField(expr.FieldIdentifier); err != nil {
+				return nil, err
+			} else {
+				return fieldType, nil
+			}
+		} else {
+			return nil, errors.New("Field access is permitted only for structs")
+		}
 	case ast.IncDecPostfixExpression:
 		return e.getTypeOfExpression(expr.PostfixExpression)
 	case ast.IncDecUnaryExpression:
 		return e.getTypeOfExpression(expr.UnaryExpression)
 	case ast.CastUnaryExpression:
-		return nil, nil // TODO
+		if castedType, err := e.getTypeOfExpression(expr.CastExpression); err != nil {
+			return nil, err
+		} else {
+			return getUnaryOpType(expr.Operator, castedType)
+		}
 	case ast.SizeofUnaryExpression:
 		return BuiltinFrom("unsigned long"), nil
 	case ast.TypeCastCastExpression:
-		// TODO err on qualifiers not nil?
+		if len(expr.Typename.SpecifierQulifierList.TypeQualifiers) > 0 {
+			return nil, errors.New("Illegal type casting with type qualifiers")
+		}
 		if partialType, err := e.getPartialTypeFromSpecifiers(expr.Typename.SpecifierQulifierList.TypeSpecifiers); err != nil {
 			return nil, err
 		} else {
@@ -475,6 +508,7 @@ func (e *Engine) getTypeOfExpression(expression ast.Expression) (t Ctype, err er
 		if t, isDetermined := getArithmOpTypeDeterminedByOperator(expr.Operator); isDetermined {
 			return t, nil
 		}
+		// TODO check operators
 		return e.getGreaterOrEqualTypeIfCompatible(expr.LhsExpression, expr.RhsExpression)
 	case ast.ConditionalExpression:
 		return e.getGreaterOrEqualTypeIfCompatible(expr.IfTrueExpression, expr.ElseExpression)
@@ -606,7 +640,6 @@ func (e *Engine) augmentFunctionDefinition(fun *ast.FunctionDefinition) {
 	}
 	/*
 	TODO:
-	- in parser after reduction of typespecifier check if its a typedef and if so add type name to tokenizer
 	- handle initializers (type check and note when variable is initialized explicitly)
 	- handle enums
 	- add types to expressions
@@ -616,7 +649,6 @@ func (e *Engine) augmentFunctionDefinition(fun *ast.FunctionDefinition) {
 	- in compound statements add list with tuples (varType, varName, varInitializerExpression(?))
 	- check types in every expression
 	- define casting and compatibility rules 
-	- replace ast.Statement* with just ast.Statement
 	*/
 }
 

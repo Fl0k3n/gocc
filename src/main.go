@@ -221,8 +221,8 @@ func main() {
 	// testParserSimple2()
 	// testParser()
 	// testGrammarReader()
-	// testTokenizer()
+	testTokenizer()
 	// testTableBuilder()
 	// testTableBuilder2()
-	serializeTables()
+	// serializeTables()
 }

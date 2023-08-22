@@ -3,6 +3,7 @@ package types
 import (
 	"ast"
 	"errors"
+	"strconv"
 	"strings"
 )
 
@@ -72,5 +73,78 @@ func extractStructFieldInitializerIdentifierName(ae *ast.AssigmentExpression) (s
 }
 
 func evalConstantIntegerExpression(expr ast.Expression) (int, error) {
-	return 0, nil
+	var err error
+	if valExpr, isValExpr := expr.(ast.ConstantValExpression); isValExpr {
+		exprT := getTypeOfConstantValExpression(valExpr)
+		// TODO allow long?
+		if exprT.Builtin == INT {
+			return evalIntVal(valExpr.Constant)
+		} else if exprT.Builtin == UNSIGNED_INT {
+			return evalIntVal(valExpr.Constant[:len(valExpr.Constant) - 1])
+		}
+		err = errors.New("Expression is not integral const")
+	} else if arithmExpr, isArithm := expr.(ast.BinaryArithmeticExpression); isArithm {
+		var v1, v2 int
+		if v1, err = evalConstantIntegerExpression(arithmExpr.LhsExpression); err != nil {
+			goto onerr
+		}
+		if v2, err = evalConstantIntegerExpression(arithmExpr.RhsExpression); err != nil {
+			goto onerr
+		}
+		return applyArithmeticOperator(v1, v2, arithmExpr.Operator)
+	} else if unaryExpr, isUnary := expr.(ast.CastUnaryExpression); isUnary {
+		var v int
+		// TODO should this be allowed?
+		if unaryExpr.Operator == "-" {
+			if v, err = evalConstantIntegerExpression(unaryExpr.CastExpression); err != nil {
+				goto onerr
+			}
+			return -1 * v, nil
+		} else {
+			err = errors.New("Unsupported compile time unary operator " + unaryExpr.Operator)
+		}
+	}
+onerr:
+	return 0, err
+}
+
+// only +, -, *, /, %
+func applyArithmeticOperator(v1 int, v2 int, op string) (v int, err error) {
+	switch op {
+	case "+": v = v1 + v2
+	case "-": v = v1 - v2
+	case "*": v = v1 * v2
+	case "/":
+		if v2 == 0 {
+			return -1, errors.New("Zero division error")
+		}
+		v = v1 / v2
+	case "%":
+		if v2 == 0 {
+			return -1, errors.New("Zero division error")
+		}
+		v = v1 % v2
+	default:
+		err = errors.New("Unsupported compile time constant operator: " + op)
+	}
+	return
+}
+
+func evalIntVal(val string) (int, error) {
+	var v int64
+	var e error
+	switch {
+		case strings.HasPrefix(val, "0b"):
+			v, e = strconv.ParseInt(val[2:], 2, 0)
+		case strings.HasPrefix(val, "0x"):
+			v, e = strconv.ParseInt(val[2:], 16, 0)
+		case strings.HasPrefix(val, "0"):
+			v, e = strconv.ParseInt(val[1:], 8, 0)
+		default:
+			v, e = strconv.ParseInt(val, 10, 0)
+	}
+	if e != nil {
+		return 0, e
+	}
+	return int(v), nil
 }

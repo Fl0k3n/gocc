@@ -54,6 +54,7 @@ type Grammar struct {
 	Productions []*Production
 	StringsToTokenTypes map[string]string
 	RegexesToTokenTypes map[*regexp.Regexp]string
+	TypeNameTokenType string
 }
 
 func newEmptyGrammar() *Grammar {
@@ -64,6 +65,7 @@ func newEmptyGrammar() *Grammar {
 		Productions: make([]*Production, 0),
 		StringsToTokenTypes: make(map[string]string),
 		RegexesToTokenTypes: make(map[*regexp.Regexp]string),
+		TypeNameTokenType: "TYPE_NAME",
 	}
 }
 

@@ -22,9 +22,7 @@
 //     .x = 1,
 //     .y = 'c'
 // };
-typedef int TEST;
 
-TEST m;
 
 // struct B {
 //     int x;
@@ -70,6 +68,8 @@ TEST m;
 // int f0(int, int, int);
 
 // typedef int TEST;
+
+// TEST a;
 
 // struct A {
 //     int x;

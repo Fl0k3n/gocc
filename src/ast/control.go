@@ -27,19 +27,19 @@ type ForIterationStatement struct {
 	Initializer ExpressionStatement
 	Condition ExpressionStatement
 	Updater Expression
-	Body *Statement
+	Body Statement
 	LineInfo
 }
 
 type DoWhileIterationStatement struct {
-	Body *Statement
+	Body Statement
 	Condition Expression
 	LineInfo
 }
 
 type WhileIterationStatement struct {
 	Condition Expression
-	Body *Statement
+	Body Statement
 	LineInfo
 }
 
@@ -47,14 +47,14 @@ type IterationStatement interface {}
 
 type SwitchSelectionStatement struct {
 	SwitchExpression Expression
-	SwitchBody *Statement
+	SwitchBody Statement
 	LineInfo
 }
 
 type IfSelectionStatement struct {
 	Condition Expression
-	IfStatement *Statement
-	ElseStatement *Statement
+	IfStatement Statement
+	ElseStatement Statement
 	LineInfo
 }
 
@@ -67,18 +67,18 @@ type ExpressionStatement struct {
 
 type IdentifierLabeledStatement struct {
 	Identifier string
-	Statement *Statement
+	Statement Statement
 	LineInfo
 }
 
 type CaseLabeledStatement struct {
 	Expression Expression
-	Statement *Statement
+	Statement Statement
 	LineInfo
 }
 
 type DefaultLabeledStatement struct {
-	Statement *Statement
+	Statement Statement
 	LineInfo
 }
 

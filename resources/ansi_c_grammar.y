@@ -461,14 +461,14 @@ IS			(u|U|l|L)*
 {L}({L}|{D})*		IDENTIFIER
 \.{L}({L}|{D})*	IDENTIFIER
 
-0[xX]{H}+{IS}?		CONSTANT
+0[xb]{H}+{IS}?		CONSTANT
 0{D}+{IS}?		CONSTANT
 {D}+{IS}?		CONSTANT
 L?'(\\.|[^\\'])+'	CONSTANT
 
 {D}+{E}{FS}?		CONSTANT
-{D}*"."{D}+({E})?{FS}?	CONSTANT
-{D}+"."{D}*({E})?{FS}?	CONSTANT
+{D}*\.{D}+({E})?{FS}?	CONSTANT
+{D}+\.{D}*({E})?{FS}?	CONSTANT
 
 L?\"(\\.|[^\\"])*\"	STRING_LITERAL
 
