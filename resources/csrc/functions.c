@@ -10,6 +10,27 @@
 //     SECOND
 // };
 
+int m;
+
+struct D {
+    int z;
+    int v;
+};
+
+int a(int b) {
+    int i = 0;
+    struct D dd = {
+        .z = 1,
+    };
+    struct D* d = &dd;
+    d->v = 4;
+    for (i; i < b; i++) {
+        if ((i % 2) != 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
 
 // struct B {
 //     int z;

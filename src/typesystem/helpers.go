@@ -14,6 +14,38 @@ type FunctionDefinition struct {
 	ParamNames []string
 }
 
+type StatementContext struct {
+	CanUseBreak bool
+	ExpectsCase bool
+	CaseExpressionType Ctype
+	RequiredReturnType Ctype
+}
+
+func (sc StatementContext) WithAllowedBreak() StatementContext {
+	sc.CanUseBreak = true
+	return sc
+}
+
+func (sc StatementContext) WithDisallowedBreak() StatementContext {
+	sc.CanUseBreak = false
+	return sc
+}
+
+func (sc StatementContext) WithExpectedCase(caseExprType Ctype) StatementContext {
+	sc.ExpectsCase = true
+	sc.CaseExpressionType = caseExprType
+	return sc
+}
+
+func (sc StatementContext) WithDisallowedCase() StatementContext {
+	sc.ExpectsCase = true
+	return sc
+}
+
+func (sc StatementContext) And() StatementContext {
+	return sc
+}
+
 type Symbol struct {
 	Name string
 	Type Ctype
@@ -61,7 +93,7 @@ func setPointersLowestLevel(ptr *PointerCtype, lowestLvl Ctype) Ctype {
 	}
 }
 
-func extractStructFieldInitializerIdentifierName(ae *ast.AssigmentExpression) (string, error) {
+func extractStructFieldInitializerIdentifierName(ae *ast.AssignmentExpression) (string, error) {
 	if ie, isIdentifier := ae.LhsExpression.(ast.IdentifierExpression); isIdentifier {
 		ident := ie.Identifier
 		if !strings.HasPrefix(ident, ".") {
@@ -147,4 +179,30 @@ func evalIntVal(val string) (int, error) {
 		return 0, e
 	}
 	return int(v), nil
+}
+
+func isStruct(t Ctype) bool {
+	_, ok := t.(StructCtype)
+	return ok
+}
+
+func isBuiltinType(t Ctype) bool {
+	_, ok := t.(BuiltinCtype)
+	return ok
+}
+
+func isPointer(t Ctype) bool {
+	_, ok := t.(PointerCtype)
+	return ok
+}
+
+func isVoid(t Ctype) bool {
+	if b, ok := t.(BuiltinCtype); ok {
+		return b.Builtin == VOID
+	}
+	return false
+}
+
+func isBuiltinOrPointer(t Ctype) bool {
+	return isBuiltinType(t) || isPointer(t)
 }

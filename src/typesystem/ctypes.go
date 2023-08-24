@@ -171,7 +171,7 @@ func (ac ArrayCtype) RequiredAlignment() int {
 func NewArray(name string, dimensions []int, nestedType Ctype) ArrayCtype {
 	size := -1
 	if nestedType != UNKNOWN_OR_PARTIAL {
-		size := nestedType.Size()
+		size = nestedType.Size()
 		for _, dim := range dimensions {
 			// TODO check overflow/bounds
 			size *= dim
@@ -183,6 +183,10 @@ func NewArray(name string, dimensions []int, nestedType Ctype) ArrayCtype {
 		NestedType: nestedType,
 		size: size,
 	}
+}
+
+func (ac ArrayCtype) WithRecomputedSize() ArrayCtype {
+	return NewArray(ac.name, ac.DimensionSizes, ac.NestedType)
 }
 
 type FunctionPtrCtype struct {
@@ -203,20 +207,3 @@ func (fp FunctionPtrCtype) Size() int {
 func (fp FunctionPtrCtype) RequiredAlignment() int {
 	return POINTER_ALIGNMENT
 }
-
-// type StringLiteralCtype struct {
-// 	size int
-// }
-
-// func (sl StringLiteralCtype) Name() string {
-// 	return ANONYMOUS
-// }
-
-// // including null terminator
-// func (sl StringLiteralCtype) Size() int {
-// 	return sl.size
-// }
-
-// func (sl StringLiteralCtype) RequiredAlignment() int {
-// 	return POINTER_ALIGNMENT
-// }

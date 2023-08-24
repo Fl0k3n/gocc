@@ -219,9 +219,9 @@ func serializeTables() {
 
 func main() {
 	// testParserSimple2()
-	// testParser()
+	testParser()
 	// testGrammarReader()
-	testTokenizer()
+	// testTokenizer()
 	// testTableBuilder()
 	// testTableBuilder2()
 	// serializeTables()

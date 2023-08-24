@@ -11,14 +11,21 @@ import (
 type Engine struct {
 	definitionTab map[string]TypeDefinition
 	symtab *symtabs.Symtab[Symbol]
+	funcdefs map[string][]*FunctionDefinition
 	typeErrors []error
+	funcGotoLabels *utils.Set[string]
+	funcGotosToCheck *utils.Set[string]
 }
 
 func NewEngine() *Engine {
-	return &Engine{
+	initBuiltinRulesGraph()
+	e := Engine{
 		definitionTab: make(map[string]TypeDefinition),
 		symtab: symtabs.NewSymtab[Symbol](),
+		funcdefs: map[string][]*FunctionDefinition{},
 	}
+	e.enterGlobalScope()
+	return &e
 }
 
 func (e *Engine) registerTypeError(err string, line ast.LineInfo) {
@@ -291,7 +298,7 @@ func (e *Engine) getCombinedBuiltin(tss []ast.TypeSpecifier) (Ctype, error) {
 			e.registerTypeError("Illegal declaration", directTs.LineInfo)
 			return VOID_POINTER, errors.New("Invalid combined builtin")
 		} else {
-			strRepr += directTs.TypeName
+			strRepr += " " + directTs.TypeName
 		}
 	}
 	if !IsBuiltin(strRepr) {
@@ -400,9 +407,6 @@ func (e *Engine) getSymbolsForTopLevelDeclarationAndDefineNewTypes(dec *ast.Decl
 }
 
 func (e *Engine) createFunctionDefinition(fun *ast.FunctionDefinition) FunctionDefinition {
-	if fun.DeclarationList != nil {
-		panic("got declaration list")
-	}
 	if fun.DeclarationSpecifiers == nil {
 		panic("didnt get declaration specifiers")
 	}
@@ -424,8 +428,6 @@ func (e *Engine) createFunctionDefinition(fun *ast.FunctionDefinition) FunctionD
 	}
 }
 
-
-
 func (e *Engine) getGreaterOrEqualTypeIfCompatible(e1 ast.Expression, e2 ast.Expression) (t Ctype, err error) {
 	t1, err := e.getTypeOfExpression(e1)
 	if err != nil {
@@ -445,7 +447,6 @@ func (e *Engine) getGreaterOrEqualTypeIfCompatible(e1 ast.Expression, e2 ast.Exp
 func (e *Engine) getTypeOfExpression(expression ast.Expression) (Ctype, error) {
 	switch expr := expression.(type) {
 	case ast.IdentifierExpression:
-		// TODO handle normal functions, maybe add symbols function name -> return type
 		if sym, ok := e.symtab.Lookup(expr.Identifier); ok {
 			return sym.Type, nil
 		} else {
@@ -456,9 +457,74 @@ func (e *Engine) getTypeOfExpression(expression ast.Expression) (Ctype, error) {
 	case ast.StringLiteralExpression:
 		return STRING_LITERAL_TYPE, nil
 	case ast.ArrayAccessPostfixExpression:
-		return e.getTypeOfExpression(expr.PostfixExpression) 
+		dimensions := 0
+		curExpr := expr
+		for {
+			arrayAccessorT, err := e.getTypeOfExpression(curExpr.ArrayExpression)
+			if err != nil {
+				return nil, err
+			}
+			if !isIntegralType(arrayAccessorT) {
+				return nil, errors.New("Array accessor must have integral type")
+			}
+			dimensions++
+			if nestedExpr, isArrayAccess := curExpr.PostfixExpression.(ast.ArrayAccessPostfixExpression); isArrayAccess {
+				curExpr = nestedExpr
+			} else {
+				break
+			}
+		}
+		arrayT, err := e.getTypeOfExpression(curExpr.PostfixExpression) 
+		if err != nil {
+			return nil, err
+		}
+		if !canBeIndexedNTimes(arrayT, dimensions) {
+			return nil, errors.New("Illegal number of array accesses")
+		}
+		switch concreteT := arrayT.(type) {
+		case PointerCtype:
+			return concreteT.Target, nil
+		case ArrayCtype:
+			return concreteT.NestedType, nil
+		default:
+			panic("Unexpected type")
+		}
 	case ast.FunctionCallPostfixExpression:
-		return e.getTypeOfExpression(expr.FunctionAccessor)
+		argTypes := []Ctype{}
+		for _, arg := range expr.Args.Expressions {
+			if t, err := e.getTypeOfExpression(arg); err != nil {
+				return nil, err
+			} else {
+				argTypes = append(argTypes, t)
+			}
+		} 
+		if t, err := e.getTypeOfExpression(expr.FunctionAccessor); err != nil {
+			if identExpr, isIdentExpr := expr.FunctionAccessor.(ast.IdentifierExpression); isIdentExpr {
+				if overloadedFuncs, ok := e.funcdefs[identExpr.Identifier]; ok {
+					choosenFunc, err := getFunctionOverloadSatisfyingArgs(overloadedFuncs, argTypes)
+					if err != nil {
+						return nil, err
+					}
+					return choosenFunc.ReturnType, nil
+				}
+			} else {
+				return nil, err
+			}
+		} else {
+			if f, isFunc := t.(FunctionPtrCtype); isFunc {
+				if len(f.ParamTypes) != len(argTypes) {
+					return nil, errors.New("Invalid number of arguments")
+				}
+				for paramNum, paramType := range f.ParamTypes {
+					if !isAutomaticallyCastable(argTypes[paramNum], paramType) {
+						return nil, errors.New(fmt.Sprintf("Uncompatible parameter %d", paramNum))
+					}
+				}
+				return f.ReturnType, nil
+			} else {
+				return nil, errors.New("Type is not callable")
+			}
+		}
 	case ast.StructAccessPostfixExpression:
 		t, err := e.getTypeOfExpression(expr.StructAccessor)
 		if err != nil {
@@ -475,18 +541,29 @@ func (e *Engine) getTypeOfExpression(expression ast.Expression) (Ctype, error) {
 			maybeStructT = t
 		}
 		if structType, isStruct := maybeStructT.(StructCtype); isStruct {
-			if fieldType, _ ,err := structType.MaybeField(expr.FieldIdentifier); err != nil {
-				return nil, err
-			} else {
-				return fieldType, nil
-			}
+			fieldType, _ ,err := structType.MaybeField(expr.FieldIdentifier)
+			return fieldType, err
 		} else {
 			return nil, errors.New("Field access is permitted only for structs")
 		}
 	case ast.IncDecPostfixExpression:
-		return e.getTypeOfExpression(expr.PostfixExpression)
+		if t, err := e.getTypeOfExpression(expr.PostfixExpression); err != nil {
+			return nil, err
+		} else {
+			if canBeIncremented(t) {
+				return t, nil
+			}
+			return nil, errors.New("Type can't be incremented or decremented")
+		}
 	case ast.IncDecUnaryExpression:
-		return e.getTypeOfExpression(expr.UnaryExpression)
+		if t, err := e.getTypeOfExpression(expr.UnaryExpression); err != nil {
+			return nil, err
+		} else {
+			if canBeIncremented(t) {
+				return t, nil
+			}
+			return nil, errors.New("Type can't be incremented or decremented")
+		}
 	case ast.CastUnaryExpression:
 		if castedType, err := e.getTypeOfExpression(expr.CastExpression); err != nil {
 			return nil, err
@@ -502,18 +579,46 @@ func (e *Engine) getTypeOfExpression(expression ast.Expression) (Ctype, error) {
 		if partialType, err := e.getPartialTypeFromSpecifiers(expr.Typename.SpecifierQulifierList.TypeSpecifiers); err != nil {
 			return nil, err
 		} else {
-			return e.extractType(expr.Typename.AbstractDeclarator, partialType), nil
+			resType := e.extractType(expr.Typename.AbstractDeclarator, partialType)
+			castedType, err := e.getTypeOfExpression(expr.Expression)
+			if err != nil {
+				return nil, err
+			}
+			if isExplicitlyCastable(castedType, resType) {
+				return castedType, nil
+			} else {
+				return nil, errors.New("Invalid type cast")
+			}
 		}
 	case ast.BinaryArithmeticExpression:
-		if t, isDetermined := getArithmOpTypeDeterminedByOperator(expr.Operator); isDetermined {
-			return t, nil
+		t1, err := e.getTypeOfExpression(expr.LhsExpression)
+		if err != nil {
+			return nil, err
 		}
-		// TODO check operators
-		return e.getGreaterOrEqualTypeIfCompatible(expr.LhsExpression, expr.RhsExpression)
+		t2, err := e.getTypeOfExpression(expr.RhsExpression)
+		if err != nil {
+			return nil, err
+		}
+		return getBinaryOpType(expr.Operator, t1, t2)
 	case ast.ConditionalExpression:
+		conditionType, err := e.getTypeOfExpression(expr.Condition)
+		if err != nil {
+			return nil, err
+		}
+		if !canBeUsedAsBool(conditionType) {
+			return nil, errors.New("Type of condition must be bool'ish")
+		}
 		return e.getGreaterOrEqualTypeIfCompatible(expr.IfTrueExpression, expr.ElseExpression)
-	case ast.AssigmentExpression:
-		return e.getTypeOfExpression(expr.LhsExpression)
+	case ast.AssignmentExpression:
+		lhsType, err := e.getTypeOfExpression(expr.LhsExpression)
+		if err != nil {
+			return nil, err
+		}
+		rhsType, err := e.getTypeOfExpression(expr.RhsExpression)
+		if err != nil {
+			return nil, err
+		}	
+		return getAssignmentOpType(lhsType, rhsType, expr.Operator)
 	}
 	panic("unexpected expression type")
 }
@@ -531,7 +636,7 @@ func (e *Engine) getInitializerMetaForStruct(initializer *ast.Initializer) (fiel
 			return
 		}
 		expr := ini.Expression
-		if ae, isAssignment := expr.(ast.AssigmentExpression); isAssignment {
+		if ae, isAssignment := expr.(ast.AssignmentExpression); isAssignment {
 			foundNamed = true
 			if fieldName, er := extractStructFieldInitializerIdentifierName(&ae); er != nil {
 				err = er
@@ -594,7 +699,7 @@ func (e *Engine) typeCheckInitializer(targetType Ctype, initializer *ast.Initial
 		}
 	} else {
 		expr := initializer.Expression
-		if _, isAssignment := expr.(ast.AssigmentExpression); isAssignment {
+		if _, isAssignment := expr.(ast.AssignmentExpression); isAssignment {
 			return errors.New("Illegal assignment expression in initializer")
 		}
 		if initializerType, err := e.getTypeOfExpression(expr); err != nil {
@@ -614,7 +719,7 @@ func (e *Engine) getDeclarationSymbolsAndTypeCheckInitializers(dec *ast.Declarat
 
 	partialType, err := e.getPartialTypeFromSpecifiers(dec.DeclarationSpecifiers.TypeSpecifiers)
 	if err != nil {
-		return nil, err
+		return nil, err // or fallback to void* for further type checking?
 	}	
 
 	symbols := make([]Symbol, 0)
@@ -622,34 +727,18 @@ func (e *Engine) getDeclarationSymbolsAndTypeCheckInitializers(dec *ast.Declarat
 		t, name := e.extractTypeAndName(initDecl.Declarator, partialType)
 		if initDecl.Initializer != nil {
 			if err := e.typeCheckInitializer(t, initDecl.Initializer); err != nil {
-				return nil, err
+				e.registerTypeError("Invalid initializer type", initDecl.LineInfo)
+			}
+		}
+		if b, isBuiltin := t.(BuiltinCtype); isBuiltin {
+			if b.Builtin == VOID {
+				e.registerTypeError("Can't declare void variables", initDecl.LineInfo)
+				t = VOID_POINTER
 			}
 		}
 		symbols = append(symbols, Symbol{Name: name, Type: t, LineInfo: initDecl.LineInfo})
 	}
 	return symbols, nil
-}
-
-func (e *Engine) augmentFunctionDefinition(fun *ast.FunctionDefinition) {
-	fdef := e.createFunctionDefinition(fun)
-	fmt.Println(fdef)
-	if fun.Body.DeclarationList != nil {
-		for _, dec := range fun.Body.DeclarationList.Declarations {
-			e.getDeclarationSymbolsAndTypeCheckInitializers(dec)
-		}
-	}
-	/*
-	TODO:
-	- handle initializers (type check and note when variable is initialized explicitly)
-	- handle enums
-	- add types to expressions
-	- eval const expressions 
-	- make symtab name -> ctype
-	- make functab name -> func def
-	- in compound statements add list with tuples (varType, varName, varInitializerExpression(?))
-	- check types in every expression
-	- define casting and compatibility rules 
-	*/
 }
 
 func (e *Engine) defineSymbol(sym Symbol) {
@@ -661,6 +750,178 @@ func (e *Engine) defineSymbol(sym Symbol) {
 	}
 }
 
+func (e *Engine) enterGlobalScope() {
+	e.symtab.EnterScope()
+}
+
+func (e *Engine) addSymbolsFromDeclarationListToCurrentScope(dl *ast.DeclarationList) {
+	for _, dec := range dl.Declarations {
+		declaredSymbols, err := e.getDeclarationSymbolsAndTypeCheckInitializers(dec)
+		if err != nil {
+			e.registerTypeError(err.Error(), dl.LineInfo)
+		} else {
+			for _, sym := range declaredSymbols {
+				e.defineSymbol(sym)
+			}
+		}
+	}
+}
+
+func (e *Engine) checkCondition(expr ast.Expression, lineInfo ast.LineInfo) {
+	if condType, err := e.getTypeOfExpression(expr); err != nil {
+		e.registerTypeError(err.Error(), lineInfo)
+	} else {
+		if !canBeUsedAsBool(condType) {
+			e.registerTypeError("Condition doesn't have bool-ish value", lineInfo)
+		}
+	}
+}
+
+func (e *Engine) checkSwitchExpression(expr ast.Expression, lineInfo ast.LineInfo) Ctype {
+	if condType, err := e.getTypeOfExpression(expr); err != nil {
+		e.registerTypeError(err.Error(), lineInfo)
+		return condType
+	} else {
+		if !canBeUsedAsBool(condType) {
+			e.registerTypeError("Condition doesn't have bool-ish value", lineInfo)
+		}
+	}
+	return VOID_POINTER // TODO
+}
+
+func (e *Engine) handleStatement(stmnt ast.Statement, ctx StatementContext) {
+	if ctx.ExpectsCase {
+		switch stmnt.(type) {
+		case ast.CaseLabeledStatement, ast.DefaultLabeledStatement:
+		default:
+			e.registerTypeError("Expected case or default statement", ast.LineInfo{}) // TODO lineinfo
+		}
+	}
+	switch s := stmnt.(type) {
+	case ast.CompoundStatement:
+		e.symtab.EnterScope()
+		defer e.symtab.LeaveScope()
+		e.handleCompoundStatement(&s, ctx)
+	case ast.CaseLabeledStatement:
+		if !ctx.ExpectsCase {
+			e.registerTypeError("unexpected case statement not inside switch", s.LineInfo)
+		} else {
+			if exprT, err := e.getTypeOfExpression(s.Expression); err != nil {
+				if !isAutomaticallyCastable(exprT, ctx.CaseExpressionType) {
+					e.registerTypeError("Invalid type of case expression", s.LineInfo)
+				}
+			}
+			e.handleStatement(s.Statement, ctx.WithDisallowedCase())
+		}
+	case ast.DefaultLabeledStatement:
+		if !ctx.ExpectsCase {
+			e.registerTypeError("unexpected default statement not inside switch", s.LineInfo)
+		} else {
+			e.handleStatement(s.Statement, ctx.WithDisallowedCase())
+		}
+	case ast.IdentifierLabeledStatement:
+		if e.funcGotoLabels.Has(s.Identifier) {
+			e.registerTypeError("Illegal multiple usage of same label", s.LineInfo)
+		} else {
+			e.funcGotoLabels.Add(s.Identifier)
+		}
+		e.handleStatement(s.Statement, ctx)
+	case ast.ExpressionStatement:
+		if s.Expression != nil {
+			if _, err := e.getTypeOfExpression(s.Expression); err != nil {
+				e.registerTypeError(err.Error(), s.LineInfo)
+			}
+		}
+	case ast.IfSelectionStatement:
+		e.checkCondition(s.Condition, s.LineInfo)
+		e.handleStatement(s.IfStatement, ctx)
+		if s.ElseStatement != nil {
+			e.handleStatement(s.ElseStatement, ctx)
+		}
+	case ast.SwitchSelectionStatement:
+		switchExprT := e.checkSwitchExpression(s.SwitchExpression, s.LineInfo)
+		e.handleStatement(s.SwitchBody, ctx.WithAllowedBreak().And().WithExpectedCase(switchExprT))
+	case ast.WhileIterationStatement:
+		e.checkCondition(s.Condition, s.LineInfo)
+		e.handleStatement(s.Body, ctx.WithAllowedBreak())
+	case ast.DoWhileIterationStatement:
+		e.checkCondition(s.Condition, s.LineInfo)
+		e.handleStatement(s.Body, ctx.WithAllowedBreak())
+	case ast.ForIterationStatement:
+		e.handleStatement(s.Initializer, ctx)
+		if s.Condition.Expression != nil {
+			e.checkCondition(s.Condition.Expression, s.LineInfo)
+		}
+		if s.Updater != nil {
+			if _, err := e.getTypeOfExpression(s.Updater); err != nil {
+				e.registerTypeError(err.Error(), s.LineInfo)
+			}
+		}
+		e.handleStatement(s.Body, ctx.WithAllowedBreak())
+	case ast.LoopControlJumpStatement:
+		if !ctx.CanUseBreak {
+			// TODO this (and a couple of others) should probably be semantic error
+			e.registerTypeError("Illegal break not inside in loop or switch", s.LineInfo)
+		}
+	case ast.GotoJumpStatement:
+		e.funcGotosToCheck.Add(s.Label)
+	case ast.ReturnJumpStatement:
+		if s.Expression != nil {
+			if exprT, err := e.getTypeOfExpression(s.Expression); err != nil {
+				e.registerTypeError(err.Error(), s.LineInfo)
+			} else if !isAutomaticallyCastable(exprT, ctx.RequiredReturnType) {
+				e.registerTypeError("Uncompatible return type", s.LineInfo)
+			}
+		} else {
+			if !isVoid(ctx.RequiredReturnType) {
+				e.registerTypeError("Expected return value", s.LineInfo)
+			}
+		}
+	}
+}
+
+func (e *Engine) handleCompoundStatement(cs *ast.CompoundStatement, ctx StatementContext) {
+	if cs.DeclarationList != nil {
+		e.addSymbolsFromDeclarationListToCurrentScope(cs.DeclarationList)
+	}
+	if cs.StatementList != nil {
+		for _, stmnt := range cs.StatementList.Statements {
+			e.handleStatement(stmnt, ctx)
+		}
+	}
+}
+
+func (e *Engine) handleFunctionDefinition(fun *ast.FunctionDefinition) {
+	e.funcGotoLabels = utils.NewSet[string]()
+	e.funcGotosToCheck = utils.NewSet[string]()
+	fdef := e.createFunctionDefinition(fun)
+	if overloads, isOverloaded := e.funcdefs[fdef.Name]; isOverloaded {
+		if hasExactlySameOverload(&fdef, overloads) {
+			e.registerTypeError("redefinition of function with same name and argument types", fun.LineInfo)
+		} else {
+			overloads = append(overloads, &fdef)
+		} 
+	} else {
+		e.funcdefs[fdef.Name] = []*FunctionDefinition{&fdef}
+	}
+	e.symtab.EnterScope()
+	defer e.symtab.LeaveScope()
+	for paramNum := range fdef.ParamTypes {
+		e.defineSymbol(Symbol{Name: fdef.ParamNames[paramNum], Type: fdef.ParamTypes[paramNum]})
+	}
+	e.handleCompoundStatement(fun.Body, StatementContext{
+		CanUseBreak: false,
+		ExpectsCase: false,
+		RequiredReturnType: fdef.ReturnType,
+	})
+
+	for _, label := range e.funcGotosToCheck.GetAll() {
+		if !e.funcGotoLabels.Has(label) {
+			e.registerTypeError("Undefined label", fun.LineInfo) // TODO more specific line info
+		}
+	}
+}
+
 func (e *Engine) handleTopLevelDeclaration(dec *ast.Declaration) {
 	definedSymbols := e.getSymbolsForTopLevelDeclarationAndDefineNewTypes(dec)
 	for _, sym := range definedSymbols {
@@ -668,19 +929,15 @@ func (e *Engine) handleTopLevelDeclaration(dec *ast.Declaration) {
 	}
 }
 
-func (e *Engine) enterGlobalScope() {
-	e.symtab.EnterScope()
-}
-
 func (e *Engine) DefineTypesAndRunTypeChecking(root *ast.TranslationUnit) {
 	e.typeErrors = make([]error, 0)
-	e.enterGlobalScope()
 	for _, dec := range root.ExternalDeclarations {
 		switch declaration := dec.(type) {
 		case ast.FunctionDefinition:
-			e.augmentFunctionDefinition(&declaration)
+			e.handleFunctionDefinition(&declaration)
 		case ast.Declaration:
 			e.handleTopLevelDeclaration(&declaration)
 		}
 	}
+	fmt.Println(e.typeErrors)
 }

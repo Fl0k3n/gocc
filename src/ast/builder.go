@@ -152,6 +152,7 @@ func (ab *Builder) buildPostfixExpression(prod *grammars.Production) (node Node,
 			node = fcpe
 		}
 	case "PTR_OP", ".":
+		ident := ab.tokenStack.Pop().V
 		ab.tokenStack.Pop()
 		expr := ab.reductionStack.Pop().(Expression)
 		var accessMethod AccessMethod
@@ -163,7 +164,7 @@ func (ab *Builder) buildPostfixExpression(prod *grammars.Production) (node Node,
 		sape := StructAccessPostfixExpression{
 			StructAccessor: expr,
 			AccessMethod: accessMethod,
-			FieldIdentifier: ab.tokenStack.Pop().V,
+			FieldIdentifier: ident,
 		}
 		sape.LineInfo = ab.lineInfoFor(sape)
 		node = sape
@@ -253,15 +254,15 @@ func (ab *Builder) buildCastExpression(prod *grammars.Production) (node Node, er
 	return
 }
 
-func (ab *Builder) buildBinaryExpress() (lhs Node, rhs Node, op string) {
-	op = ab.tokenStack.Pop().V
+func (ab *Builder) buildBinaryExpression() (lhs Node, rhs Node, op string) {
+	op = ab.tokenStack.Pop().T
 	rhs = ab.reductionStack.Pop()
 	lhs = ab.reductionStack.Pop()
 	return
 }
 
 func (ab *Builder) buildArithmeticBinaryExpression(prod *grammars.Production) (node Node, err error) {
-	op := ab.tokenStack.Pop().V
+	op := ab.tokenStack.Pop().T
 	rhs := ab.reductionStack.Pop().(Expression)
 	lhs := ab.reductionStack.Pop().(Expression)
 	
@@ -294,7 +295,7 @@ func (ab *Builder) buildAssigmentExpression(prod *grammars.Production) (node Nod
 	rhs := ab.reductionStack.Pop().(Expression)
 	assigmentOp := ab.reductionStack.Pop().(StringPrimitive)
 	lhs := ab.reductionStack.Pop().(Expression)
-	n := AssigmentExpression{
+	n := AssignmentExpression{
 		LhsExpression: lhs,
 		Operator: assigmentOp.Val,
 		RhsExpression: rhs,
@@ -440,7 +441,7 @@ func (ab *Builder) buildExpressionStatement(prod *grammars.Production) (node Nod
 	} else {
 		expr := ab.reductionStack.Pop().(Expression)
 		n := ExpressionStatement{
-			Expression: &expr,
+			Expression: expr,
 		}
 		n.LineInfo = ab.lineInfoFor(n)
 		node = n
@@ -785,8 +786,7 @@ func (ab *Builder) buildStructDeclaratorList(prod *grammars.Production) (node No
 func (ab *Builder) buildStructDeclarator(prod *grammars.Production) (node Node, err error) {
 	var expr Expression = nil
 	if prod.To[len(prod.To) - 1].Val == "constant_expression" {
-		e := ab.reductionStack.Pop().(Expression)
-		expr = &e
+		expr = ab.reductionStack.Pop().(Expression)
 		ab.tokenStack.Pop()
 	}
 	decl := ab.reductionStack.Pop().(Declarator)

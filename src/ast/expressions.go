@@ -95,7 +95,7 @@ type ConditionalExpression struct {
 	LineInfo
 }
 
-type AssigmentExpression struct {
+type AssignmentExpression struct {
 	LhsExpression Expression
 	Operator string
 	RhsExpression Expression

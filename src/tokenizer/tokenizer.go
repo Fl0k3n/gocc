@@ -23,6 +23,7 @@ type Tokenizer struct {
 	panicOnFailedAdvance bool
 	moveBackRequestsCounter int
 	typeNames *utils.Set[string]
+	lastParsed Token
 }
 
 func New(inputPath string, grammar *grammars.Grammar) (*Tokenizer, error) {
@@ -80,6 +81,11 @@ func (this *Tokenizer) getNextToken() Token {
 
 	lastIdx := nextIndexOfNotToken(this.currentLine, startIdx)
 	tokenVal := this.currentLine[startIdx:lastIdx]
+	// ugly workaroud for tokenizing struct accessors, we must allow \s.abc to be a one token but v.z to be 3 tokens
+	if this.lastParsed.T == "IDENTIFIER" && strings.HasPrefix(tokenVal, ".") {
+		tokenVal = "."
+		lastIdx = startIdx + 1
+	}
 	this.lineParseIdx = nextIndexOfNotSpace(this.currentLine, lastIdx)
 	
 	if this.typeNames.Has(tokenVal) {
@@ -144,6 +150,7 @@ func (this *Tokenizer) Advance() {
 	}
 
 	token := this.getNextToken()
+	this.lastParsed = token
 	this.buff.Append(token)
 }
 
