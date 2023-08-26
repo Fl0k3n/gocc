@@ -941,3 +941,11 @@ func (e *Engine) DefineTypesAndRunTypeChecking(root *ast.TranslationUnit) {
 	}
 	fmt.Println(e.typeErrors)
 }
+
+func (e *Engine) GetTypeOfExpression(expression ast.Expression) Ctype {
+	t, err := e.getTypeOfExpression(expression)
+	if err != nil {
+		panic("unexpected err")
+	}
+	return t
+}

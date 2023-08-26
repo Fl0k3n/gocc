@@ -12,7 +12,7 @@ type BuiltinGreaterRule struct {
 	lower Builtin
 }
 
-// must define strict partial order in builtins set
+// must define strict partial order in the builtins set
 var builtinRules = []BuiltinGreaterRule{
 	{LONG_DOUBLE, DOUBLE},
 	{DOUBLE, FLOAT},
@@ -461,6 +461,6 @@ func getFunctionOverloadSatisfyingArgs(candidates []*FunctionDefinition, args []
 	} else if len(feasibleCandidates) == 0 {
 		return nil, errors.New("No overload matching given arguments")
 	} else {
-		return nil, errors.New("Multiple ovearloads match given arguments")
+		return nil, errors.New("Multiple overloads match given arguments")
 	}
 }

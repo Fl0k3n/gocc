@@ -4,6 +4,7 @@ use (
 	.
 	./ast
 	./grammar
+	./ir
 	./parser
 	./symtab
 	./tokenizer

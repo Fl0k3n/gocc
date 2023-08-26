@@ -10,7 +10,7 @@ import (
 )
 
 func testGrammarReader() {
-	grammarReader, err := grammars.NewReader("../resources/ansi_c_grammar.y")
+	grammarReader, err := grammars.NewReader("../resources/ansi_c_grammar")
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -25,7 +25,7 @@ func testGrammarReader() {
 }
 
 func testTokenizer() {
-	grammarReader, err := grammars.NewReader("../resources/ansi_c_grammar.y")
+	grammarReader, err := grammars.NewReader("../resources/ansi_c_grammar")
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -65,7 +65,7 @@ func testTableBuilder() {
 		StringsToTokenTypes: map[string]string{"a": "a", "b": "b"},
 		RegexesToTokenTypes: make(map[*regexp.Regexp]string),
 	}
-	// grammarReader, err := grammars.NewReader("../resources/ansi_c_grammar.y")
+	// grammarReader, err := grammars.NewReader("../resources/ansi_c_grammar")
 	// if err != nil {
 	// 	fmt.Println(err)
 	// 	return
@@ -100,7 +100,7 @@ func testTableBuilder2() {
 		StringsToTokenTypes: map[string]string{"=": "a", "b": "b"},
 		RegexesToTokenTypes: make(map[*regexp.Regexp]string),
 	}
-	// grammarReader, err := grammars.NewReader("../resources/ansi_c_grammar.y")
+	// grammarReader, err := grammars.NewReader("../resources/ansi_c_grammar")
 	// if err != nil {
 	// 	fmt.Println(err)
 	// 	return
@@ -170,7 +170,7 @@ func testParserSimple2() {
 }
 
 func testParser() {
-	grammarReader, err := grammars.NewReader("../resources/ansi_c_grammar.y")
+	grammarReader, err := grammars.NewReader("../resources/ansi_c_grammar")
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -200,7 +200,7 @@ func testParser() {
 }
 
 func serializeTables() {
-	grammarReader, err := grammars.NewReader("../resources/ansi_c_grammar.y")
+	grammarReader, err := grammars.NewReader("../resources/ansi_c_grammar")
 	if err != nil {
 		fmt.Println(err)
 		return

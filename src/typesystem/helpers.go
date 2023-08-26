@@ -14,6 +14,12 @@ type FunctionDefinition struct {
 	ParamNames []string
 }
 
+type SymbolInitializer struct {
+	SymbolName string
+	FieldName *string
+	Initializer *ast.Expression
+}
+
 type StatementContext struct {
 	CanUseBreak bool
 	ExpectsCase bool

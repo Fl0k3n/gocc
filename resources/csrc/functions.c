@@ -17,6 +17,10 @@ struct D {
     int v;
 };
 
+int func(int* v) {
+    return *v;
+}
+
 int a(int b) {
     int i = 0;
     struct D dd = {
@@ -28,6 +32,15 @@ int a(int b) {
         if ((i % 2) != 0) {
             return 1;
         }
+    }
+    do {
+        d->v++;
+    } while (1);
+    if (func(&i)) {
+        return 0;
+    }
+    else {
+        return 1;
     }
     return 0;
 }
