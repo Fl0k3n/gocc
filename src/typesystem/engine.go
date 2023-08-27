@@ -449,6 +449,15 @@ func (e *Engine) getTypeOfExpression(expression ast.Expression) (Ctype, error) {
 	case ast.IdentifierExpression:
 		if sym, ok := e.symtab.Lookup(expr.Identifier); ok {
 			return sym.Type, nil
+		} else if fdef, ok := e.funcdefs[expr.Identifier]; ok { 
+			// TODO cleanup overloading code
+			f := fdef[0]
+			return FunctionPtrCtype{
+				name: f.Name,
+				ReturnType: f.ReturnType,
+				ParamTypes: f.ParamTypes,
+				ParamNames: f.ParamNames,
+			}, nil
 		} else {
 			return nil, errors.New("Undefined identifier " + expr.Identifier)
 		}
@@ -499,17 +508,17 @@ func (e *Engine) getTypeOfExpression(expression ast.Expression) (Ctype, error) {
 			}
 		} 
 		if t, err := e.getTypeOfExpression(expr.FunctionAccessor); err != nil {
-			if identExpr, isIdentExpr := expr.FunctionAccessor.(ast.IdentifierExpression); isIdentExpr {
-				if overloadedFuncs, ok := e.funcdefs[identExpr.Identifier]; ok {
-					choosenFunc, err := getFunctionOverloadSatisfyingArgs(overloadedFuncs, argTypes)
-					if err != nil {
-						return nil, err
-					}
-					return choosenFunc.ReturnType, nil
-				}
-			} else {
-				return nil, err
-			}
+			// if identExpr, isIdentExpr := expr.FunctionAccessor.(ast.IdentifierExpression); isIdentExpr {
+			// 	if overloadedFuncs, ok := e.funcdefs[identExpr.Identifier]; ok {
+			// 		choosenFunc, err := getFunctionOverloadSatisfyingArgs(overloadedFuncs, argTypes)
+			// 		if err != nil {
+			// 			return nil, err
+			// 		}
+			// 		return choosenFunc.ReturnType, nil
+			// 	}
+			// } else {
+			return nil, err
+			// }
 		} else {
 			if f, isFunc := t.(FunctionPtrCtype); isFunc {
 				if len(f.ParamTypes) != len(argTypes) {

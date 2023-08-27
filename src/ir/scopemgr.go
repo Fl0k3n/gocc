@@ -56,3 +56,7 @@ func (s *ScopeManager) newTemp(t types.Ctype) *Symbol {
 	name := fmt.Sprintf("%dt", tmpCounter)
 	return s.symtab.DefineNewOfType(name, TEMP, t)
 }
+
+func (s *ScopeManager) IsUsingFunctionPointerCall(expr ast.FunctionCallPostfixExpression) bool {
+	return s.typesystem.IsUsingFunctionPointer(expr)
+}

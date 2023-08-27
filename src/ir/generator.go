@@ -2,6 +2,7 @@ package irs
 
 import (
 	"ast"
+	"grammars"
 	"types"
 	"utils"
 )
@@ -69,10 +70,70 @@ func (g *IRGenerator) moveByIntOffset(base *Symbol, offset int) *Symbol {
 	return g.moveByOffset(base, offsetSym)
 }
 
-func (g *IRGenerator) getAddressOfStruct(structSymbol *Symbol) *Symbol {
-	res := g.scopeMgr.newTemp(types.PointerCtype{Target: structSymbol.Ctype})
-	g.writer.WriteAddressUnaryOperation(res, structSymbol)
+func (g *IRGenerator) getAddress(sym *Symbol) *Symbol {
+	res := g.scopeMgr.newTemp(types.PointerCtype{Target: sym.Ctype})
+	g.writer.WriteAddressUnaryOperation(res, sym)
 	return res
+}
+
+func (g *IRGenerator) dereference(sym *Symbol) *Symbol {
+	resT := sym.Ctype.(types.PointerCtype)
+	res := g.scopeMgr.newTemp(resT.Target)
+	g.writer.WriteDereferenceUnaryOperation(res, sym)
+	return res
+}
+
+func (g *IRGenerator) incrementOrDecrement(sym *Symbol, operator ast.IncDecOperator) *Symbol {
+	res := g.scopeMgr.newTemp(sym.Ctype)
+	valSymbol := g.makeIntConst(1)
+	if operator == ast.INC {
+		g.writer.WirteBinaryAddition(res, sym, valSymbol)
+	} else {
+		g.writer.WirteBinarySubtraction(res, sym, valSymbol)
+	}
+	return res
+}
+
+func (g *IRGenerator) negate(sym *Symbol) *Symbol {
+	res := g.scopeMgr.newTemp(sym.Ctype)
+	zero := g.makeIntConst(0)
+	zero.Ctype = sym.Ctype
+	g.writer.WirteBinarySubtraction(res, zero, sym)
+	return res
+}
+
+func (g *IRGenerator) makeUnaryCast(sym *Symbol, operator string) *Symbol {
+	switch operator {
+	case "&":
+		return g.getAddress(sym)
+	case "*":
+		return g.dereference(sym)
+	case "+":
+		return sym
+	case "-":
+		return g.negate(sym)
+	case "~":
+		res := g.scopeMgr.newTemp(sym.Ctype)
+		g.writer.WriteBitwiseNegationUnaryOperation(res, sym)
+		return res
+	case "!":
+		res := g.scopeMgr.newTemp(types.BuiltinFrom("int")) // TODO integral of size equal to sym, or byte
+		g.writer.WriteLogicalNegationUnaryOperation(res, sym)
+		return res
+	}
+	panic("unexpected unary cast operator " + operator)
+}
+
+func (g *IRGenerator) typeCast(sym *Symbol, resultType types.Ctype) *Symbol {
+	// TODO
+	return sym
+}
+
+func (g *IRGenerator) simplifyAssignment(lhs *Symbol, rhs *Symbol, operator string) *Symbol {
+	binaryOp := grammars.ConvertAssignmentOpToBinaryOp(operator)
+	simplified := g.scopeMgr.newTemp(lhs.Ctype) // TODO cast???
+	g.writer.WirteBinaryOperation(simplified, lhs, binaryOp, rhs)
+	return simplified
 }
 
 func (g *IRGenerator) generateExpressionAndGetResultSymbol(expression ast.Expression) *Symbol {
@@ -113,28 +174,83 @@ func (g *IRGenerator) generateExpressionAndGetResultSymbol(expression ast.Expres
 		// TODO type casting
 		return g.moveByOffset(arrBaseSymbol, dimensionSymbols.Pop())	
 	case ast.FunctionCallPostfixExpression:
-	case ast.StructAccessPostfixExpression:
-		if expr.AccessMethod == ast.POINTER_ACCESS {
-			
-		} else {
-			structSymbol := g.generateExpressionAndGetResultSymbol(expr.StructAccessor)
-			structType := g.typesystem.GetTypeOfExpression(expr.StructAccessor).(types.StructCtype)
-			fieldType, fieldOffset := structType.Field(expr.FieldIdentifier)
-			res := g.moveByIntOffset(structSymbol, fieldOffset)
-			res.Ctype = fieldType
-			return res
+		funcSymbol := g.generateExpressionAndGetResultSymbol(expr.FunctionAccessor)
+		funcType := funcSymbol.Ctype.(types.FunctionPtrCtype)
+		var returnSymbol *Symbol = nil
+		if !g.typesystem.ReturnsVoid(funcType) {
+			returnSymbol = g.scopeMgr.newTemp(funcType.ReturnType)
 		}
+		args := []*Symbol{}
+		if expr.Args != nil {
+			for _, argExpr := range expr.Args.Expressions {
+				args = append(args, g.generateExpressionAndGetResultSymbol(argExpr))
+			}
+		}
+		g.writer.WriteFunctionCall(funcSymbol, returnSymbol, args)
+		return returnSymbol // this can be nil but typesystem guarantess that if it is it will never be used
+	case ast.StructAccessPostfixExpression:
+		var structSymbol *Symbol
+		if expr.AccessMethod == ast.POINTER_ACCESS {
+			structPtrSymbol := g.generateExpressionAndGetResultSymbol(expr.StructAccessor)
+			structSymbol = g.dereference(structPtrSymbol)
+		} else {
+			structSymbol = g.generateExpressionAndGetResultSymbol(expr.StructAccessor)
+		}
+		structType := structSymbol.Ctype.(types.StructCtype)
+		fieldType, fieldOffset := structType.Field(expr.FieldIdentifier)
+		res := g.moveByIntOffset(structSymbol, fieldOffset)
+		res.Ctype = fieldType
+		return res
+	case ast.IncDecPostfixExpression:
+		symbolToIncDec := g.generateExpressionAndGetResultSymbol(expr.PostfixExpression)
+		return g.incrementOrDecrement(symbolToIncDec, expr.Operator)
+	case ast.IncDecUnaryExpression:
+		symbolToIncDec := g.generateExpressionAndGetResultSymbol(expr.UnaryExpression)
+		return g.incrementOrDecrement(symbolToIncDec, expr.Operator)
+	case ast.CastUnaryExpression:
+		symToCast := g.generateExpressionAndGetResultSymbol(expr.CastExpression)
+		return g.makeUnaryCast(symToCast, expr.Operator)
+	case ast.SizeofUnaryExpression:
+		var nestedExprT types.Ctype
+		if expr.NestedUnaryExpression != nil {
+			nestedExprT = g.typesystem.GetTypeOfExpression(expr.NestedUnaryExpression)
+		} else {
+			nestedExprT = g.typesystem.ConvertToCtype(expr.TypeName)
+		}
+		res := g.makeIntConst(nestedExprT.Size())
+		res.Ctype = exprT
+		return res
+	case ast.TypeCastCastExpression:
+		initialSym := g.generateExpressionAndGetResultSymbol(expr.Expression)
+		return g.typeCast(initialSym, exprT)
+	case ast.BinaryArithmeticExpression:
+		leftOperand := g.generateExpressionAndGetResultSymbol(expr.LhsExpression)
+		rightOperand := g.generateExpressionAndGetResultSymbol(expr.RhsExpression)
+		// TODO type cast
+		res := g.scopeMgr.newTemp(exprT)
+		g.writer.WirteBinaryOperation(res, leftOperand, expr.Operator, rightOperand)
+		return res
+	case ast.ConditionalExpression:
+		// TODO
+	case ast.AssignmentExpression:
+		lhs := g.generateExpressionAndGetResultSymbol(expr.LhsExpression)
+		rhs := g.generateExpressionAndGetResultSymbol(expr.RhsExpression)
+		if expr.Operator != "=" {
+			rhs = g.simplifyAssignment(lhs, rhs, expr.Operator)
+		}
+		// TODO cast rhs?
+		g.writer.WriteBiSymbolAssignment(lhs, rhs)
+		return lhs
 	}
+	panic("Unexpected expression")
 }
 
-func (g *IRGenerator) generateExpressionAndAssignResultTo(sym *Symbol, expr ast.Expression) {
+func (g *IRGenerator) generateExpressionAndAssignResultTo(sym *Symbol, offset int, expr ast.Expression) {
 
 }
 
 func (g *IRGenerator) extractInitializers(dec *ast.Declaration) ([]Symbol, []ast.Expression) {
-	// with linearized structs, meaning that if struct with name s has fields x and y we should have 2 symbols: s.x and s.y
-	// we don't deal with structs as a whole anymore
-	
+	// todo remeber about structs
 	symbolNames, initializers := g.typesystem.getInitializedSymbolNamesWithInitializers(dec)
 	symbols := []Symbol{}
 	for _, name := range symbolNames {
@@ -146,7 +262,7 @@ func (g *IRGenerator) extractInitializers(dec *ast.Declaration) ([]Symbol, []ast
 func (g *IRGenerator) initializeSymbols(dec *ast.Declaration) {
 	symbols, initializers := g.extractInitializers(dec)
 	for idx := range symbols {
-		g.generateExpressionAndAssignResultTo(&symbols[idx], initializers[idx])
+		g.generateExpressionAndAssignResultTo(&symbols[idx], 9999999999, initializers[idx])
 	}
 }
 
