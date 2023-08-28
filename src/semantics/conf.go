@@ -1,4 +1,4 @@
-package types
+package semantics
 
 type Builtin string
 

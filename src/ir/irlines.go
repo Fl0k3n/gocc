@@ -64,7 +64,7 @@ type FunctionCallLine struct {
 }
 
 func (c *FunctionCallLine) String() string {
-	args := make([]string, len(c.Args))
+	args := make([]string, 0, len(c.Args))
 	for _, arg := range c.Args {
 		args = append(args, arg.Name)
 	}
@@ -75,3 +75,27 @@ func (c *FunctionCallLine) String() string {
 	return fmt.Sprintf("Call %s with (%s)%s", c.FunctionSymbol.Name, strings.Join(args, ", "), returnString)
 }
 
+type LabelLine struct {
+	Label string
+}
+
+func (c *LabelLine) String() string {
+	return "." + c.Label
+}
+
+type IfGotoLine struct {
+	TargetLabel string
+	ConditionSymbol *Symbol
+}
+
+func (c *IfGotoLine) String() string {
+	return fmt.Sprintf("IFZ %s goto %s", c.ConditionSymbol.Name, c.TargetLabel)
+}
+
+type GotoLine struct {
+	TargetLabel string
+}
+
+func (c *GotoLine) String() string {
+	return fmt.Sprintf("goto %s", c.TargetLabel)
+}

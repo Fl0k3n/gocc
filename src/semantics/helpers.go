@@ -1,4 +1,4 @@
-package types
+package semantics
 
 import (
 	"ast"
@@ -14,42 +14,16 @@ type FunctionDefinition struct {
 	ParamNames []string
 }
 
+type SymbolDeclaration struct {
+	Name string
+	T Ctype
+	Initializer *ast.Initializer
+}
+
 type SymbolInitializer struct {
 	SymbolName string
 	FieldName *string
 	Initializer *ast.Expression
-}
-
-type StatementContext struct {
-	CanUseBreak bool
-	ExpectsCase bool
-	CaseExpressionType Ctype
-	RequiredReturnType Ctype
-}
-
-func (sc StatementContext) WithAllowedBreak() StatementContext {
-	sc.CanUseBreak = true
-	return sc
-}
-
-func (sc StatementContext) WithDisallowedBreak() StatementContext {
-	sc.CanUseBreak = false
-	return sc
-}
-
-func (sc StatementContext) WithExpectedCase(caseExprType Ctype) StatementContext {
-	sc.ExpectsCase = true
-	sc.CaseExpressionType = caseExprType
-	return sc
-}
-
-func (sc StatementContext) WithDisallowedCase() StatementContext {
-	sc.ExpectsCase = true
-	return sc
-}
-
-func (sc StatementContext) And() StatementContext {
-	return sc
 }
 
 type Symbol struct {
@@ -108,42 +82,6 @@ func extractStructFieldInitializerIdentifierName(ae *ast.AssignmentExpression) (
 		return ident[1:], nil
 	}
 	return "", errors.New("Expression is not an identifier")
-}
-
-func evalConstantIntegerExpression(expr ast.Expression) (int, error) {
-	var err error
-	if valExpr, isValExpr := expr.(ast.ConstantValExpression); isValExpr {
-		exprT := getTypeOfConstantValExpression(valExpr)
-		// TODO allow long?
-		if exprT.Builtin == INT {
-			return evalIntVal(valExpr.Constant)
-		} else if exprT.Builtin == UNSIGNED_INT {
-			return evalIntVal(valExpr.Constant[:len(valExpr.Constant) - 1])
-		}
-		err = errors.New("Expression is not integral const")
-	} else if arithmExpr, isArithm := expr.(ast.BinaryArithmeticExpression); isArithm {
-		var v1, v2 int
-		if v1, err = evalConstantIntegerExpression(arithmExpr.LhsExpression); err != nil {
-			goto onerr
-		}
-		if v2, err = evalConstantIntegerExpression(arithmExpr.RhsExpression); err != nil {
-			goto onerr
-		}
-		return applyArithmeticOperator(v1, v2, arithmExpr.Operator)
-	} else if unaryExpr, isUnary := expr.(ast.CastUnaryExpression); isUnary {
-		var v int
-		// TODO should this be allowed?
-		if unaryExpr.Operator == "-" {
-			if v, err = evalConstantIntegerExpression(unaryExpr.CastExpression); err != nil {
-				goto onerr
-			}
-			return -1 * v, nil
-		} else {
-			err = errors.New("Unsupported compile time unary operator " + unaryExpr.Operator)
-		}
-	}
-onerr:
-	return 0, err
 }
 
 // only +, -, *, /, %

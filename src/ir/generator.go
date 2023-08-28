@@ -3,51 +3,51 @@ package irs
 import (
 	"ast"
 	"grammars"
-	"types"
-	"utils"
+	"semantics"
 )
 
 type IRGenerator struct {
 	scopeMgr *ScopeManager
-	typesystem *types.Engine
+	typeEngine *semantics.TypeEngine
 	writer *Writer
+	labels *LabelProvider
+	curFunctionName string
 }
 
 func NewGenerator() *IRGenerator {
+	scopeMgr := newScopeManager(nil)
+	typeEngine := semantics.NewEngine(scopeMgr, semantics.NewErrorTracker())
+	scopeMgr.typeEngine = typeEngine // TODO untangle dependencies
 	return &IRGenerator{
-		scopeMgr: newScopeManager(),
+		scopeMgr: scopeMgr,
 		writer: NewWriter(),
+		typeEngine: typeEngine,
+		labels: newLabelProvider(),
 	}
 }
 
-func (g *IRGenerator) flattenArrayAccessor(array types.ArrayCtype, dimensionSymbols *utils.Stack[*Symbol]) {
-	for dimIdx := 0; dimensionSymbols.Size() > 1; dimIdx++ {
-		rightSymbol := dimensionSymbols.Pop()
-		leftSymbol := dimensionSymbols.Pop()
+func (g *IRGenerator) flattenArrayAccessor(array semantics.ArrayCtype, dimensionSymbols []*Symbol) *Symbol {
+	partialSumSymbol := dimensionSymbols[0]
+	curMult := 1
+	for i := 1; i < len(dimensionSymbols); i++ {
+		curMult *= array.DimensionSizes[len(array.DimensionSizes) - i]
+		nextIdx := dimensionSymbols[i]
+		multipliedNextIdx := g.multiplyByIntConst(nextIdx, curMult)
+		mergedSymbol := g.scopeMgr.newTemp(partialSumSymbol.Ctype)
+		g.writer.WirteBinaryAddition(mergedSymbol, partialSumSymbol, multipliedNextIdx)
 		// from -> to
-		if g.typesystem.ShouldBeUpCasted(leftSymbol, rightSymbol) {
+		// if g.typeEngine.ShouldBeUpCasted(leftSymbol, rightSymbol) {
 			// leftSymbol = g.cast(leftSymbol, rightSymbol.Ctype)
-		} else if g.typesystem.ShouldBeUpCasted(rightSymbol, leftSymbol) {
+		// } else if g.typeEngine.ShouldBeUpCasted(rightSymbol, leftSymbol) {
 			// rightSymbol = g.cast(rightSymbol, leftSymbol.Ctype)
-		}
-
-		multipliedLeftSymbol := g.multiplyByIntConst(leftSymbol, array.DimensionSizes[dimIdx])
-		mergedSymbol := g.scopeMgr.newTemp(leftSymbol.Ctype)
-		g.writer.WirteBinaryAddition(mergedSymbol, multipliedLeftSymbol, rightSymbol)
-		dimensionSymbols.Push(mergedSymbol)
+		// }
+		partialSumSymbol = mergedSymbol
 	}
-}
-
-func (g *IRGenerator) getNestedTypeSize(arrOrPtrT types.Ctype) int {
-	if arr, isArr := arrOrPtrT.(types.ArrayCtype); isArr {
-		return arr.NestedType.Size()
-	} else {
-		return arrOrPtrT.(types.PointerCtype).Target.Size()
-	}
+	return partialSumSymbol
 }
 
 func (g *IRGenerator) makeIntConst(c int) *Symbol {
-	res := g.scopeMgr.newTemp(types.BuiltinFrom("int")) // TODO ?
+	res := g.scopeMgr.newTemp(semantics.BuiltinFrom("int")) // TODO ?
 	g.writer.WriteIntAssignment(res, c)
 	return res
 }
@@ -71,13 +71,13 @@ func (g *IRGenerator) moveByIntOffset(base *Symbol, offset int) *Symbol {
 }
 
 func (g *IRGenerator) getAddress(sym *Symbol) *Symbol {
-	res := g.scopeMgr.newTemp(types.PointerCtype{Target: sym.Ctype})
+	res := g.scopeMgr.newTemp(semantics.PointerCtype{Target: sym.Ctype})
 	g.writer.WriteAddressUnaryOperation(res, sym)
 	return res
 }
 
 func (g *IRGenerator) dereference(sym *Symbol) *Symbol {
-	resT := sym.Ctype.(types.PointerCtype)
+	resT := sym.Ctype.(semantics.PointerCtype)
 	res := g.scopeMgr.newTemp(resT.Target)
 	g.writer.WriteDereferenceUnaryOperation(res, sym)
 	return res
@@ -117,14 +117,14 @@ func (g *IRGenerator) makeUnaryCast(sym *Symbol, operator string) *Symbol {
 		g.writer.WriteBitwiseNegationUnaryOperation(res, sym)
 		return res
 	case "!":
-		res := g.scopeMgr.newTemp(types.BuiltinFrom("int")) // TODO integral of size equal to sym, or byte
+		res := g.scopeMgr.newTemp(semantics.BuiltinFrom("int")) // TODO integral of size equal to sym, or byte
 		g.writer.WriteLogicalNegationUnaryOperation(res, sym)
 		return res
 	}
 	panic("unexpected unary cast operator " + operator)
 }
 
-func (g *IRGenerator) typeCast(sym *Symbol, resultType types.Ctype) *Symbol {
+func (g *IRGenerator) typeCast(sym *Symbol, resultType semantics.Ctype) *Symbol {
 	// TODO
 	return sym
 }
@@ -137,7 +137,7 @@ func (g *IRGenerator) simplifyAssignment(lhs *Symbol, rhs *Symbol, operator stri
 }
 
 func (g *IRGenerator) generateExpressionAndGetResultSymbol(expression ast.Expression) *Symbol {
-	exprT := g.typesystem.GetTypeOfExpression(expression)
+	exprT := g.typeEngine.GetTypeOfExpression(expression)
 	switch expr := expression.(type) {
 	case ast.IdentifierExpression:
 		return g.scopeMgr.getSymbol(expr.Identifier)
@@ -151,33 +151,34 @@ func (g *IRGenerator) generateExpressionAndGetResultSymbol(expression ast.Expres
 		return resSymbol
 	case ast.ArrayAccessPostfixExpression:
 		curExpr := expr
-		dimensionSymbols := utils.NewStack[*Symbol]()
+		dimensionSymbols := []*Symbol{}
 		for {
-			dimensionSymbols.Push(g.generateExpressionAndGetResultSymbol(curExpr.ArrayExpression))
+			dimensionSymbols = append(dimensionSymbols, g.generateExpressionAndGetResultSymbol(curExpr.ArrayExpression))
 			if nestedExpr, isArrayAccess := curExpr.PostfixExpression.(ast.ArrayAccessPostfixExpression); isArrayAccess {
 				curExpr = nestedExpr
 			} else {
 				break
 			}
 		}
-		arrOrPtrT := g.typesystem.GetTypeOfExpression(curExpr.PostfixExpression)
-		if dimensionSymbols.Size() > 1 {
-			g.flattenArrayAccessor(arrOrPtrT.(types.ArrayCtype), dimensionSymbols)
+		arrOrPtrT := g.typeEngine.GetTypeOfExpression(curExpr.PostfixExpression)
+		var offset *Symbol
+		if len(dimensionSymbols) > 1 {
+			offset = g.flattenArrayAccessor(arrOrPtrT.(semantics.ArrayCtype), dimensionSymbols)
+		} else {
+			offset = dimensionSymbols[0]
 		}
-		if nestedTypeSize := g.getNestedTypeSize(arrOrPtrT); nestedTypeSize > 1 {
-			offset := dimensionSymbols.Pop()
-			multipliedOffset := g.multiplyByIntConst(offset, nestedTypeSize)
-			dimensionSymbols.Push(multipliedOffset)
+		if nestedTypeSize := g.typeEngine.GetNestedTypeSize(arrOrPtrT); nestedTypeSize > 1 {
+			offset = g.multiplyByIntConst(offset, nestedTypeSize)
 		}
 		
 		arrBaseSymbol := g.generateExpressionAndGetResultSymbol(curExpr.PostfixExpression)
 		// TODO type casting
-		return g.moveByOffset(arrBaseSymbol, dimensionSymbols.Pop())	
+		return g.moveByOffset(arrBaseSymbol, offset)	
 	case ast.FunctionCallPostfixExpression:
 		funcSymbol := g.generateExpressionAndGetResultSymbol(expr.FunctionAccessor)
-		funcType := funcSymbol.Ctype.(types.FunctionPtrCtype)
+		funcType := funcSymbol.Ctype.(semantics.FunctionPtrCtype)
 		var returnSymbol *Symbol = nil
-		if !g.typesystem.ReturnsVoid(funcType) {
+		if !g.typeEngine.ReturnsVoid(funcType) {
 			returnSymbol = g.scopeMgr.newTemp(funcType.ReturnType)
 		}
 		args := []*Symbol{}
@@ -196,7 +197,7 @@ func (g *IRGenerator) generateExpressionAndGetResultSymbol(expression ast.Expres
 		} else {
 			structSymbol = g.generateExpressionAndGetResultSymbol(expr.StructAccessor)
 		}
-		structType := structSymbol.Ctype.(types.StructCtype)
+		structType := structSymbol.Ctype.(semantics.StructCtype)
 		fieldType, fieldOffset := structType.Field(expr.FieldIdentifier)
 		res := g.moveByIntOffset(structSymbol, fieldOffset)
 		res.Ctype = fieldType
@@ -211,11 +212,11 @@ func (g *IRGenerator) generateExpressionAndGetResultSymbol(expression ast.Expres
 		symToCast := g.generateExpressionAndGetResultSymbol(expr.CastExpression)
 		return g.makeUnaryCast(symToCast, expr.Operator)
 	case ast.SizeofUnaryExpression:
-		var nestedExprT types.Ctype
+		var nestedExprT semantics.Ctype
 		if expr.NestedUnaryExpression != nil {
-			nestedExprT = g.typesystem.GetTypeOfExpression(expr.NestedUnaryExpression)
+			nestedExprT = g.typeEngine.GetTypeOfExpression(expr.NestedUnaryExpression)
 		} else {
-			nestedExprT = g.typesystem.ConvertToCtype(expr.TypeName)
+			nestedExprT = g.typeEngine.ConvertToCtype(expr.TypeName)
 		}
 		res := g.makeIntConst(nestedExprT.Size())
 		res.Ctype = exprT
@@ -246,28 +247,75 @@ func (g *IRGenerator) generateExpressionAndGetResultSymbol(expression ast.Expres
 }
 
 func (g *IRGenerator) generateExpressionAndAssignResultTo(sym *Symbol, offset int, expr ast.Expression) {
-
-}
-
-func (g *IRGenerator) extractInitializers(dec *ast.Declaration) ([]Symbol, []ast.Expression) {
-	// todo remeber about structs
-	symbolNames, initializers := g.typesystem.getInitializedSymbolNamesWithInitializers(dec)
-	symbols := []Symbol{}
-	for _, name := range symbolNames {
-		symbols = append(symbols, g.scopeMgr.getSymbol(name))
+	resSym := g.generateExpressionAndGetResultSymbol(expr)
+	if offset != 0 {
+		shifted := g.moveByIntOffset(sym, offset)
+		g.writer.WriteBiSymbolAssignment(shifted, resSym)
+	} else {
+		g.writer.WriteBiSymbolAssignment(sym, resSym)
 	}
-	return symbols, initializers
 }
 
 func (g *IRGenerator) initializeSymbols(dec *ast.Declaration) {
-	symbols, initializers := g.extractInitializers(dec)
-	for idx := range symbols {
-		g.generateExpressionAndAssignResultTo(&symbols[idx], 9999999999, initializers[idx])
+	for _, symDef := range g.typeEngine.GetDeclaredSymbols(dec) {
+		variable := g.scopeMgr.newLocalVariable(symDef.Name, symDef.T)
+		if symDef.Initializer != nil {
+			if structT, isStruct := symDef.T.(semantics.StructCtype); isStruct {
+				if symDef.Initializer.Expression != nil {
+					panic("copy entire struct") // TODO
+				} else {
+					fields, expressions := g.typeEngine.GetStructFieldInitializers(structT, symDef.Initializer)
+					for i := range fields {
+						_, offset := structT.Field(fields[i])
+						g.generateExpressionAndAssignResultTo(variable, offset, expressions[i])
+					}
+				}
+			} else {
+				g.generateExpressionAndAssignResultTo(variable, 0, symDef.Initializer.Expression)
+			}
+		}
 	}
 }
 
-func (g *IRGenerator) generateStatement(statement *ast.Statement) {
-
+func (g *IRGenerator) generateStatement(statement ast.Statement) {
+	switch stmnt := statement.(type) {
+	case ast.CompoundStatement:
+		g.scopeMgr.EnterCompoundStatement()
+		defer g.scopeMgr.LeaveCompoundStatement()
+		g.generateCompoundStatement(&stmnt)
+	case ast.CaseLabeledStatement:
+	case ast.DefaultLabeledStatement:
+	case ast.IdentifierLabeledStatement:
+	case ast.ExpressionStatement:
+		g.generateExpressionAndGetResultSymbol(stmnt.Expression)
+	case ast.IfSelectionStatement:
+		cond := g.generateExpressionAndGetResultSymbol(stmnt.Condition)
+		hasElse := stmnt.ElseStatement != nil
+		endifLabel := g.labels.Next(END_IF)
+		var elseLabel string
+		if hasElse {
+			elseLabel = g.labels.Next(ELSE)
+			g.writer.WriteIfgotoLine(cond, elseLabel)
+		} else {
+			g.writer.WriteIfgotoLine(cond, endifLabel)
+		}
+		g.generateStatement(stmnt.IfStatement)
+		if hasElse {
+			g.writer.WriteGotoLine(endifLabel)
+			g.writer.WriteLabel(elseLabel)
+			g.generateStatement(stmnt.ElseStatement)
+		}
+		g.writer.WriteLabel(endifLabel)
+	case ast.SwitchSelectionStatement:
+	case ast.WhileIterationStatement:
+	case ast.DoWhileIterationStatement:
+	case ast.ForIterationStatement:
+	case ast.LoopControlJumpStatement:
+	case ast.GotoJumpStatement:
+	case ast.ReturnJumpStatement:
+	default:
+		panic("Unexpected statement")
+	}
 }
 
 func (g *IRGenerator) generateCompoundStatement(cs *ast.CompoundStatement) {
@@ -278,14 +326,16 @@ func (g *IRGenerator) generateCompoundStatement(cs *ast.CompoundStatement) {
 	}
 	if cs.StatementList != nil {
 		for _, statement := range cs.StatementList.Statements {
-			g.generateStatement(&statement)
+			g.generateStatement(statement)
 		}
 	}
 }
 
 func (g *IRGenerator) GenerateFunction(f *ast.FunctionDefinition) {
-	g.scopeMgr.EnterFunction(f)
+	funName := g.scopeMgr.EnterFunction(f)
 	defer g.scopeMgr.LeaveFunction()
+	g.curFunctionName = funName
+	g.labels.EnterFunction(funName)
 	
 	if f.DeclarationList != nil {
 		panic("todo")
@@ -305,4 +355,5 @@ func (g *IRGenerator) Generate(root *ast.TranslationUnit) {
 			g.GenerateFunction(&ced)
 		}
 	}
+	g.writer.PrintAll()
 }

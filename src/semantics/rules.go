@@ -1,4 +1,4 @@
-package types
+package semantics
 
 import (
 	"ast"
@@ -13,7 +13,7 @@ type BuiltinGreaterRule struct {
 }
 
 // must define strict partial order in the builtins set
-var builtinRules = []BuiltinGreaterRule{
+var _BUILTIN_RULES = []BuiltinGreaterRule{
 	{LONG_DOUBLE, DOUBLE},
 	{DOUBLE, FLOAT},
 	{FLOAT, LONG},
@@ -33,12 +33,10 @@ var builtinRules = []BuiltinGreaterRule{
 // if there exits an edge from node1 to node2 then node1 > node2 wrt the relation above
 type BuiltinRulesGraph map[Builtin]*utils.Set[Builtin]
 
-var builtinRulesGraph BuiltinRulesGraph // TODO wrap all in some struct and dont use this as global
-
-func initBuiltinRulesGraph() {
+func buildBuiltinRulesGraph() BuiltinRulesGraph {
 	G := make(BuiltinRulesGraph)
 	edgeQueue := utils.NewQueue[BuiltinGreaterRule]()
-	for _, br := range builtinRules {
+	for _, br := range _BUILTIN_RULES {
 		edgeQueue.Push(br)
 	}
 	for edgeQueue.Size() > 0 {
@@ -59,11 +57,21 @@ func initBuiltinRulesGraph() {
 			}
 		}
 	}
-	builtinRulesGraph = G
+	return G
+}
+
+type TypeRulesManager struct {
+	builtinRulesGraph BuiltinRulesGraph
+}
+
+func newTypeRulesManager() *TypeRulesManager {
+	return &TypeRulesManager{
+		builtinRulesGraph: buildBuiltinRulesGraph(),
+	}
 }
 
 // exact type match, structs are matched by name, typedefs are not resolved, every array dimension must be equal
-func isSame(t1 Ctype, t2 Ctype) bool {
+func (t *TypeRulesManager) isSame(t1 Ctype, t2 Ctype) bool {
 	switch ct1 := t2.(type) {
 	case StructCtype:
 		if ct2, alsoStruct := t1.(StructCtype); alsoStruct {
@@ -75,11 +83,11 @@ func isSame(t1 Ctype, t2 Ctype) bool {
 		}
 	case PointerCtype:
 		if ct2, alsoPointer := t1.(PointerCtype); alsoPointer {
-			return isSame(ct2.Target, ct1.Target)
+			return t.isSame(ct2.Target, ct1.Target)
 		}
 	case ArrayCtype:
 		if ct2, alsoArray := t1.(ArrayCtype); alsoArray {
-			if isSame(ct2.NestedType, ct1.NestedType) {
+			if t.isSame(ct2.NestedType, ct1.NestedType) {
 				if len(ct1.DimensionSizes) == len(ct2.DimensionSizes) {
 					for dim := range ct1.DimensionSizes {
 						if ct1.DimensionSizes[dim] != ct2.DimensionSizes[dim] {
@@ -92,10 +100,10 @@ func isSame(t1 Ctype, t2 Ctype) bool {
 		}
 	case FunctionPtrCtype:
 		if ct2, alsoFPtr := t1.(FunctionPtrCtype); alsoFPtr {
-			if isSame(ct2.ReturnType, ct1.ReturnType) {
+			if t.isSame(ct2.ReturnType, ct1.ReturnType) {
 				if len(ct2.ParamTypes) == len(ct2.ParamTypes) {
 					for param := range ct2.ParamTypes {
-						if !isSame(ct2.ParamTypes[param], ct1.ParamTypes[param]) {
+						if !t.isSame(ct2.ParamTypes[param], ct1.ParamTypes[param]) {
 							return false
 						}
 					}
@@ -107,14 +115,14 @@ func isSame(t1 Ctype, t2 Ctype) bool {
 	return false
 }
 
-func isIntegralType(t Ctype) bool {
+func (tm *TypeRulesManager) isIntegralType(t Ctype) bool {
 	if b, isBuiltin := t.(BuiltinCtype); isBuiltin {
 		return b.Builtin != VOID && b.Builtin != FLOAT && b.Builtin != DOUBLE && b.Builtin != LONG_DOUBLE
 	}
 	return false
 }
 
-func getBinaryOpType(op string, t1 Ctype, t2 Ctype) (Ctype, error) {
+func (tm *TypeRulesManager) getBinaryOpType(op string, t1 Ctype, t2 Ctype) (Ctype, error) {
 	switch op {
 	case "AND_OP", "OR_OP":
 		if !isBuiltinOrPointer(t1) || !isBuiltinOrPointer(t2) {
@@ -122,53 +130,53 @@ func getBinaryOpType(op string, t1 Ctype, t2 Ctype) (Ctype, error) {
 		}
 		return BuiltinFrom("int"), nil
 	case "|", "^", "&":
-		if isIntegralType(t1) && isIntegralType(t2) && t1.Size() == t2.Size() {
-			return getGreaterOrEqualType(t1, t2), nil
+		if tm.isIntegralType(t1) && tm.isIntegralType(t2) && t1.Size() == t2.Size() {
+			return tm.getGreaterOrEqualType(t1, t2), nil
 		}
 		return nil, errors.New("Bit operations are allowed only on integral types with equal sizes")
 	case "EQ_OP", "NE_OP", "LE_OP", "GE_OP", ">", "<":
 		if !isBuiltinOrPointer(t1) || !isBuiltinOrPointer(t2) {
 			return nil, errors.New("Can compare only pointers or builtins")
 		}
-		if !isAutomaticallyCastable(t1, t2) && !isAutomaticallyCastable(t2, t1) {
+		if !tm.isAutomaticallyCastable(t1, t2) && !tm.isAutomaticallyCastable(t2, t1) {
 			return nil, errors.New("Uncompatible types")
 		}
 		return BuiltinFrom("int"), nil
 	case "LEFT_OP", "RIGHT_OP":
-		if isIntegralType(t1) && isIntegralType(t2) {
+		if tm.isIntegralType(t1) && tm.isIntegralType(t2) {
 			return t1, nil
 		}
 		return nil, errors.New("Bit shift operations are allowed only on integral types")
 	case "+", "-":
 		if isPointer(t1) {
-			if !isIntegralType(t2) {
+			if !tm.isIntegralType(t2) {
 				return nil, errors.New("Only integral types can be added/subtracted from pointers")
 			}
 			return t1, nil
 		} else if isPointer(t2) {
-			if !isIntegralType(t1) {
+			if !tm.isIntegralType(t1) {
 				return nil, errors.New("Only integral types can be added/subtracted from pointers")
 			}
 			return t2, nil
 		} else {
-			if !isAutomaticallyCastable(t1, t2) && !isAutomaticallyCastable(t2, t1) {
+			if !tm.isAutomaticallyCastable(t1, t2) && !tm.isAutomaticallyCastable(t2, t1) {
 				return nil, errors.New("Uncompatible types")
 			}
-			return getGreaterOrEqualType(t1, t2), nil
+			return tm.getGreaterOrEqualType(t1, t2), nil
 		}
 	case "*", "/", "%":
 		if !isBuiltinType(t1) || !isBuiltinType(t2) {
 			return nil, errors.New("Multiplicative operations apply only to builtins")
 		}
-		if !isAutomaticallyCastable(t1, t2) && !isAutomaticallyCastable(t2, t1) {
+		if !tm.isAutomaticallyCastable(t1, t2) && !tm.isAutomaticallyCastable(t2, t1) {
 			return nil, errors.New("Uncompatible types")
 		}
-		return getGreaterOrEqualType(t1, t2), nil
+		return tm.getGreaterOrEqualType(t1, t2), nil
 	}
 	panic("Unexpected binary operator  " + op)
 }
 
-func getUnaryOpType(op string, castedType Ctype) (Ctype, error) {
+func (tm *TypeRulesManager) getUnaryOpType(op string, castedType Ctype) (Ctype, error) {
 	switch op {
 	case "&":
 		return BuiltinFrom("unsigned long"), nil
@@ -224,13 +232,13 @@ func getUnaryOpType(op string, castedType Ctype) (Ctype, error) {
 		if _, isStruct := castedType.(StructCtype); isStruct {
 			return nil, errors.New("Unary ! doesn't apply to structs")
 		}
-		// TODO for now leave the same type, casting to int/long/ulong might be better idea
+		// TODO for now leave the same type, casting to int/long/ulong might be a better idea
 		return castedType, nil
 	}
 	panic("unexpected unary operator " + op)
 }
 
-func canBeLValue(t Ctype) bool {
+func (tm *TypeRulesManager) canBeLValue(t Ctype) bool {
 	switch t.(type) {
 	case ArrayCtype:
 		return false
@@ -239,19 +247,19 @@ func canBeLValue(t Ctype) bool {
 	}
 }
 
-func getAssignmentOpType(lhsType Ctype, rhsType Ctype, op string) (Ctype, error) {
-	if !canBeLValue(lhsType) {
+func (tm *TypeRulesManager) getAssignmentOpType(lhsType Ctype, rhsType Ctype, op string) (Ctype, error) {
+	if !tm.canBeLValue(lhsType) {
 		return nil, errors.New("Not a l-value")
 	}
 	switch op {
 	case "=":
-		if isAutomaticallyCastable(rhsType, lhsType) {
+		if tm.isAutomaticallyCastable(rhsType, lhsType) {
 			return lhsType, nil
 		}
 		return nil, errors.New("Uncompatible types")
 	case "ADD_ASSIGN", "SUB_ASSIGN":
 		if isPointer(lhsType) {
-			if !isIntegralType(rhsType) {
+			if !tm.isIntegralType(rhsType) {
 				return nil, errors.New("Only integral types can be added/subtracted from pointers")
 			}
 			return lhsType, nil
@@ -259,17 +267,17 @@ func getAssignmentOpType(lhsType Ctype, rhsType Ctype, op string) (Ctype, error)
 		if !isBuiltinType(lhsType) || !isBuiltinType(rhsType) {
 			return nil, errors.New("Only builtins or pointers can be used in add/sub assignment")
 		}
-		if !isAutomaticallyCastable(rhsType, lhsType) {
+		if !tm.isAutomaticallyCastable(rhsType, lhsType) {
 			return nil, errors.New("Uncompatible types")
 		}
 		return lhsType,nil
 	case "AND_ASSIGN", "XOR_ASSIGN", "OR_ASSIGN":
-		if isIntegralType(lhsType) && isIntegralType(rhsType) && lhsType.Size() == rhsType.Size() {
+		if tm.isIntegralType(lhsType) && tm.isIntegralType(rhsType) && lhsType.Size() == rhsType.Size() {
 			return lhsType, nil
 		}
 		return nil, errors.New("Bit operations are allowed only on integral types with equal sizes")
 	case "LEFT_ASSIGHT", "RIGHT_ASSIGN":
-		if isIntegralType(lhsType) && isIntegralType(rhsType) {
+		if tm.isIntegralType(lhsType) && tm.isIntegralType(rhsType) {
 			return lhsType, nil
 		}
 		return nil, errors.New("Bit shift operations are allowed only on integral types")
@@ -277,7 +285,7 @@ func getAssignmentOpType(lhsType Ctype, rhsType Ctype, op string) (Ctype, error)
 		if !isBuiltinType(lhsType) || !isBuiltinType(rhsType) {
 			return nil, errors.New("Only builtins can be used in mul/div assignment")
 		}
-		if !isAutomaticallyCastable(rhsType, lhsType) {
+		if !tm.isAutomaticallyCastable(rhsType, lhsType) {
 			return nil, errors.New("Uncompatible types")
 		}
 		return lhsType, nil
@@ -285,7 +293,7 @@ func getAssignmentOpType(lhsType Ctype, rhsType Ctype, op string) (Ctype, error)
 	panic("unexpected assignment operator")
 }
 
-func canBeUsedAsBool(t Ctype) bool {
+func (tm *TypeRulesManager) canBeUsedAsBool(t Ctype) bool {
 	switch t.(type) {
 	case BuiltinCtype, PointerCtype:
 		return true
@@ -294,8 +302,8 @@ func canBeUsedAsBool(t Ctype) bool {
 	}
 }
 
-func isAutomaticallyCastable(from Ctype, to Ctype) bool {
-	if isSame(from, to) {
+func (tm *TypeRulesManager) isAutomaticallyCastable(from Ctype, to Ctype) bool {
+	if tm.isSame(from, to) {
 		return true
 	}
 	switch fromT := from.(type) {
@@ -310,7 +318,7 @@ func isAutomaticallyCastable(from Ctype, to Ctype) bool {
 			}
 			return true
 		case PointerCtype, ArrayCtype, FunctionPtrCtype:
-			if isIntegralType(fromT) {
+			if tm.isIntegralType(fromT) {
 				return true
 			}
 		}
@@ -319,7 +327,7 @@ func isAutomaticallyCastable(from Ctype, to Ctype) bool {
 		case PointerCtype, ArrayCtype, FunctionPtrCtype:
 			return true
 		case BuiltinCtype:
-			if isIntegralType(toT) {
+			if tm.isIntegralType(toT) {
 				return true
 			}
 		}
@@ -327,8 +335,8 @@ func isAutomaticallyCastable(from Ctype, to Ctype) bool {
 	return false
 }
 
-func isExplicitlyCastable(from Ctype, to Ctype) bool {
-	if isAutomaticallyCastable(from, to) {
+func (tm *TypeRulesManager) isExplicitlyCastable(from Ctype, to Ctype) bool {
+	if tm.isAutomaticallyCastable(from, to) {
 		return true
 	}
 	return false // TODO
@@ -337,12 +345,12 @@ func isExplicitlyCastable(from Ctype, to Ctype) bool {
 // Assumes that one is automatically castable to another, otherwise unspecified behaviour.
 // If only one is castable to another the one that can be casted to wins.
 // If both are castable to each other custom rules are used, for example double > int.
-func getGreaterOrEqualType(t1 Ctype, t2 Ctype) Ctype {
-	if isSame(t1, t2) {
+func (tm *TypeRulesManager) getGreaterOrEqualType(t1 Ctype, t2 Ctype) Ctype {
+	if tm.isSame(t1, t2) {
 		return t1
 	}
-	canCastFromT1ToT2 := isAutomaticallyCastable(t1, t2) 
-	canCastFromT2ToT1 := isAutomaticallyCastable(t2,t1) 
+	canCastFromT1ToT2 := tm.isAutomaticallyCastable(t1, t2) 
+	canCastFromT2ToT1 := tm.isAutomaticallyCastable(t2, t1) 
 	if canCastFromT1ToT2 && !canCastFromT2ToT1 {
 		return t1
 	} else if canCastFromT2ToT1 && !canCastFromT1ToT2 {
@@ -355,7 +363,7 @@ func getGreaterOrEqualType(t1 Ctype, t2 Ctype) Ctype {
 	case BuiltinCtype:
 		switch ct2 := t2.(type) {
 		case BuiltinCtype:
-			if n1, ok := builtinRulesGraph[ct1.Builtin]; ok && n1.Has(ct2.Builtin) {
+			if n1, ok := tm.builtinRulesGraph[ct1.Builtin]; ok && n1.Has(ct2.Builtin) {
 				return t1
 			} 
 			return t2
@@ -364,7 +372,7 @@ func getGreaterOrEqualType(t1 Ctype, t2 Ctype) Ctype {
 	return t1
 }
 
-func getTypeOfConstantValExpression(expr ast.ConstantValExpression) BuiltinCtype {
+func (tm *TypeRulesManager) getTypeOfConstantValExpression(expr ast.ConstantValExpression) BuiltinCtype {
 	val := expr.Constant
 	if strings.HasPrefix(val, "'") {
 		return BuiltinFrom("char")
@@ -389,7 +397,7 @@ func getTypeOfConstantValExpression(expr ast.ConstantValExpression) BuiltinCtype
 	return BuiltinFrom("int")
 }
 
-func canBeIndexedNTimes(t Ctype, n int) bool {
+func (tm *TypeRulesManager) canBeIndexedNTimes(t Ctype, n int) bool {
 	switch ct := t.(type) {
 	case PointerCtype:
 		return n == 1
@@ -400,7 +408,7 @@ func canBeIndexedNTimes(t Ctype, n int) bool {
 	}
 }
 
-func canBeIncremented(t Ctype) bool {
+func (tm *TypeRulesManager) canBeIncremented(t Ctype) bool {
 	switch ct := t.(type) {
 	case PointerCtype:
 		return true
@@ -411,14 +419,50 @@ func canBeIncremented(t Ctype) bool {
 	}
 }
 
-func hasExactlySameOverload(fdef *FunctionDefinition, overloads []*FunctionDefinition) bool {
+func (tm *TypeRulesManager) evalConstantIntegerExpression(expr ast.Expression) (int, error) {
+	var err error
+	if valExpr, isValExpr := expr.(ast.ConstantValExpression); isValExpr {
+		exprT := tm.getTypeOfConstantValExpression(valExpr)
+		// TODO allow long?
+		if exprT.Builtin == INT {
+			return evalIntVal(valExpr.Constant)
+		} else if exprT.Builtin == UNSIGNED_INT {
+			return evalIntVal(valExpr.Constant[:len(valExpr.Constant) - 1])
+		}
+		err = errors.New("Expression is not integral const")
+	} else if arithmExpr, isArithm := expr.(ast.BinaryArithmeticExpression); isArithm {
+		var v1, v2 int
+		if v1, err = tm.evalConstantIntegerExpression(arithmExpr.LhsExpression); err != nil {
+			goto onerr
+		}
+		if v2, err = tm.evalConstantIntegerExpression(arithmExpr.RhsExpression); err != nil {
+			goto onerr
+		}
+		return applyArithmeticOperator(v1, v2, arithmExpr.Operator)
+	} else if unaryExpr, isUnary := expr.(ast.CastUnaryExpression); isUnary {
+		var v int
+		// TODO should this be allowed?
+		if unaryExpr.Operator == "-" {
+			if v, err = tm.evalConstantIntegerExpression(unaryExpr.CastExpression); err != nil {
+				goto onerr
+			}
+			return -1 * v, nil
+		} else {
+			err = errors.New("Unsupported compile time unary operator " + unaryExpr.Operator)
+		}
+	}
+onerr:
+	return 0, err
+}
+
+func (tm *TypeRulesManager) hasExactlySameOverload(fdef *FunctionDefinition, overloads []*FunctionDefinition) bool {
 	for _, overload := range overloads {
 		if len(overload.ParamTypes) != len(fdef.ParamTypes) {
 			continue
 		}
 		allSame := true
 		for paramNum, param := range overload.ParamTypes {
-			if !isSame(param, fdef.ParamTypes[paramNum]) {
+			if !tm.isSame(param, fdef.ParamTypes[paramNum]) {
 				allSame = false
 				break
 			}
@@ -430,7 +474,7 @@ func hasExactlySameOverload(fdef *FunctionDefinition, overloads []*FunctionDefin
 	return false
 }
 
-func getFunctionOverloadSatisfyingArgs(candidates []*FunctionDefinition, args []Ctype) (*FunctionDefinition, error) {
+func (tm *TypeRulesManager) getFunctionOverloadSatisfyingArgs(candidates []*FunctionDefinition, args []Ctype) (*FunctionDefinition, error) {
 	feasibleCandidates := []*FunctionDefinition{}
 	for _, f := range candidates {
 		if len(f.ParamTypes) != len(args) {
@@ -439,11 +483,11 @@ func getFunctionOverloadSatisfyingArgs(candidates []*FunctionDefinition, args []
 		allParamsOk := true
 		allParamsHaveExactMatch := true
 		for paramNum, param := range f.ParamTypes {
-			if isSame(args[paramNum], param) {
+			if tm.isSame(args[paramNum], param) {
 				continue
 			}
 			allParamsHaveExactMatch = false
-			if !isAutomaticallyCastable(args[paramNum], param) {
+			if !tm.isAutomaticallyCastable(args[paramNum], param) {
 				allParamsOk = false
 				break
 			}
@@ -463,4 +507,11 @@ func getFunctionOverloadSatisfyingArgs(candidates []*FunctionDefinition, args []
 	} else {
 		return nil, errors.New("Multiple overloads match given arguments")
 	}
+}
+
+func (tm *TypeRulesManager) canBeUsedAsSwitchExpression(t Ctype) bool {
+	if b, isBuiltin := t.(BuiltinCtype); isBuiltin {
+		return b.Builtin != VOID && b.Builtin != LONG_DOUBLE
+	}
+	return false
 }

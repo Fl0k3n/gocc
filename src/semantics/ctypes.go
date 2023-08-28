@@ -1,4 +1,4 @@
-package types
+package semantics
 
 import "errors"
 
@@ -146,7 +146,7 @@ func (cc *StructCtype) Field(name string) (t Ctype, offset int) {
 			return cc.NestedFieldTypes[idx], cc.AlignedFieldOffsets[idx]
 		}
 	}
-	panic("Ctype " + cc.name + " doesn't contain field named " + name)
+	panic("Struct Ctype " + cc.name + " doesn't contain field named " + name)
 }
 
 type ArrayCtype struct {
@@ -161,6 +161,9 @@ func (ac ArrayCtype) Name() string {
 }
 
 func (ac ArrayCtype) Size() int {
+	if len(ac.DimensionSizes) > 0 && ac.DimensionSizes[0] == UNSPECIFIED_ARR_SIZE {
+		return POINTER_SIZE
+	}
 	return ac.size
 }
 

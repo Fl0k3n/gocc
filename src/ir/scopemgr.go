@@ -3,20 +3,28 @@ package irs
 import (
 	"ast"
 	"fmt"
-	"types"
+	"semantics"
 )
 
 
 type ScopeManager struct {
 	symtab *CountingSymtab
-	functab map[string][]*types.FunctionDefinition
+	typeEngine *semantics.TypeEngine
 }
 
-func newScopeManager() *ScopeManager {
+func newScopeManager(typeEngine *semantics.TypeEngine) *ScopeManager {
 	return &ScopeManager{
 		symtab: NewCountingSymtab(),
-		functab: map[string][]*types.FunctionDefinition{},
+		typeEngine: typeEngine,
 	}
+}
+
+func (sm *ScopeManager) TypeOf(symname string) (t semantics.Ctype, ok bool) {
+	if sym, ok := sm.symtab.Lookup(symname); ok {
+		return sym.Ctype, true
+	}
+	fmt.Println("Warning: undefined symbol " + symname)
+	return nil, false
 }
 
 func (s *ScopeManager) getSymbol(name string) *Symbol {
@@ -27,36 +35,38 @@ func (s *ScopeManager) getSymbol(name string) *Symbol {
 	return res
 }
 
-func (s *ScopeManager) EnterFunction(f *ast.FunctionDefinition) {
+func (s *ScopeManager) EnterFunction(f *ast.FunctionDefinition) (name string) {
+	fptr := s.typeEngine.GetFunctionDeclaration(f)
+	s.symtab.DefineNewOfType(fptr.Name(), GLOBAL, fptr)
 	s.symtab.EnterScope()
-	s.typesystem.EnterFunction(f) // TODO define symbols, types and names, also handle body (top level compound statement)
+	for paramNum := range fptr.ParamTypes {
+		s.symtab.DefineNewOfType(fptr.ParamNames[paramNum], ARG, fptr.ParamTypes[paramNum])
+	}
+	return fptr.Name()
 }
 
 func (s *ScopeManager) LeaveFunction() {
 	s.symtab.LeaveScope()
-	s.typesystem.LeaveFunction()
 }
 
 func (s *ScopeManager) EnterGlobalScope() {
 	s.symtab.EnterScope()
-	s.typesystem.EnterScope()
 }
 
-func (s *ScopeManager) EnterCompoundStatement(cs *ast.CompoundStatement) {
+func (s *ScopeManager) EnterCompoundStatement() {
 	s.symtab.EnterScope()
-	s.typesystem.EnterCompoundStatement(cs)
 }
 
-func (s *ScopeManager) LeaveCompoundStatement(cs *ast.CompoundStatement) {
+func (s *ScopeManager) LeaveCompoundStatement() {
 	s.symtab.LeaveScope()
 }
 
-func (s *ScopeManager) newTemp(t types.Ctype) *Symbol {
+func (s *ScopeManager) newTemp(t semantics.Ctype) *Symbol {
 	tmpCounter := s.symtab.SymbolsOfType(TEMP)
 	name := fmt.Sprintf("%dt", tmpCounter)
 	return s.symtab.DefineNewOfType(name, TEMP, t)
 }
 
-func (s *ScopeManager) IsUsingFunctionPointerCall(expr ast.FunctionCallPostfixExpression) bool {
-	return s.typesystem.IsUsingFunctionPointer(expr)
+func (s *ScopeManager) newLocalVariable(name string, t semantics.Ctype) *Symbol {
+	return s.symtab.DefineNewOfType(name, LOCAL, t)
 }

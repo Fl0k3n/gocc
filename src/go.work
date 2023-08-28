@@ -8,6 +8,6 @@ use (
 	./parser
 	./symtab
 	./tokenizer
-	./typesystem
+	./semantics
 	./utils
 )

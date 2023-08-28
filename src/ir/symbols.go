@@ -1,8 +1,8 @@
 package irs
 
 import (
+	"semantics"
 	"symtabs"
-	"types"
 )
 
 type SymbolType int
@@ -20,7 +20,7 @@ type Symbol struct {
 	Name string
 	T SymbolType
 	Index int
-	Ctype types.Ctype
+	Ctype semantics.Ctype
 }
 
 type CountingSymtab struct {
@@ -45,7 +45,7 @@ func NewCountingSymtab() *CountingSymtab {
 	}
 }
 
-func (cs *CountingSymtab) DefineNewOfType(symname string, symbolT SymbolType, t types.Ctype) *Symbol {
+func (cs *CountingSymtab) DefineNewOfType(symname string, symbolT SymbolType, t semantics.Ctype) *Symbol {
 	sym := Symbol{
 		Name: symname,
 		T: symbolT,

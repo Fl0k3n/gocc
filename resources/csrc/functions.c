@@ -1,6 +1,21 @@
-// void f() {
-//     a + b;
-// }
+void f() {
+    // int a = 1;
+    // int b;
+    // int c;
+    int d[5][7][8];
+
+    // int* m = &a;
+    // int (*q)(int);
+
+    d[1][2][3] = 3;
+
+    // if (*m + b > 1) {
+    //     c = a + b;
+    // }
+    // else {
+    //     c = q(a);
+    // }
+}
 
 // int* a;
 // int a, * b;
@@ -10,40 +25,40 @@
 //     SECOND
 // };
 
-int m;
+// int m;
 
-struct D {
-    int z;
-    int v;
-};
+// struct D {
+//     int z;
+//     int v;
+// };
 
-int func(int* v) {
-    return *v;
-}
+// int func(int* v) {
+//     return *v;
+// }
 
-int a(int b) {
-    int i = 0;
-    struct D dd = {
-        .z = 1,
-    };
-    struct D* d = &dd;
-    d->v = 4;
-    for (i; i < b; i++) {
-        if ((i % 2) != 0) {
-            return 1;
-        }
-    }
-    do {
-        d->v++;
-    } while (1);
-    if (func(&i)) {
-        return 0;
-    }
-    else {
-        return 1;
-    }
-    return 0;
-}
+// int a(int b) {
+//     int i = 0;
+//     struct D dd = {
+//         .z = 1,
+//     };
+//     struct D* d = &dd;
+//     d->v = 4;
+//     for (i; i < b; i++) {
+//         if ((i % 2) != 0) {
+//             return 1;
+//         }
+//     }
+//     do {
+//         d->v++;
+//     } while (1);
+//     if (func(&i)) {
+//         return 0;
+//     }
+//     else {
+//         return 1;
+//     }
+//     return 0;
+// }
 
 // struct B {
 //     int z;

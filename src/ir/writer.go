@@ -93,3 +93,22 @@ func (w *Writer) WriteBiSymbolAssignment(lhs *Symbol, rhs *Symbol) {
 		RhsSymbol: rhs,
 	})
 }
+
+func (w *Writer) WriteLabel(label string) {
+	w.WriteLine(&LabelLine{
+		Label: label,
+	})
+}
+
+func (w *Writer) WriteIfgotoLine(condition *Symbol, target string) {
+	w.WriteLine(&IfGotoLine{
+		TargetLabel: target,
+		ConditionSymbol: condition,
+	})
+}
+
+func (w *Writer) WriteGotoLine(label string) {
+	w.WriteLine(&GotoLine{
+		TargetLabel: label,
+	})
+}

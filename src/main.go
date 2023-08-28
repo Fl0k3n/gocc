@@ -3,10 +3,11 @@ package main
 import (
 	"fmt"
 	"grammars"
+	"irs"
 	"parsers"
 	"regexp"
+	"semantics"
 	"tokenizers"
-	"types"
 )
 
 func testGrammarReader() {
@@ -195,8 +196,15 @@ func testParser() {
 		fmt.Println(err)
 	}
 	// fmt.Println(tu.GetLineBounds())
-	typ := types.NewEngine()
-	typ.DefineTypesAndRunTypeChecking(&tu)
+	et := semantics.NewErrorTracker()
+	analyzer := semantics.NewAnalyzer(et)
+	analyzer.Analyze(&tu)
+	if et.HasError() {
+		et.PrintErrors()
+	} else {
+		irGen := irs.NewGenerator()
+		irGen.Generate(&tu)
+	}
 }
 
 func serializeTables() {
