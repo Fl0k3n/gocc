@@ -124,7 +124,7 @@ func (tm *TypeRulesManager) isIntegralType(t Ctype) bool {
 
 func (tm *TypeRulesManager) getBinaryOpType(op string, t1 Ctype, t2 Ctype) (Ctype, error) {
 	switch op {
-	case "AND_OP", "OR_OP":
+	case "&&", "||":
 		if !isBuiltinOrPointer(t1) || !isBuiltinOrPointer(t2) {
 			return nil, errors.New("&& and || can be used only on builtins or pointers")
 		}
@@ -134,7 +134,7 @@ func (tm *TypeRulesManager) getBinaryOpType(op string, t1 Ctype, t2 Ctype) (Ctyp
 			return tm.getGreaterOrEqualType(t1, t2), nil
 		}
 		return nil, errors.New("Bit operations are allowed only on integral types with equal sizes")
-	case "EQ_OP", "NE_OP", "LE_OP", "GE_OP", ">", "<":
+	case "==", "!=", "<=", ">=", ">", "<":
 		if !isBuiltinOrPointer(t1) || !isBuiltinOrPointer(t2) {
 			return nil, errors.New("Can compare only pointers or builtins")
 		}
@@ -142,7 +142,7 @@ func (tm *TypeRulesManager) getBinaryOpType(op string, t1 Ctype, t2 Ctype) (Ctyp
 			return nil, errors.New("Uncompatible types")
 		}
 		return BuiltinFrom("int"), nil
-	case "LEFT_OP", "RIGHT_OP":
+	case "<<", ">>":
 		if tm.isIntegralType(t1) && tm.isIntegralType(t2) {
 			return t1, nil
 		}
@@ -257,7 +257,7 @@ func (tm *TypeRulesManager) getAssignmentOpType(lhsType Ctype, rhsType Ctype, op
 			return lhsType, nil
 		}
 		return nil, errors.New("Uncompatible types")
-	case "ADD_ASSIGN", "SUB_ASSIGN":
+	case "+=", "-=":
 		if isPointer(lhsType) {
 			if !tm.isIntegralType(rhsType) {
 				return nil, errors.New("Only integral types can be added/subtracted from pointers")
@@ -271,17 +271,17 @@ func (tm *TypeRulesManager) getAssignmentOpType(lhsType Ctype, rhsType Ctype, op
 			return nil, errors.New("Uncompatible types")
 		}
 		return lhsType,nil
-	case "AND_ASSIGN", "XOR_ASSIGN", "OR_ASSIGN":
+	case "&=", "^=", "|=":
 		if tm.isIntegralType(lhsType) && tm.isIntegralType(rhsType) && lhsType.Size() == rhsType.Size() {
 			return lhsType, nil
 		}
 		return nil, errors.New("Bit operations are allowed only on integral types with equal sizes")
-	case "LEFT_ASSIGHT", "RIGHT_ASSIGN":
+	case "<<=", ">>=":
 		if tm.isIntegralType(lhsType) && tm.isIntegralType(rhsType) {
 			return lhsType, nil
 		}
 		return nil, errors.New("Bit shift operations are allowed only on integral types")
-	case "MUL_ASSIGN", "DIV_ASSIGN", "MOD_ASSIGN":
+	case "*=", "/=", "%=":
 		if !isBuiltinType(lhsType) || !isBuiltinType(rhsType) {
 			return nil, errors.New("Only builtins can be used in mul/div assignment")
 		}

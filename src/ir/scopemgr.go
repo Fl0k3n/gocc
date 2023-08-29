@@ -4,18 +4,25 @@ import (
 	"ast"
 	"fmt"
 	"semantics"
+	"utils"
 )
 
+type StatementContext struct {
+	BreakLabel string
+	ContinueLabel string
+}
 
 type ScopeManager struct {
 	symtab *CountingSymtab
 	typeEngine *semantics.TypeEngine
+	statementContexts *utils.Stack[StatementContext]
 }
 
 func newScopeManager(typeEngine *semantics.TypeEngine) *ScopeManager {
 	return &ScopeManager{
 		symtab: NewCountingSymtab(),
 		typeEngine: typeEngine,
+		statementContexts: utils.NewStack[StatementContext](),
 	}
 }
 
@@ -35,14 +42,14 @@ func (s *ScopeManager) getSymbol(name string) *Symbol {
 	return res
 }
 
-func (s *ScopeManager) EnterFunction(f *ast.FunctionDefinition) (name string) {
+func (s *ScopeManager) EnterFunction(f *ast.FunctionDefinition) *semantics.FunctionPtrCtype {
 	fptr := s.typeEngine.GetFunctionDeclaration(f)
 	s.symtab.DefineNewOfType(fptr.Name(), GLOBAL, fptr)
 	s.symtab.EnterScope()
 	for paramNum := range fptr.ParamTypes {
 		s.symtab.DefineNewOfType(fptr.ParamNames[paramNum], ARG, fptr.ParamTypes[paramNum])
 	}
-	return fptr.Name()
+	return &fptr
 }
 
 func (s *ScopeManager) LeaveFunction() {
@@ -61,6 +68,18 @@ func (s *ScopeManager) LeaveCompoundStatement() {
 	s.symtab.LeaveScope()
 }
 
+func (s *ScopeManager) EnterStatementContext(ctx StatementContext) {
+	s.statementContexts.Push(ctx)
+}
+
+func (s *ScopeManager) LeaveStatementContext() {
+	s.statementContexts.Pop()
+}
+
+func (s *ScopeManager) GetStatementContext() StatementContext {
+	return s.statementContexts.Peek()
+}
+
 func (s *ScopeManager) newTemp(t semantics.Ctype) *Symbol {
 	tmpCounter := s.symtab.SymbolsOfType(TEMP)
 	name := fmt.Sprintf("%dt", tmpCounter)
@@ -69,4 +88,8 @@ func (s *ScopeManager) newTemp(t semantics.Ctype) *Symbol {
 
 func (s *ScopeManager) newLocalVariable(name string, t semantics.Ctype) *Symbol {
 	return s.symtab.DefineNewOfType(name, LOCAL, t)
+}
+
+func (s *ScopeManager) newGlobalVariable(name string, t semantics.Ctype) *Symbol {
+	return s.symtab.DefineNewOfType(name, GLOBAL, t)
 }

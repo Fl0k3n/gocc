@@ -1,6 +1,7 @@
 package irs
 
 import (
+	"ast"
 	"semantics"
 	"symtabs"
 )
@@ -21,6 +22,18 @@ type Symbol struct {
 	T SymbolType
 	Index int
 	Ctype semantics.Ctype
+}
+
+type GlobalInitializer struct {
+	Offset int
+	Expression ast.Expression
+}
+
+type GlobalSymbol struct {
+	Symbol *Symbol
+	isExtern bool
+	isStatic bool
+	Initializers []*GlobalInitializer
 }
 
 type CountingSymtab struct {

@@ -84,14 +84,46 @@ func (s *SemanticAnalyzer) addSymbolsFromDeclarationListToCurrentScope(dl *ast.D
 	}
 }
 
-func (s *SemanticAnalyzer) handleStatement(statement ast.Statement, ctx StatementContext) {
-	if ctx.ExpectsCase {
-		switch statement.(type) {
-		case ast.CaseLabeledStatement, ast.DefaultLabeledStatement:
-		default:
-			s.errorTracker.registerSemanticError("Expected case or default statement", statement.(ast.LineInfo)) 
+func (s *SemanticAnalyzer) checkSwitchSemantics(switchStmnt ast.SwitchSelectionStatement) (terminateFurtherChecks bool) {
+	foundDefault := false
+	foundCase := false
+	isEmpty := true
+	terminateFurtherChecks = false
+	if body, isCompound := switchStmnt.SwitchBody.(ast.CompoundStatement); isCompound {
+		if body.DeclarationList != nil {
+			s.errorTracker.registerSemanticError("Declarations are illegal inside switch statement", switchStmnt.LineInfo)
 		}
+		if body.StatementList != nil {
+			isEmpty = false
+		}
+		for _, stmnt := range body.StatementList.Statements {
+			if _, isCase := stmnt.(ast.CaseLabeledStatement); isCase {
+				if foundDefault {
+					s.errorTracker.registerSemanticError("Default statement must be the last switch control statement", switchStmnt.LineInfo)
+				}
+				foundCase = true
+			} else if _, isDefault := stmnt.(ast.DefaultLabeledStatement); isDefault {
+				if foundDefault {
+					s.errorTracker.registerSemanticError("At most one default statement is allowed", switchStmnt.LineInfo)
+				}
+				foundDefault = true
+			} else if !foundCase && !foundDefault {
+				s.errorTracker.registerSemanticError("Case or default must be the first switch statement", switchStmnt.LineInfo)
+				terminateFurtherChecks = true
+			}
+		}
+	} else {
+		s.errorTracker.registerSemanticError("Switch body must be a compound statement", switchStmnt.LineInfo)
+		terminateFurtherChecks = true
 	}
+	if isEmpty {
+		s.errorTracker.registerSemanticError("Illegal empty switch statement", switchStmnt.LineInfo)
+		terminateFurtherChecks = true
+	}
+	return
+}
+
+func (s *SemanticAnalyzer) handleStatement(statement ast.Statement, ctx StatementContext) {
 	switch stmnt := statement.(type) {
 	case ast.CompoundStatement:
 		s.symtab.EnterScope()
@@ -137,7 +169,13 @@ func (s *SemanticAnalyzer) handleStatement(statement ast.Statement, ctx Statemen
 		} else if err = s.typeEngine.checkSwitchExpressionType(switchExprT); err != nil {
 			s.errorTracker.registerTypeError(err.Error(), stmnt.LineInfo)
 		} else {
-			s.handleStatement(stmnt.SwitchBody, ctx.WithExpectedCase(switchExprT))
+			terminateFurtherChecking := s.checkSwitchSemantics(stmnt) 
+			if !terminateFurtherChecking {
+				compStmnt := stmnt.SwitchBody.(ast.CompoundStatement)
+				for _, nestedStmnt := range compStmnt.StatementList.Statements {
+					s.handleStatement(nestedStmnt, ctx.WithExpectedCase(switchExprT).And().WithAllowedBreak())
+				}
+			}
 		}
 	case ast.WhileIterationStatement:
 		if err := s.typeEngine.checkCondition(stmnt.Condition); err != nil {
@@ -218,7 +256,7 @@ func (s *SemanticAnalyzer) handleFunctionDefinition(fun *ast.FunctionDefinition)
 }
 
 func (s *SemanticAnalyzer) handleTopLevelDeclaration(dec *ast.Declaration) {
-	definedSymbols := s.typeEngine.getSymbolsForTopLevelDeclarationAndDefineNewTypes(dec)
+	definedSymbols := s.typeEngine.GetSymbolsForTopLevelDeclarationAndDefineNewTypes(dec)
 	for _, sym := range definedSymbols {
 		s.defineSymbol(sym)
 	}

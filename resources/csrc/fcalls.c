@@ -6,10 +6,18 @@
 
 #include "stdio.h"
 
+int x;
+
+int* m = &x;
+
+struct A {
+    int x;
+    int y;
+} a = {
+    .y = 5
+};
+
 int main() {
-    int a = 3;
-    int b = 4;
-    int c = a = b;
 }
 
 // int f(int a) {

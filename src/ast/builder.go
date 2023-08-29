@@ -262,7 +262,7 @@ func (ab *Builder) buildBinaryExpression() (lhs Node, rhs Node, op string) {
 }
 
 func (ab *Builder) buildArithmeticBinaryExpression(prod *grammars.Production) (node Node, err error) {
-	op := ab.tokenStack.Pop().T
+	op := ab.tokenStack.Pop().V
 	rhs := ab.reductionStack.Pop().(Expression)
 	lhs := ab.reductionStack.Pop().(Expression)
 	

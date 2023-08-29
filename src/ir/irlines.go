@@ -99,3 +99,14 @@ type GotoLine struct {
 func (c *GotoLine) String() string {
 	return fmt.Sprintf("goto %s", c.TargetLabel)
 }
+
+type ReturnLine struct {
+	ReturnSymbol *Symbol
+}
+
+func (c *ReturnLine) String() string {
+	if c.ReturnSymbol != nil {
+		return fmt.Sprintf("return %s", c.ReturnSymbol.Name)
+	}
+	return "return"
+}

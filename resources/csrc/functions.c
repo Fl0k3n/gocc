@@ -1,20 +1,36 @@
+
+typedef int TEST;
+
+struct A {
+    TEST x;
+    int y;
+} b;
+
+
+int a = 1;
+
+struct A str = {
+    .x = 5,
+    .y = 7,
+};
+
+int g(int a, int b);
+
 void f() {
-    // int a = 1;
-    // int b;
-    // int c;
-    int d[5][7][8];
-
-    // int* m = &a;
-    // int (*q)(int);
-
-    d[1][2][3] = 3;
-
-    // if (*m + b > 1) {
-    //     c = a + b;
-    // }
-    // else {
-    //     c = q(a);
-    // }
+    int x;
+    int y;
+    for (x = 1; x < 10; x++) {
+        y += x;
+        if (x > 5 && x % 2 == 0) {
+            int a = 5;
+            while (a > 0) {
+                a = g(--a, x);
+            }
+        }
+        else {
+            continue;
+        }
+    }
 }
 
 // int* a;

@@ -5,8 +5,6 @@ type Builtin string
 const POINTER_SIZE int = 8
 const POINTER_ALIGNMENT int = 8
 
-const TYPEDEF = "typedef"
-
 const (
 	VOID Builtin = "void"
 	CHAR = "char"

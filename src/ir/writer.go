@@ -34,7 +34,7 @@ func (w *Writer) WriteIntAssignment(lhsSymbol *Symbol, val int) {
 	w.WriteConstantAssignment(lhsSymbol, fmt.Sprintf("%d", val))
 }
 
-func (w *Writer) WirteBinaryOperation(lhsSymbol *Symbol, leftOperand *Symbol, operator string, rightOperand *Symbol) {
+func (w *Writer) WriteBinaryOperation(lhsSymbol *Symbol, leftOperand *Symbol, operator string, rightOperand *Symbol) {
 	w.WriteLine(&BinaryOperationLine{
 		LhsSymbol: lhsSymbol,
 		LeftOperand: leftOperand,
@@ -43,16 +43,24 @@ func (w *Writer) WirteBinaryOperation(lhsSymbol *Symbol, leftOperand *Symbol, op
 	})
 }
 
-func (w *Writer) WirteBinaryAddition(lhsSymbol *Symbol, leftOperand *Symbol, rightOperand *Symbol) {
-	w.WirteBinaryOperation(lhsSymbol, leftOperand, "+", rightOperand)
+func (w *Writer) WriteBinaryAddition(lhsSymbol *Symbol, leftOperand *Symbol, rightOperand *Symbol) {
+	w.WriteBinaryOperation(lhsSymbol, leftOperand, "+", rightOperand)
 }
 
-func (w *Writer) WirteBinaryMultiplication(lhsSymbol *Symbol, leftOperand *Symbol, rightOperand *Symbol) {
-	w.WirteBinaryOperation(lhsSymbol, leftOperand, "*", rightOperand)
+func (w *Writer) WriteBinaryMultiplication(lhsSymbol *Symbol, leftOperand *Symbol, rightOperand *Symbol) {
+	w.WriteBinaryOperation(lhsSymbol, leftOperand, "*", rightOperand)
 }
 
-func (w *Writer) WirteBinarySubtraction(lhsSymbol *Symbol, leftOperand *Symbol, rightOperand *Symbol) {
-	w.WirteBinaryOperation(lhsSymbol, leftOperand, "-", rightOperand)
+func (w *Writer) WriteBinarySubtraction(lhsSymbol *Symbol, leftOperand *Symbol, rightOperand *Symbol) {
+	w.WriteBinaryOperation(lhsSymbol, leftOperand, "-", rightOperand)
+}
+
+func (w *Writer) WriteEqComparion(lhsSymbol *Symbol, leftOperand *Symbol, rightOperand *Symbol) {
+	w.WriteBinaryOperation(lhsSymbol, leftOperand, "==", rightOperand)
+}
+
+func (w *Writer) WriteNeqComparion(lhsSymbol *Symbol, leftOperand *Symbol, rightOperand *Symbol) {
+	w.WriteBinaryOperation(lhsSymbol, leftOperand, "!=", rightOperand)
 }
 
 func (w *Writer) WriteUnaryOperation(lhsSymbol *Symbol, operator string, operand *Symbol) {
@@ -110,5 +118,11 @@ func (w *Writer) WriteIfgotoLine(condition *Symbol, target string) {
 func (w *Writer) WriteGotoLine(label string) {
 	w.WriteLine(&GotoLine{
 		TargetLabel: label,
+	})
+}
+
+func (w *Writer) WriteReturnLine(returnSymbol *Symbol) {
+	w.WriteLine(&ReturnLine{
+		ReturnSymbol: returnSymbol,
 	})
 }

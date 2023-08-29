@@ -350,7 +350,7 @@ func (e *TypeEngine) createSimpleType(ds *ast.DeclarationSpecifiers, allowStorag
 	panic("Unexpected Type Specifier")
 }
 
-func (e *TypeEngine) getSymbolsForTopLevelDeclarationAndDefineNewTypes(dec *ast.Declaration) []Symbol {
+func (e *TypeEngine) GetSymbolsForTopLevelDeclarationAndDefineNewTypes(dec *ast.Declaration) []Symbol {
 	symbols := []Symbol{}
 	ds := dec.DeclarationSpecifiers
 	e.assert(len(ds.StorageClassSpecifiers) <= 1, "Only single storage class specifier is allowed", ds.LineInfo)
@@ -359,7 +359,7 @@ func (e *TypeEngine) getSymbolsForTopLevelDeclarationAndDefineNewTypes(dec *ast.
 	}
 	
 	hasTypedef := false
-	if len(ds.StorageClassSpecifiers) > 0 && ds.StorageClassSpecifiers[0].Val == TYPEDEF {
+	if len(ds.StorageClassSpecifiers) > 0 && ds.StorageClassSpecifiers[0].Val == string(TYPEDEF) {
 		hasTypedef = true
 	}
 
@@ -784,6 +784,38 @@ func (e *TypeEngine) GetDeclaredSymbols(dec *ast.Declaration) []*SymbolDeclarati
 			Name: name,
 			T: t,
 			Initializer: initDecl.Initializer,
+		})
+	}
+	return res
+}
+
+func (e *TypeEngine) GetDeclaredGlobals(dec *ast.Declaration) []*GlobalDeclaration {
+	partialType, err := e.getPartialTypeFromSpecifiers(dec.DeclarationSpecifiers.TypeSpecifiers)
+	if err != nil {
+		panic(err)
+	}
+	res := []*GlobalDeclaration{}
+	ds := dec.DeclarationSpecifiers
+	isExtern := false
+	isStatic := false
+	if len(ds.StorageClassSpecifiers) > 0 {
+		switch ds.StorageClassSpecifiers[0].Val {
+		case string(TYPEDEF):
+			return res
+		case string(EXTERN):
+			isExtern = true
+		case string(STATIC):
+			isStatic = true
+		}
+	}
+	for _, initDecl := range dec.InitDeclaratorList.InitDeclarators {
+		t, name := e.extractTypeAndName(initDecl.Declarator, partialType)
+		res = append(res, &GlobalDeclaration{
+			Name: name,
+			T: t,
+			Initializer: initDecl.Initializer,
+			Extern: isExtern,
+			Static: isStatic,
 		})
 	}
 	return res

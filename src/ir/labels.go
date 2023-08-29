@@ -7,6 +7,15 @@ type LabelT string
 const (
 	END_IF = "ENDIF"
 	ELSE = "ELSE"
+	BEGIN_WHILE = "WHILE"
+	END_WHILE = "ENDWHILE"
+	BEGIN_FOR = "FOR"
+	END_FOR = "ENDFOR"
+	END_SWITCH = "ENDSWITCH"
+	CASE = "CASE"
+	DEFAULT = "DEFAULT"
+	TERNARY_ENDIF = "TENDIF"
+	TERNARY_ELSE = "TELSE"
 )
 
 type LabelProvider struct {
@@ -31,5 +40,9 @@ func (l *LabelProvider) Next(labelT LabelT) string {
 		count = 0
 	}
 	l.counters[labelT] = count + 1
-	return fmt.Sprintf("%d%s.%s", count, string(labelT), l.curFunName)
+	return l.WithFunctionName(fmt.Sprintf("%d%s", count, string(labelT)))
+}
+
+func (l *LabelProvider) WithFunctionName(label string) string {
+	return fmt.Sprintf("%s.%s", label, l.curFunName)
 }

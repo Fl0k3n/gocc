@@ -20,6 +20,23 @@ type SymbolDeclaration struct {
 	Initializer *ast.Initializer
 }
 
+type StorageClassSpecifier string
+
+const (
+	TYPEDEF StorageClassSpecifier = "typedef"
+	EXTERN = "extern"
+	STATIC = "static"
+	// ignore auto and register 
+)
+
+type GlobalDeclaration struct {
+	Name string
+	T Ctype
+	Initializer *ast.Initializer
+	Extern bool
+	Static bool
+}
+
 type SymbolInitializer struct {
 	SymbolName string
 	FieldName *string

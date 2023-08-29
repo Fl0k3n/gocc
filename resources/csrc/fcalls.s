@@ -6,6 +6,30 @@
 # GGC heuristics: --param ggc-min-expand=100 --param ggc-min-heapsize=131072
 # options passed: -masm=intel -mtune=generic -march=x86-64 -O0 -fasynchronous-unwind-tables -fstack-protector-strong -fstack-clash-protection -fcf-protection
 	.text
+	.globl	x
+	.bss
+	.align 4
+	.type	x, @object
+	.size	x, 4
+x:
+	.zero	4
+	.globl	m
+	.section	.data.rel.local,"aw"
+	.align 8
+	.type	m, @object
+	.size	m, 8
+m:
+	.quad	x
+	.globl	a
+	.data
+	.align 8
+	.type	a, @object
+	.size	a, 8
+a:
+# y:
+	.zero	4
+	.long	5
+	.text
 	.globl	main
 	.type	main, @function
 main:
@@ -17,18 +41,8 @@ main:
 	.cfi_offset 6, -16
 	mov	rbp, rsp	#,
 	.cfi_def_cfa_register 6
-# fcalls.c:10:     int a = 3;
-	mov	DWORD PTR -12[rbp], 3	# a,
-# fcalls.c:11:     int b = 4;
-	mov	DWORD PTR -8[rbp], 4	# b,
-# fcalls.c:12:     int c = a = b;
-	mov	eax, DWORD PTR -8[rbp]	# tmp84, b
-	mov	DWORD PTR -12[rbp], eax	# a, tmp84
-# fcalls.c:12:     int c = a = b;
-	mov	eax, DWORD PTR -12[rbp]	# tmp85, a
-	mov	DWORD PTR -4[rbp], eax	# c, tmp85
-	mov	eax, 0	# _5,
-# fcalls.c:13: }
+	mov	eax, 0	# _1,
+# fcalls.c:21: }
 	pop	rbp	#
 	.cfi_def_cfa 7, 8
 	ret	
