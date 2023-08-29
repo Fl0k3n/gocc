@@ -16,11 +16,12 @@ type Parser struct {
 	gotoTable *GotoTable
 	stateStack *utils.Stack[State]
 	astBuilder *ast.Builder
+	verbose bool
 }
 
 
 func New(grammar *grammars.Grammar, tokenizer *tokens.Tokenizer,
-		 actionTable *ActionTable, gotoTable *GotoTable) *Parser {
+		 actionTable *ActionTable, gotoTable *GotoTable, verbose bool) *Parser {
 	return &Parser{
 		grammar: grammar,
 		tokenizer: tokenizer,
@@ -28,27 +29,30 @@ func New(grammar *grammars.Grammar, tokenizer *tokens.Tokenizer,
 		gotoTable: gotoTable,
 		stateStack: utils.NewStack[State](),
 		astBuilder: ast.NewBuilder(tokenizer),
+		verbose: verbose,
 	}
 }
 
-func NewForGrammar(grammar *grammars.Grammar, tokenizer *tokens.Tokenizer) *Parser {
+func NewForGrammar(grammar *grammars.Grammar, tokenizer *tokens.Tokenizer, verbose bool) *Parser {
 	tb := NewTableBuilder(grammar)
 	act, got := tb.BuildConfigurationAutomaton()
-	return New(grammar, tokenizer, act, got)
+	return New(grammar, tokenizer, act, got, verbose)
 }
 
 func NewFromFile(grammar *grammars.Grammar, tokenizer *tokens.Tokenizer, 
-				 actionTabFile string, gotoTabFile string) *Parser {
+				 actionTabFile string, gotoTabFile string, verbose bool) *Parser {
 	tb := NewTableBuilder(grammar)
 	act, got := tb.DeserializeTables(actionTabFile, gotoTabFile)
-	return New(grammar, tokenizer, act, got)
+	return New(grammar, tokenizer, act, got, verbose)
 }
 
 func (p *Parser) shift(action ShiftAction) {
 	p.tokenizer.Advance()
 	p.astBuilder.OnShift(p.tokenizer.LastToken())
 	p.stateStack.Push(action.NextState)
-	fmt.Printf("Shift %d\n", action.NextState)
+	if p.verbose {
+		fmt.Printf("Shift %d\n", action.NextState)
+	}
 }
 
 func (p *Parser) reduce(action ReduceAction) error {
@@ -62,7 +66,9 @@ func (p *Parser) reduce(action ReduceAction) error {
 			}
 		}
 		p.stateStack.Push(nextState)
-		fmt.Printf("Reduce %s, goto %d\n", prod.From, nextState)
+		if p.verbose {
+			fmt.Printf("Reduce %s, goto %d\n", prod.From, nextState)
+		}
 	} else {
 		if p.stateStack.Peek() != INITIAL_STATE {
 			return err

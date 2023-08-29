@@ -138,7 +138,7 @@ func testParserSimple() {
 		return
 	}
 	defer tokenizer.Finish()
-	p := parsers.NewForGrammar(grammar, tokenizer)
+	p := parsers.NewForGrammar(grammar, tokenizer, true)
 	p.BuildParseTree()
 }
 
@@ -166,7 +166,7 @@ func testParserSimple2() {
 		return
 	}
 	defer tokenizer.Finish()
-	p := parsers.NewForGrammar(grammar, tokenizer)
+	p := parsers.NewForGrammar(grammar, tokenizer, true)
 	p.BuildParseTree()
 }
 
@@ -189,7 +189,7 @@ func testParser() {
 	}
 	defer tokenizer.Finish()
 	// p := parsers.NewForGrammar(grammar, tokenizer)
-	p := parsers.NewFromFile(grammar, tokenizer, "/home/flok3n/misc/acttab.gob", "/home/flok3n/misc/gototab.gob")
+	p := parsers.NewFromFile(grammar, tokenizer, "/home/flok3n/misc/acttab.gob", "/home/flok3n/misc/gototab.gob", false)
 	tu, err := p.BuildParseTree()
 	if err != nil {
 		fmt.Println("Parser error")

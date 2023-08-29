@@ -2,6 +2,7 @@ package irs
 
 import (
 	"fmt"
+	"semantics"
 	"strings"
 )
 
@@ -11,11 +12,20 @@ type IRLine interface {
 
 type ConstantAssignmentLine struct {
 	LhsSymbol *Symbol
-	Constant string // TODO
+	Constant semantics.ProgramConstant
 }
 
 func (c *ConstantAssignmentLine) String() string {
-	return fmt.Sprintf("%s = %s", c.LhsSymbol.Name, c.Constant)
+	return fmt.Sprintf("%s = %s", c.LhsSymbol.Name, c.Constant.String())
+}
+
+type StringAssignmentLine struct {
+	LhsSymbol *Symbol
+	Val string
+}
+
+func (c *StringAssignmentLine) String() string {
+	return "\"" + c.Val + "\""
 }
 
 type StringConstantAssignmentLine struct {
@@ -109,4 +119,13 @@ func (c *ReturnLine) String() string {
 		return fmt.Sprintf("return %s", c.ReturnSymbol.Name)
 	}
 	return "return"
+}
+
+type TypeCastLine struct {
+	FromSymbol *Symbol
+	ToSymbol *Symbol	
+}
+
+func (c *TypeCastLine) String() string {
+	return fmt.Sprintf("%s = cast(%s) %s", c.ToSymbol.Name, c.ToSymbol.Ctype.HumanReadableName(), c.FromSymbol.Name)
 }

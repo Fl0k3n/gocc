@@ -1,6 +1,9 @@
 package irs
 
-import "fmt"
+import (
+	"fmt"
+	"semantics"
+)
 
 
 type Writer struct {
@@ -23,15 +26,22 @@ func (w *Writer) PrintAll() {
 	}
 }
 
-func (w *Writer) WriteConstantAssignment(lhsSymbol *Symbol, constant string) {
+func (w *Writer) WriteConstantAssignment(lhsSymbol *Symbol, constant semantics.ProgramConstant) {
 	w.WriteLine(&ConstantAssignmentLine{
 		LhsSymbol: lhsSymbol,
 		Constant: constant,
 	})
 }
 
-func (w *Writer) WriteIntAssignment(lhsSymbol *Symbol, val int) {
-	w.WriteConstantAssignment(lhsSymbol, fmt.Sprintf("%d", val))
+func (w *Writer) WriteStringAssignment(lhsSymbol *Symbol, v string) {
+	w.WriteLine(&StringAssignmentLine{
+		LhsSymbol: lhsSymbol,
+		Val: v,
+	})
+}
+
+func (w *Writer) WriteIntAssignment(lhsSymbol *Symbol, constant *semantics.IntegralConstant) {
+	w.WriteConstantAssignment(lhsSymbol, constant)
 }
 
 func (w *Writer) WriteBinaryOperation(lhsSymbol *Symbol, leftOperand *Symbol, operator string, rightOperand *Symbol) {
@@ -124,5 +134,12 @@ func (w *Writer) WriteGotoLine(label string) {
 func (w *Writer) WriteReturnLine(returnSymbol *Symbol) {
 	w.WriteLine(&ReturnLine{
 		ReturnSymbol: returnSymbol,
+	})
+}
+
+func (w *Writer) WriteTypeCastLine(lhs *Symbol, rhs *Symbol) {
+	w.WriteLine(&TypeCastLine{
+		FromSymbol: rhs,
+		ToSymbol: lhs,
 	})
 }

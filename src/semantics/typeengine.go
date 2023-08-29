@@ -4,6 +4,7 @@ import (
 	"ast"
 	"errors"
 	"fmt"
+	"math"
 	"utils"
 )
 
@@ -128,7 +129,10 @@ func (e *TypeEngine) extractDirectTypeAndName(ddec ast.DirectDeclarator, declara
 		if e.assert(directDec.ArrayExpression != nil, "Array size is required", directDec.LineInfo) {
 			sz, err := e.typeRulesManager.evalConstantIntegerExpression(directDec.ArrayExpression)
 			if e.assert(err == nil && sz > 0 , "Array expression must be a constant positive integer", directDec.LineInfo) {
-				arrSize = sz
+				if sz > math.MaxInt {
+					e.errorTracker.registerTypeError("Array too large, size must fit into 32bits", ast.LineInfo{})
+				}
+				arrSize = int(sz) // TODO uint
 			}
 		}
 		if declaratorPointer != nil {
@@ -196,7 +200,10 @@ func (e *TypeEngine) extractDirectType(ddec ast.DirectAbstractDeclarator, declar
 		if directDec.Expression != nil {
 			sz, err := e.typeRulesManager.evalConstantIntegerExpression(directDec.Expression)
 			if e.assert(err == nil && sz > 0 , "Array expression must be a constant positive integer", directDec.LineInfo) {
-				arrSize = sz
+				if sz > math.MaxInt {
+					e.errorTracker.registerTypeError("Array too large, size must fit into 32bits", ast.LineInfo{})
+				}
+				arrSize = int(sz) // TODO uint
 			}
 		}
 		if declaratorPointer != nil {
@@ -458,7 +465,14 @@ func (e *TypeEngine) getTypeOfExpression(expression ast.Expression) (Ctype, erro
 			return nil, errors.New("Undefined identifier " + expr.Identifier)
 		}
 	case ast.ConstantValExpression:
-		return e.typeRulesManager.getTypeOfConstantValExpression(expr), nil
+		t := e.typeRulesManager.getTypeOfConstantValExpression(expr)
+		var err error
+		if e.typeRulesManager.isIntegralType(t) {
+			_, err = evalIntVal(expr.Constant)
+		} else {
+			_, err = evalFloatVal(expr.Constant)
+		}
+		return t, err
 	case ast.StringLiteralExpression:
 		return STRING_LITERAL_TYPE, nil
 	case ast.ArrayAccessPostfixExpression:
@@ -836,4 +850,51 @@ func (e *TypeEngine) GetStructFieldInitializers(structT StructCtype, initializer
 		}
 	}
 	return
+}
+
+func (e *TypeEngine) GetRequiredTypeCastForBinaryArithmeticOperation(leftOperand Ctype, rightOperand Ctype) BinaryOpTypecast {
+	if e.typeRulesManager.isSame(leftOperand, rightOperand) {
+		return BinaryOpTypecast{
+			LeftRequiresCast: false,
+			RightRequiresCast: false,
+		}
+	}
+	greaterT := e.typeRulesManager.getGreaterOrEqualType(leftOperand, rightOperand)
+	if e.typeRulesManager.isSame(leftOperand, greaterT) {
+		return BinaryOpTypecast{
+			LeftRequiresCast: false,
+			RightRequiresCast: true,
+			RightTargetType: greaterT,
+		}
+	} else {
+		return BinaryOpTypecast{
+			LeftRequiresCast: true,
+			RightRequiresCast: false,
+			LeftTargetType: greaterT,
+		}
+	}
+}
+
+func (e *TypeEngine) GetConstantInfo(expr ast.ConstantValExpression) ProgramConstant {
+	exprT := e.GetTypeOfExpression(expr)
+	if e.typeRulesManager.isIntegralType(exprT) {
+		v, _ := evalIntVal(expr.Constant)
+		return &IntegralConstant{
+			T: exprT,
+			Val: v,
+		}
+	} else {
+		v, _ := evalFloatVal(expr.Constant)
+		return &FloatingConstant{
+			T: exprT,
+			Val: v,
+		}
+	}
+}
+
+func (e *TypeEngine) GetAssignmentCastInfo(lhs Ctype, rhs Ctype) (castTo Ctype, requiresCast bool) {
+	if e.typeRulesManager.isSame(lhs, rhs) {
+		return nil, false
+	}
+	return lhs, true
 }

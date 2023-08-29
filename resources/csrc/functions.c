@@ -14,23 +14,35 @@ struct A str = {
     .y = 7,
 };
 
-int g(int a, int b);
+// int g(int a, int b);
+
+float g(int[5][], float, double);
 
 void f() {
     int x;
-    int y;
-    for (x = 1; x < 10; x++) {
-        y += x;
-        if (x > 5 && x % 2 == 0) {
-            int a = 5;
-            while (a > 0) {
-                a = g(--a, x);
-            }
-        }
-        else {
-            continue;
-        }
-    }
+    float y;
+    double m;
+    long v;
+    int* a;
+
+    str.y = g(a, y, y);
+    // int x;
+    // float f;
+    // int* q;
+    // float z = x;
+    // int y;
+    // for (x = 1; x < 10; x++) {
+    //     y += x;
+    //     if (x > 5 && x % 2 == 0) {
+    //         int a = 5;
+    //         while (a > 0) {
+    //             a = g(--a, x);
+    //         }
+    //     }
+    //     else {
+    //         continue;
+    //     }
+    // }
 }
 
 // int* a;

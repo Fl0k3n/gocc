@@ -1,12 +1,17 @@
 package semantics
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
 
 
 type Ctype interface {
 	Name() string
 	Size() int
 	RequiredAlignment() int
+	HumanReadableName() string
 }
 
 const ANONYMOUS = ""
@@ -61,6 +66,10 @@ func (pc PointerCtype) RequiredAlignment() int {
 	return POINTER_ALIGNMENT
 }
 
+func (pc PointerCtype) HumanReadableName() string {
+	return fmt.Sprintf("%s*", pc.Target.HumanReadableName())
+}
+
 type BuiltinCtype struct {
 	Builtin Builtin
 }
@@ -81,6 +90,10 @@ func (bc BuiltinCtype) Size() int {
 
 func (bc BuiltinCtype) RequiredAlignment() int {
 	return alignment[bc.Builtin]
+}
+
+func (bc BuiltinCtype) HumanReadableName() string {
+	return bc.Name()
 }
 
 type StructCtype struct {
@@ -131,6 +144,10 @@ func (cc StructCtype) RequiredAlignment() int {
 	return cc.NestedFieldTypes[0].RequiredAlignment()
 }
 
+func (cc StructCtype) HumanReadableName() string {
+	return fmt.Sprintf("struct %s", cc.name)
+}
+
 func (cc *StructCtype) MaybeField(name string) (t Ctype, offset int, err error) {
 	for idx, fname := range cc.NestedFieldNames {
 		if fname == name {
@@ -171,6 +188,18 @@ func (ac ArrayCtype) RequiredAlignment() int {
 	return POINTER_ALIGNMENT
 }
 
+func (ac ArrayCtype) HumanReadableName() string {
+	dimsStr := ""
+	for _, dim := range ac.DimensionSizes {
+		if dim == UNSPECIFIED_ARR_SIZE {
+			dimsStr += "[]"
+		} else {
+			dimsStr += fmt.Sprintf("[%d]", dim)
+		}
+	}
+	return fmt.Sprintf("%s%s", ac.NestedType.HumanReadableName(), dimsStr)
+}
+
 func NewArray(name string, dimensions []int, nestedType Ctype) ArrayCtype {
 	size := -1
 	if nestedType != UNKNOWN_OR_PARTIAL {
@@ -209,4 +238,12 @@ func (fp FunctionPtrCtype) Size() int {
 
 func (fp FunctionPtrCtype) RequiredAlignment() int {
 	return POINTER_ALIGNMENT
+}
+
+func (fp FunctionPtrCtype) HumanReadableName() string {
+	argsRepr := make([]string, 0, len(fp.ParamTypes))
+	for _, param := range fp.ParamTypes {
+		argsRepr = append(argsRepr, param.HumanReadableName())
+	}
+	return fmt.Sprintf("%s (*)%s", fp.ReturnType.HumanReadableName(), strings.Join(argsRepr, ","))
 }

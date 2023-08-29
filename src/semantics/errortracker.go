@@ -29,7 +29,7 @@ func (et *ErrorTracker) HasError() bool {
 
 func (et *ErrorTracker) PrintErrors() {
 	if len(et.semanticErrors) > 0 {
-		fmt.Println("Semtantic errors:")
+		fmt.Println("Semantic errors:")
 		for _, err := range et.semanticErrors {
 			fmt.Printf("In %d:\n\t%s\n", err.line.LineNumber, err.err.Error())
 		}

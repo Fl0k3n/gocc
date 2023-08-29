@@ -3,6 +3,7 @@ package semantics
 import (
 	"ast"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -54,6 +55,35 @@ type DeclarationContext struct {
 	allowsInitialization bool
 }
 
+type BinaryOpTypecast struct {
+	LeftRequiresCast bool
+	LeftTargetType Ctype
+	RightRequiresCast bool
+	RightTargetType Ctype
+}
+
+type ProgramConstant interface {
+	String() string
+}
+
+type IntegralConstant struct {
+	Val int64
+	T Ctype
+}
+
+func (i *IntegralConstant) String() string {
+	return fmt.Sprintf("%d", i.Val)
+}
+
+type FloatingConstant struct {
+	Val float64
+	T Ctype
+}
+
+func (f *FloatingConstant) String() string {
+	return fmt.Sprintf("%f", f.Val)
+}
+
 func getTypeName(ts ast.TypeSpecifier) string {
 	switch dts := ts.(type) {
 	case ast.DirectTypeSpecifier:
@@ -102,7 +132,7 @@ func extractStructFieldInitializerIdentifierName(ae *ast.AssignmentExpression) (
 }
 
 // only +, -, *, /, %
-func applyArithmeticOperator(v1 int, v2 int, op string) (v int, err error) {
+func applyArithmeticOperator(v1 int64, v2 int64, op string) (v int64, err error) {
 	switch op {
 	case "+": v = v1 + v2
 	case "-": v = v1 - v2
@@ -123,23 +153,49 @@ func applyArithmeticOperator(v1 int, v2 int, op string) (v int, err error) {
 	return
 }
 
-func evalIntVal(val string) (int, error) {
+func stripNumericTypeSuffix(val string) string {
+	for {
+		lastChar := val[len(val) - 1]
+		if lastChar == 'f' || lastChar == 'F' || lastChar == 'l' || 
+		   lastChar == 'L' || lastChar == 'u' || lastChar == 'U' {
+			val = val[:len(val) - 1]
+		} else {
+			return val
+		}
+	}
+}
+
+func evalIntVal(val string) (int64, error) {
+	// TODO this has issue with unsigned long out of bounds which may be flipped to negative
 	var v int64
 	var e error
+	val = stripNumericTypeSuffix(val)
+	if strings.HasPrefix(val, "'") {
+		return int64(val[1]), nil
+	}
 	switch {
 		case strings.HasPrefix(val, "0b"):
-			v, e = strconv.ParseInt(val[2:], 2, 0)
+			v, e = strconv.ParseInt(val[2:], 2, 64)
 		case strings.HasPrefix(val, "0x"):
-			v, e = strconv.ParseInt(val[2:], 16, 0)
+			v, e = strconv.ParseInt(val[2:], 16, 64)
 		case strings.HasPrefix(val, "0"):
-			v, e = strconv.ParseInt(val[1:], 8, 0)
+			if val == "0" {
+				v = 0
+			} else {
+				v, e = strconv.ParseInt(val[1:], 8, 64)
+			}
 		default:
-			v, e = strconv.ParseInt(val, 10, 0)
+			v, e = strconv.ParseInt(val, 10, 64)
 	}
 	if e != nil {
 		return 0, e
 	}
-	return int(v), nil
+	return v, nil
+}
+
+func evalFloatVal(val string) (float64, error) {
+	val = stripNumericTypeSuffix(val)
+	return strconv.ParseFloat(val, 64)
 }
 
 func isStruct(t Ctype) bool {

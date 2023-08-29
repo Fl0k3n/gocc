@@ -7,6 +7,8 @@ import (
 	"utils"
 )
 
+var COMPARISON_TYPE = BuiltinFrom("int")
+
 type BuiltinGreaterRule struct {
 	greater Builtin
 	lower Builtin
@@ -33,27 +35,46 @@ var _BUILTIN_RULES = []BuiltinGreaterRule{
 // if there exits an edge from node1 to node2 then node1 > node2 wrt the relation above
 type BuiltinRulesGraph map[Builtin]*utils.Set[Builtin]
 
+func buildTopologicalOrder(G BuiltinRulesGraph, cur Builtin, visited map[Builtin]bool, order []Builtin, lastIdx int) int {
+	visited[cur] = true
+	if neighs, ok := G[cur]; ok {
+		for _, neigh := range neighs.GetAll() {
+			if !visited[neigh] {
+				lastIdx = buildTopologicalOrder(G, neigh, visited, order, lastIdx)
+			}
+		}
+	}
+	order[lastIdx + 1] = cur
+	return lastIdx + 1
+}
+
 func buildBuiltinRulesGraph() BuiltinRulesGraph {
 	G := make(BuiltinRulesGraph)
-	edgeQueue := utils.NewQueue[BuiltinGreaterRule]()
-	for _, br := range _BUILTIN_RULES {
-		edgeQueue.Push(br)
-	}
-	for edgeQueue.Size() > 0 {
-		curEdge := edgeQueue.Pop()
-		if edges, ok := G[curEdge.greater]; ok {
-			if edges.Has(curEdge.lower) {
-				continue
-			} else {
-				edges.Add(curEdge.lower)
-			}
+	for _, rule := range _BUILTIN_RULES {
+		if neighs, ok := G[rule.greater]; ok {
+			neighs.Add(rule.lower)
 		} else {
-			G[curEdge.greater] = utils.SetOf[Builtin](curEdge.lower)
+			G[rule.greater] = utils.SetOf[Builtin](rule.lower)
 		}
-
-		if neighEdges, ok := G[curEdge.lower]; ok {
-			for _, lowerNode := range neighEdges.GetAll() {
-				edgeQueue.Push(BuiltinGreaterRule{curEdge.greater, lowerNode})
+	}
+	visited := map[Builtin]bool{}
+	for _, bt := range builtinTypes {
+		visited[bt] = false
+	}
+	topologicalOrder := make([]Builtin, len(builtinTypes))
+	idx := -1
+	for _, bt := range builtinTypes {
+		if !visited[bt] {
+			idx = buildTopologicalOrder(G, bt, visited, topologicalOrder, idx)
+		}
+	}
+	for _, v := range topologicalOrder {
+		if vNeighs, ok := G[v]; ok {
+			initialNeighs := vNeighs.GetAll()
+			for _, neigh := range initialNeighs {
+				if neighsOfNeigh, ok := G[neigh]; ok {
+					vNeighs.AddAll(neighsOfNeigh.GetAll())
+				}
 			}
 		}
 	}
@@ -141,7 +162,7 @@ func (tm *TypeRulesManager) getBinaryOpType(op string, t1 Ctype, t2 Ctype) (Ctyp
 		if !tm.isAutomaticallyCastable(t1, t2) && !tm.isAutomaticallyCastable(t2, t1) {
 			return nil, errors.New("Uncompatible types")
 		}
-		return BuiltinFrom("int"), nil
+		return COMPARISON_TYPE, nil
 	case "<<", ">>":
 		if tm.isIntegralType(t1) && tm.isIntegralType(t2) {
 			return t1, nil
@@ -419,11 +440,10 @@ func (tm *TypeRulesManager) canBeIncremented(t Ctype) bool {
 	}
 }
 
-func (tm *TypeRulesManager) evalConstantIntegerExpression(expr ast.Expression) (int, error) {
+func (tm *TypeRulesManager) evalConstantIntegerExpression(expr ast.Expression) (int64, error) {
 	var err error
 	if valExpr, isValExpr := expr.(ast.ConstantValExpression); isValExpr {
 		exprT := tm.getTypeOfConstantValExpression(valExpr)
-		// TODO allow long?
 		if exprT.Builtin == INT {
 			return evalIntVal(valExpr.Constant)
 		} else if exprT.Builtin == UNSIGNED_INT {
@@ -431,7 +451,7 @@ func (tm *TypeRulesManager) evalConstantIntegerExpression(expr ast.Expression) (
 		}
 		err = errors.New("Expression is not integral const")
 	} else if arithmExpr, isArithm := expr.(ast.BinaryArithmeticExpression); isArithm {
-		var v1, v2 int
+		var v1, v2 int64
 		if v1, err = tm.evalConstantIntegerExpression(arithmExpr.LhsExpression); err != nil {
 			goto onerr
 		}
@@ -440,7 +460,7 @@ func (tm *TypeRulesManager) evalConstantIntegerExpression(expr ast.Expression) (
 		}
 		return applyArithmeticOperator(v1, v2, arithmExpr.Operator)
 	} else if unaryExpr, isUnary := expr.(ast.CastUnaryExpression); isUnary {
-		var v int
+		var v int64
 		// TODO should this be allowed?
 		if unaryExpr.Operator == "-" {
 			if v, err = tm.evalConstantIntegerExpression(unaryExpr.CastExpression); err != nil {
@@ -515,3 +535,31 @@ func (tm *TypeRulesManager) canBeUsedAsSwitchExpression(t Ctype) bool {
 	}
 	return false
 }
+
+// func (tm *TypeRulesManager) getBinaryOpTypecast(leftOp Ctype, rightOp Ctype) BinaryOpTypecast {
+// 	if tm.isSame(leftOp, rightOp) {
+// 		return BinaryOpTypecast{
+// 			LeftRequiresCast: false,
+// 			RightRequiresCast: false,
+// 		}
+// 	}
+// 	// TODO long double
+// 	switch lt := leftOp.(type) {
+// 	case BuiltinCtype:
+// 		lftIsIntegral := tm.isIntegralType(lt)
+// 		switch rt := rightOp.(type) {
+// 		case BuiltinCtype:
+// 			rightIsIntegral := tm.isIntegralType(rt)
+// 			if lftIsIntegral && rightIsIntegral {
+
+// 			} else if lftIsIntegral && !rightIsIntegral {
+
+// 			} else if !lftIsIntegral && rightIsIntegral {
+
+// 			} else {
+
+// 			}
+// 		}
+
+// 	}
+// }
