@@ -2,12 +2,14 @@ go 1.20
 
 use (
 	.
+	./assembly
 	./ast
+	./codegen
 	./grammar
 	./ir
 	./parser
+	./semantics
 	./symtab
 	./tokenizer
-	./semantics
 	./utils
 )

@@ -7,22 +7,31 @@ import (
 
 
 type Writer struct {
-	lines []IRLine
+	curFunc *FunctionIR
+	functions []*FunctionIR
 }
 
 func NewWriter() *Writer {
 	return &Writer{
-		lines: []IRLine{},
+		functions: []*FunctionIR{},
+		curFunc: nil,
 	}
 }
 
 func (w *Writer) WriteLine(line IRLine) {
-	w.lines = append(w.lines, line)
+	w.curFunc.Code = append(w.curFunc.Code, line)
 }
 
 func (w *Writer) PrintAll() {
-	for _, line := range w.lines {
-		fmt.Println(line.String())
+	for _, fun := range w.functions {
+		fmt.Printf("function %s:\n", fun.Name)
+		for _, line := range fun.Code {
+			if _, isLabel := line.(*LabelLine); isLabel {
+				fmt.Println(line.String())
+			} else {
+				fmt.Printf("\t%s\n", line.String())
+			}
+		}
 	}
 }
 
@@ -105,9 +114,9 @@ func (w *Writer) WriteFunctionCall(functionSymbol *Symbol, returnSymbol *Symbol,
 	})
 }
 
-func (w *Writer) WriteBiSymbolAssignment(lhs *Symbol, rhs *Symbol) {
+func (w *Writer) WriteBiSymbolAssignment(lval *LValue, rhs *Symbol) {
 	w.WriteLine(&BiSymbolAssignmentLine{
-		LhsSymbol: lhs,
+		LValue: lval,
 		RhsSymbol: rhs,
 	})
 }
@@ -142,4 +151,12 @@ func (w *Writer) WriteTypeCastLine(lhs *Symbol, rhs *Symbol) {
 		FromSymbol: rhs,
 		ToSymbol: lhs,
 	})
+}
+
+func (w *Writer) EnterFunction(name string) {
+	w.curFunc = &FunctionIR{
+		Code: []IRLine{},
+		Name: name,
+	}
+	w.functions = append(w.functions, w.curFunc)
 }

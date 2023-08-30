@@ -10,6 +10,17 @@ type IRLine interface {
 	String() string
 }
 
+type FunctionIR struct {
+	Code []IRLine
+	Name string
+	// function metadata: symtab snapshot, ...?
+}
+
+type LValue struct {
+	IsDereferenced bool
+	Sym *Symbol
+}
+
 type ConstantAssignmentLine struct {
 	LhsSymbol *Symbol
 	Constant semantics.ProgramConstant
@@ -25,25 +36,20 @@ type StringAssignmentLine struct {
 }
 
 func (c *StringAssignmentLine) String() string {
-	return "\"" + c.Val + "\""
-}
-
-type StringConstantAssignmentLine struct {
-	LhsSymbol *Symbol
-	Constant string
-}
-
-func (c *StringConstantAssignmentLine) String() string {
-	return fmt.Sprintf("%s = \"%s\"", c.LhsSymbol.Name, c.Constant)
+	return fmt.Sprintf("%s = \"%s\"", c.LhsSymbol.Name, c.Val)
 }
 
 type BiSymbolAssignmentLine struct {
-	LhsSymbol *Symbol
+	LValue *LValue
 	RhsSymbol *Symbol
 }
 
 func (c *BiSymbolAssignmentLine) String() string {
-	return fmt.Sprintf("%s = %s", c.LhsSymbol.Name, c.RhsSymbol.Name)
+	prefix := ""
+	if c.LValue.IsDereferenced {
+		prefix = "*"
+	}
+	return fmt.Sprintf("%s%s = %s", prefix, c.LValue.Sym.Name, c.RhsSymbol.Name)
 }
 
 type BinaryOperationLine struct {
@@ -90,7 +96,7 @@ type LabelLine struct {
 }
 
 func (c *LabelLine) String() string {
-	return "." + c.Label
+	return "." + c.Label + ":"
 }
 
 type IfGotoLine struct {

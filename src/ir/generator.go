@@ -67,15 +67,15 @@ func (g *IRGenerator) multiplyByIntConst(sym *Symbol, c int64) *Symbol {
 	return res
 }
 
-func (g *IRGenerator) moveByOffset(base *Symbol, offset *Symbol) *Symbol {
-	res := g.scopeMgr.newTemp(base.Ctype)
+func (g *IRGenerator) moveByOffset(base *Symbol, offset *Symbol, resType semantics.Ctype) *Symbol {
+	res := g.scopeMgr.newTemp(resType)
 	g.writer.WriteBinaryAddition(res, base, offset)
 	return res
 }
 
-func (g *IRGenerator) moveByIntOffset(base *Symbol, offset int64) *Symbol {
+func (g *IRGenerator) moveByIntOffset(base *Symbol, offset int64, resType semantics.Ctype) *Symbol {
 	offsetSym := g.makeIntConst(offset)
-	return g.moveByOffset(base, offsetSym)
+	return g.moveByOffset(base, offsetSym, resType)
 }
 
 func (g *IRGenerator) reference(sym *Symbol) *Symbol {
@@ -91,15 +91,20 @@ func (g *IRGenerator) dereference(sym *Symbol) *Symbol {
 	return res
 }
 
-func (g *IRGenerator) incrementOrDecrement(sym *Symbol, operator ast.IncDecOperator) *Symbol {
+func (g *IRGenerator) incrementOrDecrement(lval *LValue, sym *Symbol, operator ast.IncDecOperator) *Symbol {
 	res := g.scopeMgr.newTemp(sym.Ctype)
-	valSymbol := g.makeIntConst(1)
+	var valSymbol *Symbol
+	if ptr, isPtr := sym.Ctype.(semantics.PointerCtype); isPtr {
+		valSymbol = g.makeIntConst(int64(ptr.Target.Size()))
+	} else {
+		valSymbol = g.makeIntConst(1)
+	}
 	if operator == ast.INC {
 		g.writer.WriteBinaryAddition(res, sym, valSymbol)
 	} else {
 		g.writer.WriteBinarySubtraction(res, sym, valSymbol)
 	}
-	g.writer.WriteBiSymbolAssignment(sym, res)
+	g.writer.WriteBiSymbolAssignment(lval, res)
 	return sym
 }
 
@@ -161,8 +166,60 @@ func (g *IRGenerator) simplifyAssignment(lhs *Symbol, rhs *Symbol, operator stri
 		rhs = g.typeCast(rhs, castInfo.RightTargetType)
 	}
 	simplified := g.scopeMgr.newTemp(rhs.Ctype)
+	lhs, rhs = g.checkForPointerArithmeticOperation(lhs, rhs)
 	g.writer.WriteBinaryOperation(simplified, lhs, binaryOp, rhs)
 	return simplified
+}
+
+func (g *IRGenerator) checkForPointerArithmeticOperation(leftOp *Symbol, rightOp *Symbol) (left *Symbol, right *Symbol) {
+	left = leftOp
+	right = rightOp
+	if leftPtr, leftIsPtr := leftOp.Ctype.(semantics.PointerCtype); leftIsPtr {
+		if g.typeEngine.IsIntegralType(rightOp.Ctype) {
+			right = g.multiplyByIntConst(rightOp, int64(leftPtr.Target.Size()))
+		}
+	} else if rightPtr, rightIsPtr := rightOp.Ctype.(semantics.PointerCtype); rightIsPtr {
+		if g.typeEngine.IsIntegralType(leftOp.Ctype) {
+			left = g.multiplyByIntConst(leftOp, int64(rightPtr.Target.Size()))
+		}
+	}
+	return
+}
+
+func (g *IRGenerator) getArraySymbolWithDisplacement(expr ast.ArrayAccessPostfixExpression) (arr *Symbol, offset *Symbol) {
+	curExpr := expr
+	dimensionSymbols := []*Symbol{}
+	for {
+		dimensionSymbols = append(dimensionSymbols, g.generateExpressionAndGetResultSymbol(curExpr.ArrayExpression))
+		if nestedExpr, isArrayAccess := curExpr.PostfixExpression.(ast.ArrayAccessPostfixExpression); isArrayAccess {
+			curExpr = nestedExpr
+		} else {
+			break
+		}
+	}
+	arrOrPtrT := g.typeEngine.GetTypeOfExpression(curExpr.PostfixExpression)
+	if len(dimensionSymbols) > 1 {
+		offset = g.flattenArrayAccessor(arrOrPtrT.(semantics.ArrayCtype), dimensionSymbols)
+	} else {
+		offset = dimensionSymbols[0]
+	}
+	if nestedType:= g.typeEngine.GetNestedType(arrOrPtrT); nestedType.Size() > 1 {
+		offset = g.multiplyByIntConst(offset, int64(nestedType.Size()))
+	}
+	arr = g.generateExpressionAndGetResultSymbol(curExpr.PostfixExpression)
+	return
+}
+
+func (g *IRGenerator) getStructSymbolWithDisplacement(expr ast.StructAccessPostfixExpression) (sym *Symbol, offset int, fieldType semantics.Ctype) {
+	if expr.AccessMethod == ast.POINTER_ACCESS {
+		structPtrSymbol := g.generateExpressionAndGetResultSymbol(expr.StructAccessor)
+		sym = g.dereference(structPtrSymbol)
+	} else {
+		sym = g.generateExpressionAndGetResultSymbol(expr.StructAccessor)
+	}
+	structType := sym.Ctype.(semantics.StructCtype)
+	fieldType, offset = structType.Field(expr.FieldIdentifier)
+	return 
 }
 
 func (g *IRGenerator) generateExpressionAndGetResultSymbol(expression ast.Expression) *Symbol {
@@ -170,9 +227,7 @@ func (g *IRGenerator) generateExpressionAndGetResultSymbol(expression ast.Expres
 	switch expr := expression.(type) {
 	case ast.IdentifierExpression:
 		sym := g.scopeMgr.getSymbol(expr.Identifier)
-		resSymbol := g.scopeMgr.newTemp(sym.Ctype)
-		g.writer.WriteBiSymbolAssignment(resSymbol, sym)
-		return resSymbol
+		return sym
 	case ast.ConstantValExpression:
 		resSymbol := g.scopeMgr.newTemp(exprT)
 		g.writer.WriteConstantAssignment(resSymbol, g.typeEngine.GetConstantInfo(expr))
@@ -182,29 +237,9 @@ func (g *IRGenerator) generateExpressionAndGetResultSymbol(expression ast.Expres
 		g.writer.WriteStringAssignment(resSymbol, expr.StringLiteral)
 		return resSymbol
 	case ast.ArrayAccessPostfixExpression:
-		curExpr := expr
-		dimensionSymbols := []*Symbol{}
-		for {
-			dimensionSymbols = append(dimensionSymbols, g.generateExpressionAndGetResultSymbol(curExpr.ArrayExpression))
-			if nestedExpr, isArrayAccess := curExpr.PostfixExpression.(ast.ArrayAccessPostfixExpression); isArrayAccess {
-				curExpr = nestedExpr
-			} else {
-				break
-			}
-		}
-		arrOrPtrT := g.typeEngine.GetTypeOfExpression(curExpr.PostfixExpression)
-		var offset *Symbol
-		if len(dimensionSymbols) > 1 {
-			offset = g.flattenArrayAccessor(arrOrPtrT.(semantics.ArrayCtype), dimensionSymbols)
-		} else {
-			offset = dimensionSymbols[0]
-		}
-		if nestedTypeSize := g.typeEngine.GetNestedTypeSize(arrOrPtrT); nestedTypeSize > 1 {
-			offset = g.multiplyByIntConst(offset, int64(nestedTypeSize))
-		}
-		
-		arrBaseSymbol := g.generateExpressionAndGetResultSymbol(curExpr.PostfixExpression)
-		return g.moveByOffset(arrBaseSymbol, offset)	
+		arrBaseSymbol, displacement := g.getArraySymbolWithDisplacement(expr)
+		shiftedArr := g.moveByOffset(arrBaseSymbol, displacement, g.typeEngine.WrapInPointer(exprT))
+		return g.dereference(shiftedArr)
 	case ast.FunctionCallPostfixExpression:
 		funcSymbol := g.generateExpressionAndGetResultSymbol(expr.FunctionAccessor)
 		funcType := funcSymbol.Ctype.(semantics.FunctionPtrCtype)
@@ -226,24 +261,17 @@ func (g *IRGenerator) generateExpressionAndGetResultSymbol(expression ast.Expres
 		g.writer.WriteFunctionCall(funcSymbol, returnSymbol, args)
 		return returnSymbol // this can be nil but typesystem guarantess that if it is it will never be used
 	case ast.StructAccessPostfixExpression:
-		var structSymbol *Symbol
-		if expr.AccessMethod == ast.POINTER_ACCESS {
-			structPtrSymbol := g.generateExpressionAndGetResultSymbol(expr.StructAccessor)
-			structSymbol = g.dereference(structPtrSymbol)
-		} else {
-			structSymbol = g.generateExpressionAndGetResultSymbol(expr.StructAccessor)
-		}
-		structType := structSymbol.Ctype.(semantics.StructCtype)
-		fieldType, fieldOffset := structType.Field(expr.FieldIdentifier)
-		res := g.moveByIntOffset(structSymbol, int64(fieldOffset))
-		res.Ctype = fieldType
-		return res
+		structSymbol, fieldOffset, fieldType := g.getStructSymbolWithDisplacement(expr)
+		fieldPtr := g.moveByIntOffset(structSymbol, int64(fieldOffset), g.typeEngine.WrapInPointer(fieldType))
+		return g.dereference(fieldPtr)
 	case ast.IncDecPostfixExpression:
-		symbolToIncDec := g.generateExpressionAndGetResultSymbol(expr.PostfixExpression)
-		return g.incrementOrDecrement(symbolToIncDec, expr.Operator)
+		rval := g.generateExpressionAndGetResultSymbol(expr.PostfixExpression)
+		lval := g.generateLValueForAssignment(expr.PostfixExpression)
+		return g.incrementOrDecrement(lval, rval, expr.Operator)
 	case ast.IncDecUnaryExpression:
-		symbolToIncDec := g.generateExpressionAndGetResultSymbol(expr.UnaryExpression)
-		return g.incrementOrDecrement(symbolToIncDec, expr.Operator)
+		rval := g.generateExpressionAndGetResultSymbol(expr.UnaryExpression)
+		lval := g.generateLValueForAssignment(expr.UnaryExpression)
+		return g.incrementOrDecrement(lval, rval, expr.Operator)
 	case ast.CastUnaryExpression:
 		symToCast := g.generateExpressionAndGetResultSymbol(expr.CastExpression)
 		return g.makeUnaryCast(symToCast, expr.Operator)
@@ -263,6 +291,7 @@ func (g *IRGenerator) generateExpressionAndGetResultSymbol(expression ast.Expres
 	case ast.BinaryArithmeticExpression:
 		leftOperand := g.generateExpressionAndGetResultSymbol(expr.LhsExpression)
 		rightOperand := g.generateExpressionAndGetResultSymbol(expr.RhsExpression)
+		leftOperand, rightOperand = g.checkForPointerArithmeticOperation(leftOperand, rightOperand)
 		castInfo := g.typeEngine.GetRequiredTypeCastForBinaryArithmeticOperation(leftOperand.Ctype, rightOperand.Ctype)
 		if castInfo.LeftRequiresCast {
 			leftOperand = g.typeCast(leftOperand, castInfo.LeftTargetType)
@@ -280,26 +309,46 @@ func (g *IRGenerator) generateExpressionAndGetResultSymbol(expression ast.Expres
 		elseLabel := g.labels.Next(TERNARY_ELSE)
 		g.writer.WriteIfgotoLine(cond, elseLabel)
 		ifRes := g.generateExpressionAndGetResultSymbol(expr.IfTrueExpression)
-		g.writer.WriteBiSymbolAssignment(res, ifRes)
+		g.writer.WriteBiSymbolAssignment(&LValue{IsDereferenced: false, Sym: res}, ifRes)
 		g.writer.WriteGotoLine(endifLabel)
 		g.writer.WriteLabel(elseLabel)
 		elseRes := g.generateExpressionAndGetResultSymbol(expr.ElseExpression)
-		g.writer.WriteBiSymbolAssignment(res, elseRes)
+		g.writer.WriteBiSymbolAssignment(&LValue{IsDereferenced: false, Sym: res}, elseRes)
 		g.writer.WriteLabel(endifLabel)
 		return res
 	case ast.AssignmentExpression:
-		lhs := g.generateExpressionAndGetResultSymbol(expr.LhsExpression)
+		lValue := g.generateLValueForAssignment(expr.LhsExpression)
 		rhs := g.generateExpressionAndGetResultSymbol(expr.RhsExpression)
 		if expr.Operator != "=" {
-			rhs = g.simplifyAssignment(lhs, rhs, expr.Operator)
+			rhs = g.simplifyAssignment(g.generateExpressionAndGetResultSymbol(expr.LhsExpression), rhs, expr.Operator)
 		}
-		if castType, rhsRequiresCast := g.typeEngine.GetAssignmentCastInfo(lhs.Ctype, rhs.Ctype); rhsRequiresCast {
+		if castType, rhsRequiresCast := g.typeEngine.GetAssignmentCastInfo(exprT, rhs.Ctype); rhsRequiresCast {
 			rhs = g.typeCast(rhs, castType)
 		}
-		g.writer.WriteBiSymbolAssignment(lhs, rhs)
-		return lhs
+		g.writer.WriteBiSymbolAssignment(lValue, rhs)
+		return rhs
 	}
 	panic("Unexpected expression")
+}
+
+func (g *IRGenerator) generateLValueForAssignment(lhsExpression ast.Expression) *LValue {
+	switch expr := lhsExpression.(type) {
+	case ast.IdentifierExpression:
+		return &LValue{IsDereferenced: false, Sym: g.scopeMgr.getSymbol(expr.Identifier)}
+	case ast.CastUnaryExpression:
+		return &LValue{IsDereferenced: true, Sym: g.generateExpressionAndGetResultSymbol(expr.CastExpression)}
+	case ast.ArrayAccessPostfixExpression:
+		arrSym, displacement := g.getArraySymbolWithDisplacement(expr)
+		nestedT := g.typeEngine.GetNestedType(arrSym.Ctype)
+		shifted := g.moveByOffset(arrSym, displacement, g.typeEngine.WrapInPointer(nestedT))
+		return &LValue{IsDereferenced: true, Sym: shifted}
+	case ast.StructAccessPostfixExpression:
+		structSymbol, fieldOffset, fieldType := g.getStructSymbolWithDisplacement(expr)
+		fieldPtr := g.moveByIntOffset(structSymbol, int64(fieldOffset), g.typeEngine.WrapInPointer(fieldType))
+		return &LValue{IsDereferenced: true, Sym: fieldPtr}
+	default:
+		panic("Unexpected Lvalue expression")
+	}
 }
 
 func (g *IRGenerator) generateExpressionAndAssignResultTo(sym *Symbol, offset int64, expr ast.Expression, lhsType semantics.Ctype) {
@@ -308,10 +357,10 @@ func (g *IRGenerator) generateExpressionAndAssignResultTo(sym *Symbol, offset in
 		resSym = g.typeCast(resSym, castType)
 	}
 	if offset != 0 {
-		shifted := g.moveByIntOffset(sym, int64(offset))
-		g.writer.WriteBiSymbolAssignment(shifted, resSym)
+		shifted := g.moveByIntOffset(sym, int64(offset), g.typeEngine.WrapInPointer(lhsType))
+		g.writer.WriteBiSymbolAssignment(&LValue{IsDereferenced: true, Sym: shifted}, resSym)
 	} else {
-		g.writer.WriteBiSymbolAssignment(sym, resSym)
+		g.writer.WriteBiSymbolAssignment(&LValue{IsDereferenced: false, Sym: sym}, resSym)
 	}
 }
 
@@ -331,7 +380,7 @@ func (g *IRGenerator) initializeSymbols(dec *ast.Declaration) {
 				}
 			} else {
 				g.generateExpressionAndAssignResultTo(variable, 0, symDef.Initializer.Expression, symDef.T)
-				}
+			}
 		}
 	}
 }
@@ -484,6 +533,7 @@ func (g *IRGenerator) generateCompoundStatement(cs *ast.CompoundStatement) {
 func (g *IRGenerator) generateFunction(f *ast.FunctionDefinition) {
 	fun := g.scopeMgr.EnterFunction(f)
 	defer g.scopeMgr.LeaveFunction()
+	g.writer.EnterFunction(fun.Name())
 	g.curFunctionName = fun.Name()
 	g.labels.EnterFunction(fun.Name())
 	

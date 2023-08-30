@@ -143,6 +143,10 @@ func (tm *TypeRulesManager) isIntegralType(t Ctype) bool {
 	return false
 }
 
+func (tm *TypeRulesManager) isFloatingType(t Ctype) bool {
+	return isBuiltinType(t) && !isVoid(t) && !tm.isIntegralType(t)
+}
+
 func (tm *TypeRulesManager) getBinaryOpType(op string, t1 Ctype, t2 Ctype) (Ctype, error) {
 	switch op {
 	case "&&", "||":

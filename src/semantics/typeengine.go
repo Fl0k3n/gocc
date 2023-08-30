@@ -456,6 +456,30 @@ func (e *TypeEngine) getGreaterOrEqualTypeIfCompatible(e1 ast.Expression, e2 ast
 	}
 }
 
+func (e *TypeEngine) isLValue(expression ast.Expression, wrappedInPointer bool) bool {
+	switch expr := expression.(type) {
+	case ast.IdentifierExpression:
+		// TODO we should check if its not constant, e.g. global function
+		return true
+	case ast.CastUnaryExpression:
+		if expr.Operator == "*" {
+			nestedT, err := e.getTypeOfExpression(expr.CastExpression)
+			if err != nil {
+				return false
+			}
+			return e.isLValue(expr.CastExpression, true) && e.IsPointer(nestedT)
+		}
+		return false
+	case ast.ArrayAccessPostfixExpression:
+		return true
+	case ast.StructAccessPostfixExpression:
+		return true
+	case ast.BinaryArithmeticExpression:
+		return wrappedInPointer // upper level will check if this resolves to pointer
+	}
+	return false
+}
+
 func (e *TypeEngine) getTypeOfExpression(expression ast.Expression) (Ctype, error) {
 	switch expr := expression.(type) {
 	case ast.IdentifierExpression:
@@ -510,13 +534,15 @@ func (e *TypeEngine) getTypeOfExpression(expression ast.Expression) (Ctype, erro
 		}
 	case ast.FunctionCallPostfixExpression:
 		argTypes := []Ctype{}
-		for _, arg := range expr.Args.Expressions {
-			if t, err := e.getTypeOfExpression(arg); err != nil {
-				return nil, err
-			} else {
-				argTypes = append(argTypes, t)
+		if expr.Args != nil {
+			for _, arg := range expr.Args.Expressions {
+				if t, err := e.getTypeOfExpression(arg); err != nil {
+					return nil, err
+				} else {
+					argTypes = append(argTypes, t)
+				}
 			}
-		} 
+		}
 		if t, err := e.getTypeOfExpression(expr.FunctionAccessor); err != nil {
 			return nil, err
 		} else {
@@ -559,7 +585,7 @@ func (e *TypeEngine) getTypeOfExpression(expression ast.Expression) (Ctype, erro
 		if t, err := e.getTypeOfExpression(expr.PostfixExpression); err != nil {
 			return nil, err
 		} else {
-			if e.typeRulesManager.canBeIncremented(t) {
+			if e.typeRulesManager.canBeIncremented(t) && e.isLValue(expr.PostfixExpression, false) {
 				return t, nil
 			}
 			return nil, errors.New("Type can't be incremented or decremented")
@@ -568,7 +594,7 @@ func (e *TypeEngine) getTypeOfExpression(expression ast.Expression) (Ctype, erro
 		if t, err := e.getTypeOfExpression(expr.UnaryExpression); err != nil {
 			return nil, err
 		} else {
-			if e.typeRulesManager.canBeIncremented(t) {
+			if e.typeRulesManager.canBeIncremented(t) && e.isLValue(expr.UnaryExpression, false) {
 				return t, nil
 			}
 			return nil, errors.New("Type can't be incremented or decremented")
@@ -619,6 +645,9 @@ func (e *TypeEngine) getTypeOfExpression(expression ast.Expression) (Ctype, erro
 		}
 		return e.getGreaterOrEqualTypeIfCompatible(expr.IfTrueExpression, expr.ElseExpression)
 	case ast.AssignmentExpression:
+		if !e.isLValue(expr.LhsExpression, false) {
+			return nil, errors.New("Left hand side of assignment must be a L-value")
+		}
 		lhsType, err := e.getTypeOfExpression(expr.LhsExpression)
 		if err != nil {
 			return nil, err
@@ -757,11 +786,11 @@ func (e *TypeEngine) checkReturnExpression(expr ast.Expression, expectedType Cty
 	return nil
 }
 
-func (e *TypeEngine) GetNestedTypeSize(arrOrPtrT Ctype) int {
+func (e *TypeEngine) GetNestedType(arrOrPtrT Ctype) Ctype {
 	if arr, isArr := arrOrPtrT.(ArrayCtype); isArr {
-		return arr.NestedType.Size()
+		return arr.NestedType
 	} else {
-		return arrOrPtrT.(PointerCtype).Target.Size()
+		return arrOrPtrT.(PointerCtype).Target
 	}
 }
 
@@ -773,10 +802,6 @@ func (e *TypeEngine) GetTypeOfExpression(expr ast.Expression) Ctype {
 	}
 }
 
-func (e *TypeEngine) ReturnsVoid(fun FunctionPtrCtype) bool {
-	return isVoid(fun.ReturnType)
-}
-
 func (e *TypeEngine) ConvertToCtype(tn *ast.TypeName) Ctype {
 	if partialType, err := e.getPartialTypeFromSpecifiers(tn.SpecifierQulifierList.TypeSpecifiers); err != nil {
 		panic(err)
@@ -784,7 +809,6 @@ func (e *TypeEngine) ConvertToCtype(tn *ast.TypeName) Ctype {
 		return e.extractType(tn.AbstractDeclarator, partialType)
 	}
 }
-
 
 func (e *TypeEngine) GetDeclaredSymbols(dec *ast.Declaration) []*SymbolDeclaration {
 	partialType, err := e.getPartialTypeFromSpecifiers(dec.DeclarationSpecifiers.TypeSpecifiers)
@@ -897,4 +921,24 @@ func (e *TypeEngine) GetAssignmentCastInfo(lhs Ctype, rhs Ctype) (castTo Ctype, 
 		return nil, false
 	}
 	return lhs, true
+}
+
+func (e *TypeEngine) ReturnsVoid(fun FunctionPtrCtype) bool {
+	return isVoid(fun.ReturnType)
+}
+
+func (e *TypeEngine) IsIntegralType(t Ctype) bool {
+	return e.typeRulesManager.isIntegralType(t)
+}
+
+func (e *TypeEngine) IsFloatingType(t Ctype) bool {
+	return e.typeRulesManager.isFloatingType(t)
+}
+
+func (e *TypeEngine) IsPointer(t Ctype) bool {
+	return isPointer(t) // TODO arrays without first dim
+}
+
+func (e *TypeEngine) WrapInPointer(t Ctype) PointerCtype {
+	return PointerCtype{Target: t}
 }
