@@ -71,7 +71,7 @@ type IntegralConstant struct {
 	T Ctype
 }
 
-func (i *IntegralConstant) String() string {
+func (i IntegralConstant) String() string {
 	return fmt.Sprintf("%d", i.Val)
 }
 
@@ -80,7 +80,7 @@ type FloatingConstant struct {
 	T Ctype
 }
 
-func (f *FloatingConstant) String() string {
+func (f FloatingConstant) String() string {
 	return fmt.Sprintf("%f", f.Val)
 }
 

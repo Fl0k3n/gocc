@@ -18,6 +18,10 @@ func NewWriter() *Writer {
 	}
 }
 
+func (w *Writer) GetFunctions() []*FunctionIR {
+	return w.functions
+}
+
 func (w *Writer) WriteLine(line IRLine) {
 	w.curFunc.Code = append(w.curFunc.Code, line)
 }
@@ -159,4 +163,8 @@ func (w *Writer) EnterFunction(name string) {
 		Name: name,
 	}
 	w.functions = append(w.functions, w.curFunc)
+}
+
+func (w *Writer) SaveSnapshot(snapshot *NonGlobalsSnapshot) {
+	w.curFunc.Snapshot = snapshot
 }

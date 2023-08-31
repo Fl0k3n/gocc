@@ -13,7 +13,7 @@ type IRLine interface {
 type FunctionIR struct {
 	Code []IRLine
 	Name string
-	// function metadata: symtab snapshot, ...?
+	Snapshot *NonGlobalsSnapshot
 }
 
 type LValue struct {

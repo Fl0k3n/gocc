@@ -15,13 +15,13 @@ type IRGenerator struct {
 	globalSymbols []*GlobalSymbol
 }
 
-func NewGenerator() *IRGenerator {
+func NewGenerator(writer *Writer) *IRGenerator {
 	scopeMgr := newScopeManager(nil)
 	typeEngine := semantics.NewEngine(scopeMgr, semantics.NewErrorTracker())
 	scopeMgr.typeEngine = typeEngine // TODO untangle dependencies
 	return &IRGenerator{
 		scopeMgr: scopeMgr,
-		writer: NewWriter(),
+		writer: writer,
 		typeEngine: typeEngine,
 		labels: newLabelProvider(),
 		globalSymbols: []*GlobalSymbol{},
@@ -548,6 +548,7 @@ func (g *IRGenerator) generateFunction(f *ast.FunctionDefinition) {
 	if g.typeEngine.ReturnsVoid(*fun) {
 		g.writer.WriteReturnLine(nil)
 	}
+	g.writer.SaveSnapshot(g.scopeMgr.GetNonGlobalsSnapshot())
 }
 
 func (g *IRGenerator) handleTopLevelDeclaration(dec *ast.Declaration) {
@@ -580,7 +581,7 @@ func (g *IRGenerator) handleTopLevelDeclaration(dec *ast.Declaration) {
 	}
 }
 
-func (g *IRGenerator) Generate(root *ast.TranslationUnit) {
+func (g *IRGenerator) Generate(root *ast.TranslationUnit) ([]*FunctionIR, []*GlobalSymbol, *semantics.TypeEngine) {
 	g.scopeMgr.EnterGlobalScope()
 	for _, ed := range root.ExternalDeclarations {
 		switch ced := ed.(type) {
@@ -591,4 +592,5 @@ func (g *IRGenerator) Generate(root *ast.TranslationUnit) {
 		}
 	}
 	g.writer.PrintAll()
+	return g.writer.GetFunctions(), g.globalSymbols, g.typeEngine
 }

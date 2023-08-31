@@ -1,6 +1,7 @@
 package main
 
 import (
+	"codegen"
 	"fmt"
 	"grammars"
 	"irs"
@@ -170,7 +171,7 @@ func testParserSimple2() {
 	p.BuildParseTree()
 }
 
-func testParser() {
+func testAll() {
 	grammarReader, err := grammars.NewReader("../resources/ansi_c_grammar")
 	if err != nil {
 		fmt.Println(err)
@@ -202,8 +203,14 @@ func testParser() {
 	if et.HasError() {
 		et.PrintErrors()
 	} else {
-		irGen := irs.NewGenerator()
-		irGen.Generate(&tu)
+		irWriter := irs.NewWriter()
+		irGen := irs.NewGenerator(irWriter)
+		functionsIr, globals, typeEngine := irGen.Generate(&tu)
+		registerAllocator := codegen.NewBasicAllocator(typeEngine)
+		codeGen := codegen.NewGenerator(
+			functionsIr, globals, registerAllocator, typeEngine,
+		)
+		codeGen.Generate()
 	}
 }
 
@@ -227,7 +234,7 @@ func serializeTables() {
 
 func main() {
 	// testParserSimple2()
-	testParser()
+	testAll()
 	// testGrammarReader()
 	// testTokenizer()
 	// testTableBuilder()

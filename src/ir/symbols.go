@@ -70,20 +70,26 @@ func (cs *CountingSymtab) DefineNewOfType(symname string, symbolT SymbolType, t 
 func (cs *CountingSymtab) Define(symname string, info *Symbol) *Symbol {
 	info.Index = cs.counters[info.T]
 	cs.counters[info.T]++
+	cs.scopeCounters[info.T]++
 	cs.Symtab.Define(symname, info)
 	return info
 }
 
-func (cs *CountingSymtab) LeaveScope() {
+func (cs *CountingSymtab) LeaveScope(subtractScopeCounters bool) {
 	cs.Symtab.LeaveScope()
-	for k, v := range cs.scopeCounters {
-		cs.counters[k] -= v
+	if subtractScopeCounters {
+		for k, v := range cs.scopeCounters {
+			cs.counters[k] -= v
+			cs.scopeCounters[k] = 0
+		}
 	}
 }
 
-func (cs *CountingSymtab) EnterScope() {
+func (cs *CountingSymtab) EnterScope(resetScopeCounters bool) {
 	cs.Symtab.EnterScope()
-	cs.scopeCounters = newZeroedSymbolCounters()
+	if resetScopeCounters {
+		cs.scopeCounters = newZeroedSymbolCounters()
+	}
 }
 
 func (cs *CountingSymtab) SymbolsOfType(t SymbolType) int {
