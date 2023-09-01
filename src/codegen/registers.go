@@ -2,8 +2,6 @@ package codegen
 
 import (
 	"fmt"
-	"semantics"
-	"utils"
 )
 
 type RegisterFamily interface {}
@@ -11,6 +9,7 @@ type RegisterFamily interface {}
 type Register interface{
 	Size() int
 	Name() string
+	Equals(Register) bool
 }
 
 type IntegralRegisterVariant int
@@ -49,6 +48,18 @@ func (i IntegralRegisterFamily) use(varinat IntegralRegisterVariant) IntegralReg
 	}
 }
 
+func (i IntegralRegisterFamily) useForSize(size int) IntegralRegister {
+	var variant IntegralRegisterVariant
+	switch size {
+	case QWORD_SIZE: variant = QWORD
+	case DWORD_SIZE: variant = DWORD
+	case WORD_SIZE: variant = WORD
+	case BYTE_SIZE: variant = BYTE
+	default: panic("Size doesn't fit to any register")
+	}
+	return i.use(variant)
+}
+
 type IntegralRegister struct {
 	Family IntegralRegisterFamily
 	EffectiveName string
@@ -61,6 +72,13 @@ func (i IntegralRegister) Size() int {
 
 func (i IntegralRegister) Name() string {
 	return i.EffectiveName
+}
+
+func (i IntegralRegister) Equals(other Register) bool {
+	if reg, isIntegralRegsiter := other.(IntegralRegister); isIntegralRegsiter {
+		return reg.EffectiveSize == i.EffectiveSize && reg.EffectiveName == i.EffectiveName 
+	}
+	return false
 }
 
 type IntegralRegisterFamilyT int
@@ -96,7 +114,7 @@ func GetIntegralRegisterFamily(fam IntegralRegisterFamilyT) IntegralRegisterFami
 	return IntegralRegisterFamilies[fam]
 }
 
-// we use only xmms for simplicity
+// only xmms for simplicity
 type FloatingRegisterFamily struct {
 	Name string
 }
@@ -128,102 +146,49 @@ func (f FloatingRegister) Name() string {
 	return f.Family.Name
 }
 
+func (f FloatingRegister) Equals(other Register) bool {
+	if reg, isFloating := other.(FloatingRegister); isFloating {
+		return reg.Family.Name == f.Family.Name
+	}
+	return false
+}
+
 func GetFloatingRegisterFamily(fam FloatingRegisterFamilyT) FloatingRegisterFamily {
 	return FloatingRegisterFamily{Name: fmt.Sprintf("xmm%d", int(fam))}
 }
 
-type RegisterAllocator interface {
-	Alloc(fun *AugmentedFunctionIr)
-	GetRegistersThatShouldBePushedOnStack() []Register // push ops should be executed in given order
-	GetRegistersToWhichPopFromStack() []Register // pop ops should be executed in given order
-	GetFramePointer() IntegralRegister
-	GetStackPointer() IntegralRegister
+var SYSV_GENERAL_PURPOSE_INTEGRAL_REGISTERS = []IntegralRegisterFamilyT{
+	RAX, RBX, RCX, RDX, RSI, RDI, R8, R9, R10, R11, R12, R13, R14, R15, // without rsp and rbp
 }
+var SYSV_GENERAL_PURPOSE_FLOATING_REGISTERS = []FloatingRegisterFamilyT{
+	XMM0, XMM1, XMM2, XMM3, XMM4, XMM5, XMM6, XMM7, XMM8, XMM9,
+	XMM10, XMM11, XMM12, XMM13, XMM14, XMM15, // all
+}
+var SYSV_FUNCTION_ARG_INTEGRAL_REGISTERS = []IntegralRegisterFamilyT{
+	RDI, RSI, RDX, RCX, R8, R9,
+}
+var SYSV_FUNCTION_ARG_FLOATING_REGISTERS = []FloatingRegisterFamilyT{
+	XMM0, XMM1, XMM2, XMM3, XMM4, XMM5, XMM6, XMM7,
+}
+var SYSV_CALLER_SAVE_INTEGRAL_REGISTERS = []IntegralRegisterFamilyT{
+	RAX, RDI, RSI, RDX, RCX, R8, R9, R10, R11,
+}
+var SYSV_CALLER_SAVE_FLOATING_REGISTERS = []FloatingRegisterFamilyT{
+	XMM0, XMM1, XMM2, XMM3, XMM4, XMM5, XMM6, XMM7, XMM8, XMM9,
+	XMM10, XMM11, XMM12, XMM13, XMM14, XMM15,
+}
+var SYSV_CALLEE_SAVE_INTEGRAL_REGISTERS = []IntegralRegisterFamilyT{
+	RBP, RBX, R12, R13, R14, R15, // also rsp but thats implicit
+}
+var SYSV_CALLEE_SAVE_FLOATING_REGISTERS = []FloatingRegisterFamilyT{
 
-// should be similar to the one that gcc uses with -O0
-type BasicRegisterAllocator struct {
-	typeEngine *semantics.TypeEngine
-	generalPurposeIntegralRegisters *utils.Set[IntegralRegisterFamilyT]
-	currentlyUsedIntegralRegisters *utils.Set[IntegralRegisterFamilyT]
-	generalPurposeFloatingRegisters *utils.Set[FloatingRegisterFamilyT]
-	currentlyUsedFloatingRegisters *utils.Set[FloatingRegisterFamilyT]
 }
+const SYS_V_RETURN_INTEGRAL_REGISTER = RAX
+const SYS_V_RETURN_FLOATING_REGISTER = XMM0
 
-func NewBasicAllocator(typeEngine *semantics.TypeEngine) *BasicRegisterAllocator {
-	return &BasicRegisterAllocator{
-		typeEngine: typeEngine,
-		generalPurposeIntegralRegisters: utils.SetOf[IntegralRegisterFamilyT](
-			RAX, RBX, RCX, RSI, RDI, 
-		),
-		currentlyUsedIntegralRegisters: utils.NewSet[IntegralRegisterFamilyT](),
-		generalPurposeFloatingRegisters: utils.SetOf[FloatingRegisterFamilyT](
-			XMM0, XMM1, XMM2, XMM3, XMM4,
-		),
-		currentlyUsedFloatingRegisters: utils.NewSet[FloatingRegisterFamilyT](),
-	}
-}
+// div RDX:RAX operand
+const DIV_OP_DIVIDENT_HIGHER_BITS_REG = RDX
+const DIV_OP_DIVIDENT_LOWER_BITS_REG = RAX
 
-func (a *BasicRegisterAllocator) freeAllGeneralPurposeRegisters() {
-	a.currentlyUsedFloatingRegisters = utils.NewSet[FloatingRegisterFamilyT]()
-	a.currentlyUsedIntegralRegisters = utils.NewSet[IntegralRegisterFamilyT]()
-}
-
-func (a *BasicRegisterAllocator) nextFreeIntegralRegister() IntegralRegisterFamily {
-	for _, reg := range a.generalPurposeIntegralRegisters.GetAll() {
-		if !a.currentlyUsedIntegralRegisters.Has(reg) {
-			a.currentlyUsedIntegralRegisters.Add(reg)
-			return GetIntegralRegisterFamily(reg)
-		}
-	}
-	panic("out of integral registers") // this should never happen for this naive allocator
-}
-
-func (a *BasicRegisterAllocator) nextFreeFloatingRegister() FloatingRegisterFamily {
-	for _, reg := range a.generalPurposeFloatingRegisters.GetAll() {
-		if !a.currentlyUsedFloatingRegisters.Has(reg) {
-			a.currentlyUsedFloatingRegisters.Add(reg)
-			return GetFloatingRegisterFamily(reg)
-		}
-	}
-	panic("out of floating registers") // this should never happen for this naive allocator
-}
-
-func (a *BasicRegisterAllocator) GetRegistersThatShouldBePushedOnStack() []Register {
-	return nil
-}
-
-func (a *BasicRegisterAllocator) GetRegistersToWhichPopFromStack() []Register {
-	return nil
-}
-
-func (a *BasicRegisterAllocator) Alloc(fun *AugmentedFunctionIr) {
-	for _, line := range fun.Code {
-		a.freeAllGeneralPurposeRegisters()
-		switch l := line.(type) {
-		case *AugmentedFunctionCallLine:
-		case *AugmentedReturnLine:
-		default:
-			for _, asym := range l.GetSymbols() {
-				asym.LoadBeforeRead = true
-				asym.StoreAfterWrite = true	
-				// TODO
-				if a.typeEngine.IsIntegralType(asym.Sym.Ctype) {
-					asym.Register = a.nextFreeIntegralRegister().use(DWORD) // TODO
-				} else if a.typeEngine.IsFloatingType(asym.Sym.Ctype) {
-					asym.Register = a.nextFreeFloatingRegister().use()
-				} else {
-					fmt.Println("assigning dummy register")
-					asym.Register = GetIntegralRegisterFamily(R15).use(QWORD)
-				}
-			}
-		}
-	}
-}
-
-func (a *BasicRegisterAllocator) GetFramePointer() IntegralRegister {
-	return GetIntegralRegisterFamily(RBP).use(QWORD)
-}
-
-func (a *BasicRegisterAllocator) GetStackPointer() IntegralRegister {
-	return GetIntegralRegisterFamily(RSP).use(QWORD)
-}
+const DIV_OP_RESULT_REG = RAX
+const DIV_OP_REMAINDER_REG = RDX

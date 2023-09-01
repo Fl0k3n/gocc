@@ -903,13 +903,13 @@ func (e *TypeEngine) GetConstantInfo(expr ast.ConstantValExpression) ProgramCons
 	exprT := e.GetTypeOfExpression(expr)
 	if e.typeRulesManager.isIntegralType(exprT) {
 		v, _ := evalIntVal(expr.Constant)
-		return &IntegralConstant{
+		return IntegralConstant{
 			T: exprT,
 			Val: v,
 		}
 	} else {
 		v, _ := evalFloatVal(expr.Constant)
-		return &FloatingConstant{
+		return FloatingConstant{
 			T: exprT,
 			Val: v,
 		}

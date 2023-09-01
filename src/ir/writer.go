@@ -53,7 +53,7 @@ func (w *Writer) WriteStringAssignment(lhsSymbol *Symbol, v string) {
 	})
 }
 
-func (w *Writer) WriteIntAssignment(lhsSymbol *Symbol, constant *semantics.IntegralConstant) {
+func (w *Writer) WriteIntAssignment(lhsSymbol *Symbol, constant semantics.IntegralConstant) {
 	w.WriteConstantAssignment(lhsSymbol, constant)
 }
 

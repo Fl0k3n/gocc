@@ -206,9 +206,11 @@ func testAll() {
 		irWriter := irs.NewWriter()
 		irGen := irs.NewGenerator(irWriter)
 		functionsIr, globals, typeEngine := irGen.Generate(&tu)
-		registerAllocator := codegen.NewBasicAllocator(typeEngine)
+		memoryManager := codegen.NewMemoryManager(typeEngine)
+		registerAllocator := codegen.NewBasicAllocator(memoryManager)
+		asmWriter := codegen.NewWriter()
 		codeGen := codegen.NewGenerator(
-			functionsIr, globals, registerAllocator, typeEngine,
+			functionsIr, globals, registerAllocator, memoryManager, asmWriter, typeEngine,
 		)
 		codeGen.Generate()
 	}

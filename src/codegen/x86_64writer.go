@@ -3,22 +3,44 @@ package codegen
 import "fmt"
 
 // Intel ASM syntax
+
+type FunctionCode struct {
+	Name string
+	Code []string
+}
+
 type X86_64Writer struct {
-	lines []string
+	curFunc *FunctionCode
+	functions []*FunctionCode
 }
 
 func NewWriter() *X86_64Writer {
-	return &X86_64Writer{}
+	return &X86_64Writer{
+		functions: []*FunctionCode{},
+	}
+}
+
+func (w *X86_64Writer) EnterFunction(Name string) {
+	w.curFunc = &FunctionCode{
+		Name: Name,
+		Code: []string{},
+	}
+	w.functions = append(w.functions, w.curFunc)
 }
 
 func (w *X86_64Writer) PrintAll() {
-	for _, line := range w.lines {
-		fmt.Println(line)
+	for _, fun := range w.functions {
+		fmt.Println("")
+		fmt.Println("function " + fun.Name + ":")
+		fmt.Println("")
+		for _, line := range fun.Code {
+			fmt.Println(line)
+		}
 	}
 }
 
 func (w *X86_64Writer) writeLine(line string) {
-	w.lines = append(w.lines, line)
+	w.curFunc.Code = append(w.curFunc.Code, line)
 }
 
 func (w *X86_64Writer) PushIntegralReg(reg IntegralRegister) {
@@ -76,4 +98,12 @@ func (w *X86_64Writer) CompareToZero(reg Register) {
 
 func (w *X86_64Writer) JumpIfZero(label string) {
 	w.writeLine("jz " + label)
+}
+
+func (w *X86_64Writer) PushIntegralRegister(src IntegralRegister) {
+	w.writeLine(fmt.Sprintf("push %s", src.Name()))
+}
+
+func (w *X86_64Writer) Call(mem MemoryAccessor) {
+	w.writeLine(fmt.Sprintf("call %s", mem.String()))
 }

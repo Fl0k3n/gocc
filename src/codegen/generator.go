@@ -17,24 +17,17 @@ type Generator struct {
 }
 
 func NewGenerator(functions []*irs.FunctionIR, globals []*irs.GlobalSymbol,
-				 registerAllocator RegisterAllocator, typeEngine *semantics.TypeEngine) *Generator {
+				 registerAllocator RegisterAllocator, memoryManager *MemoryManager,
+				 assemblyWriter *X86_64Writer, typeEngine *semantics.TypeEngine) *Generator {
 	return &Generator{
 		functions: functions,
 		globals: globals,
-		asm: NewWriter(),
+		asm: assemblyWriter,
 		registerAllocator: registerAllocator,
 		typeEngine: typeEngine,
-		memoryManager: newMemoryManager(),
+		memoryManager: memoryManager,
 	}
 }
-
-// func (g *Generator) getStorageClass(t semantics.Ctype) StorageMode {
-// 	switch {
-// 	case g.typeEngine.IsIntegralType(t) || g.typeEngine.IsPointer(t): return INTEGRAL
-// 	case g.typeEngine.IsFloatingType(t): return FLOATING
-// 	default: return MEMORY
-// 	}
-// }
 
 func (g *Generator) augmentSymbol(sym *irs.Symbol) *AugmentedSymbol {
 	if sym == nil {
@@ -82,31 +75,62 @@ func (g *Generator) storeInLValue(dest *AugmentedLValue, srcReg Register) {
 	}
 }
 
+func (g *Generator) subtractStackPointer(by int) {
+	if by != 0 {
+		g.asm.SubtractConstantInteger(g.registerAllocator.GetStackPointer(), by)
+	}
+}
+
+func (g *Generator) copyRegister(dest Register, src Register) {
+
+}
+
+func (g *Generator) call(asym *AugmentedSymbol) {
+	reg := asym.Register.(IntegralRegister)
+	g.asm.MovMemoryToIntegralRegister(reg, asym.MemoryAccessor)
+	g.asm.Call(RegisterMemoryAccessor{Register: reg})
+}
+
+func (g *Generator) saveConstantInRegister(dest Register, con semantics.ProgramConstant) {
+	c := con.(semantics.IntegralConstant)
+	if g.typeEngine.IsIntegralType(c.T) {
+		// TODO check if its integral (should always be?)
+		g.asm.MovIntegralConstantToIntegralRegister(dest.(IntegralRegister), int(c.Val))
+		// g.asm.MovIntegralConstantToMemory(.LhsSymbol.MemoryAccessor, int(c.Val))
+	} else {
+		// TODO
+	}
+}
+
 func (g *Generator) performBinaryOperationOnRegisters(leftReg Register, operator string, rightReg Register) (resultReg Register) {
+	// TODO this is placeholder
 	switch operator {
 	case "+":
 		g.asm.writeLine(fmt.Sprintf("add %s, %s", leftReg.Name(), rightReg.Name()))
+	case "-":
+		g.asm.writeLine(fmt.Sprintf("sub %s, %s", leftReg.Name(), rightReg.Name()))
+	case "*":
+		g.asm.writeLine(fmt.Sprintf("imul %s, %s", leftReg.Name(), rightReg.Name()))
+	case "/", "%":
+		g.asm.writeLine(fmt.Sprintf("idiv %s", rightReg.Name()))
 	}
 	return leftReg
 }
 
 func (g *Generator) generateFunction(fun *irs.FunctionIR) {	
+	g.asm.EnterFunction(fun.Name)
 	augmentedFun := g.prepareAugmentedIr(fun)
 	g.generateFunctionPrologue(augmentedFun)
 	stackSubtact := g.memoryManager.AllocStackMemoryAndGetStackSubtract(augmentedFun, 0)
-	if stackSubtact > 0 {
-		g.asm.SubtractConstantInteger(g.registerAllocator.GetStackPointer(), stackSubtact)
-	}
+	g.subtractStackPointer(stackSubtact)
 
 	g.registerAllocator.Alloc(augmentedFun)
 	for _, line := range augmentedFun.Code {
 		switch ir := line.(type) {
 		case AugmentedConstantAssignmentLine:
-			c := ir.Constant.(semantics.IntegralConstant)
-			if g.typeEngine.IsIntegralType(c.T) {
-				g.asm.MovIntegralConstantToMemory(ir.LhsSymbol.MemoryAccessor, int(c.Val))
-			} else {
-				// TODO
+			g.saveConstantInRegister(ir.LhsSymbol.Register, ir.Constant)
+			if ir.LhsSymbol.StoreAfterWrite {
+				g.store(ir.LhsSymbol.MemoryAccessor, ir.LhsSymbol.Register)
 			}
 		case AugmentedStringAssignmentLine:
 		case AugmentedBiSymbolAssignmentLine:
@@ -122,15 +146,50 @@ func (g *Generator) generateFunction(fun *irs.FunctionIR) {
 				g.load(ir.RightOperand)
 			}
 			resReg := g.performBinaryOperationOnRegisters(ir.LeftOperand.Register, ir.Operator, ir.RightOperand.Register)
-			g.store(ir.LhsSymbol.MemoryAccessor, resReg)
+			if !resReg.Equals(ir.LhsSymbol.Register) {
+				g.copyRegister(ir.LhsSymbol.Register, resReg)	
+			}
+			if ir.LhsSymbol.StoreAfterWrite {
+				g.store(ir.LhsSymbol.MemoryAccessor, ir.LhsSymbol.Register)
+			}
+		case AugmentedUnaryOperationLine:
+		case AugmentedFunctionCallLine:
+			for _, arg := range ir.ViaRegisterArgs {
+				if arg.LoadBeforeRead {
+					g.load(arg)
+				}
+			}
+			for _, arg := range ir.ViaStackArgs {
+				if arg.LoadBeforeRead {
+					g.load(arg)
+				}
+				g.store(RegisterMemoryAccessor{
+					Register: g.registerAllocator.GetStackPointer(),
+				}, arg.Register)
+				g.subtractStackPointer(QWORD_SIZE)
+			}
+			// TODO align stack
+			g.call(ir.FunctionSymbol)
+			if ir.ReturnSymbol != nil {
+				if ir.ReturnSymbol.StoreAfterWrite {
+					// assuming simple return mode (no structs > 8B)
+					g.store(ir.ReturnSymbol.MemoryAccessor, ir.ReturnSymbol.Register)
+				}
+			}
 		case AugmentedGotoLine:
 			g.asm.JumpToLabel(ir.TargetLabel)
+		case AugmentedLabelLine:
+			g.asm.PutLabel(ir.Label)
 		case AugmentedIfGotoLine:
 			if ir.ConditionSymbol.LoadBeforeRead {
 				g.load(ir.ConditionSymbol)
 			}
-			// TODO
+			// TODO maybe try to optimize it even at this point
+			g.asm.CompareToZero(ir.ConditionSymbol.Register)
 			g.asm.JumpIfZero(ir.TargetLabel)
+		case AugmentedReturnLine:
+		default:
+			panic("unexpected ir line")
 		}
 	}
 }

@@ -26,6 +26,22 @@ func (r RegisterMemoryAccessor) String() string {
 	return fmt.Sprintf("[%s]", r.Register.EffectiveName)
 }
 
+type GOTMemoryAccessor struct {
+	Offset int
+}
+
+func (g GOTMemoryAccessor) String() string {
+	return fmt.Sprintf("GOT@%d", g.Offset)
+}
+
+type PLTMemoryAccessor struct {
+	Name string
+}
+
+func (p PLTMemoryAccessor) String() string {
+	return fmt.Sprintf("PLT@%s", p.Name)
+}
+
 type AugmentedSymbol struct {
 	Sym *irs.Symbol
 	Identity string
@@ -33,6 +49,7 @@ type AugmentedSymbol struct {
 	Register Register
 	LoadBeforeRead bool
 	StoreAfterWrite bool
+	// StoreOnlyInMemory bool
 }
 
 type AugmentedFunctionIr struct {
@@ -139,6 +156,8 @@ type AugmentedFunctionCallLine struct {
 	ReturnSymbol *AugmentedSymbol
 	FunctionSymbol *AugmentedSymbol
 	Args []*AugmentedSymbol
+	ViaRegisterArgs []*AugmentedSymbol
+	ViaStackArgs []*AugmentedSymbol	// left to right same order as the order in which they should be pushed on stack
 }
 
 
@@ -232,6 +251,8 @@ func (g *Generator) prepareAugmentedIr(fun *irs.FunctionIR) *AugmentedFunctionIr
 				ReturnSymbol: g.augmentSymbol(ir.ReturnSymbol),
 				FunctionSymbol: g.augmentSymbol(ir.FunctionSymbol),
 				Args: args,
+				ViaRegisterArgs: []*AugmentedSymbol{},
+				ViaStackArgs: []*AugmentedSymbol{},
 			}
 		case *irs.GotoLine:
 			aline = AugmentedGotoLine{

@@ -56,7 +56,7 @@ func (g *IRGenerator) makeIntConst(c int64) *Symbol {
 		T: semantics.BuiltinFrom("long"), // TODO clean this up
 	}
 	res := g.scopeMgr.newTemp(constant.T)
-	g.writer.WriteIntAssignment(res, &constant)
+	g.writer.WriteIntAssignment(res, constant)
 	return res
 }
 
