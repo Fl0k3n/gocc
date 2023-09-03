@@ -47,6 +47,10 @@ func (w *X86_64Writer) PushIntegralReg(reg IntegralRegister) {
 	w.writeLine(fmt.Sprintf("push %s", reg.EffectiveName))
 }
 
+func (w *X86_64Writer) PushFloatingReg(reg FloatingRegister) {
+	w.writeLine(fmt.Sprintf("PUSH FLOAT TODO %s", reg.Name()))
+}
+
 func (w *X86_64Writer) MovIntegralRegisterToIntegralRegister(dest IntegralRegister, src IntegralRegister) {
 	w.writeLine(fmt.Sprintf("mov %s, %s", dest.EffectiveName, src.EffectiveName))
 }
@@ -84,8 +88,12 @@ func (w *X86_64Writer) SubtractConstantInteger(src IntegralRegister, val int) {
 	w.writeLine(fmt.Sprintf("sub %s, %d", src.EffectiveName, val))
 }
 
+func (w *X86_64Writer) AddConstantInteger(src IntegralRegister, val int) {
+	w.writeLine(fmt.Sprintf("add %s, %d", src.EffectiveName, val))
+}
+
 func (w *X86_64Writer) PutLabel(label string) {
-	w.writeLine(label)
+	w.writeLine(label + ":")
 }
 
 func (w *X86_64Writer) JumpToLabel(label string) {

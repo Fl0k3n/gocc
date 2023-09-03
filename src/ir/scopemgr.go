@@ -13,17 +13,17 @@ type StatementContext struct {
 }
 
 type NonGlobalsSnapshot struct {
-	ArgsSnapshot []semantics.Ctype
-	LocalsSnapshot []semantics.Ctype
+	ArgsSnapshot []*Symbol
+	LocalsSnapshot []*Symbol
 	// TODO if we reuse temps each snapshot should have a mark till which ir line given type is valid
-	TempsSnapshot []semantics.Ctype
+	TempsSnapshot []*Symbol
 }
 
 func newSnapshot() *NonGlobalsSnapshot {
 	return &NonGlobalsSnapshot{
-		ArgsSnapshot: []semantics.Ctype{},
-		LocalsSnapshot: []semantics.Ctype{},
-		TempsSnapshot: []semantics.Ctype{},
+		ArgsSnapshot: []*Symbol{},
+		LocalsSnapshot: []*Symbol{},
+		TempsSnapshot: []*Symbol{},
 	}
 }
 
@@ -64,8 +64,8 @@ func (s *ScopeManager) EnterFunction(f *ast.FunctionDefinition) *semantics.Funct
 	s.symtab.DefineNewOfType(fptr.Name(), GLOBAL, fptr)
 	s.symtab.EnterScope(true)
 	for paramNum, paramType := range fptr.ParamTypes {
-		s.symtab.DefineNewOfType(fptr.ParamNames[paramNum], ARG, paramType)
-		s.curFuncSnapshot.ArgsSnapshot = append(s.curFuncSnapshot.ArgsSnapshot, paramType)
+		sym := s.symtab.DefineNewOfType(fptr.ParamNames[paramNum], ARG, paramType)
+		s.curFuncSnapshot.ArgsSnapshot = append(s.curFuncSnapshot.ArgsSnapshot, sym)
 	}
 	return &fptr
 }
@@ -99,15 +99,17 @@ func (s *ScopeManager) GetStatementContext() StatementContext {
 }
 
 func (s *ScopeManager) newTemp(t semantics.Ctype) *Symbol {
-	s.curFuncSnapshot.TempsSnapshot = append(s.curFuncSnapshot.TempsSnapshot, t)
 	tmpCounter := s.symtab.SymbolsOfType(TEMP)
 	name := fmt.Sprintf("%dt", tmpCounter)
-	return s.symtab.DefineNewOfType(name, TEMP, t)
+	sym := s.symtab.DefineNewOfType(name, TEMP, t)
+	s.curFuncSnapshot.TempsSnapshot = append(s.curFuncSnapshot.TempsSnapshot, sym)
+	return sym
 }
 
 func (s *ScopeManager) newLocalVariable(name string, t semantics.Ctype) *Symbol {
-	s.curFuncSnapshot.LocalsSnapshot = append(s.curFuncSnapshot.LocalsSnapshot, t)
-	return s.symtab.DefineNewOfType(name, LOCAL, t)
+	sym := s.symtab.DefineNewOfType(name, LOCAL, t)
+	s.curFuncSnapshot.LocalsSnapshot = append(s.curFuncSnapshot.LocalsSnapshot, sym)
+	return sym
 }
 
 func (s *ScopeManager) newGlobalVariable(name string, t semantics.Ctype) *Symbol {

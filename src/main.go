@@ -177,8 +177,8 @@ func testAll() {
 		fmt.Println(err)
 		return
 	}
-	defer grammarReader.Finish()
 	grammar, err := grammarReader.Read()
+	grammarReader.Finish()
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -188,10 +188,10 @@ func testAll() {
 		fmt.Println(err)
 		return
 	}
-	defer tokenizer.Finish()
 	// p := parsers.NewForGrammar(grammar, tokenizer)
 	p := parsers.NewFromFile(grammar, tokenizer, "/home/flok3n/misc/acttab.gob", "/home/flok3n/misc/gototab.gob", false)
 	tu, err := p.BuildParseTree()
+	tokenizer.Finish()
 	if err != nil {
 		fmt.Println("Parser error")
 		fmt.Println(err)

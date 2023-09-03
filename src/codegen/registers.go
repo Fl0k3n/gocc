@@ -31,6 +31,7 @@ type IntegralRegisterFamily struct {
 	DwordName string
 	WordName string
 	ByteName string
+	T IntegralRegisterFamilyT
 }
 
 func (i IntegralRegisterFamily) use(varinat IntegralRegisterVariant) IntegralRegister {
@@ -90,22 +91,22 @@ const (
 )
 
 var IntegralRegisterFamilies = map[IntegralRegisterFamilyT]IntegralRegisterFamily {
-	RAX: {"rax", "eax", "ax", "al"}, 
-	RBX: {"rbx", "ebx", "bx", "bl"},
-	RCX: {"rcx", "ecx", "cx", "cl"},
-	RDX: {"rdx", "edx", "dx", "dl"},
-	RDI: {"rdi", "edi", "di", "dil"},
-	RSI: {"rsi", "esi", "si", "sil"},
-	RBP: {"rbp", "ebp", "bp", "bpl"},
-	RSP: {"rsp", "esp", "sp", "spl"},
-	R8:  {"r8", "r8d", "r8w", "r8l"},
-	R9:  {"r9", "r9d", "r9w", "r9l"},
-	R10: {"r10", "r10d", "r10w", "r10l"},
-	R11: {"r11", "r11d", "r11w", "r11l"},
-	R12: {"r12", "r12d", "r12w", "r12l"},
-	R13: {"r13", "r13d", "r13w", "r13l"},
-	R14: {"r14", "r14d", "r14w", "r14l"},
-	R15: {"r15", "r15d", "r15w", "r15l"},
+	RAX: {"rax", "eax", "ax", "al", RAX}, 
+	RBX: {"rbx", "ebx", "bx", "bl", RBX},
+	RCX: {"rcx", "ecx", "cx", "cl", RCX},
+	RDX: {"rdx", "edx", "dx", "dl", RDX},
+	RDI: {"rdi", "edi", "di", "dil", RDI},
+	RSI: {"rsi", "esi", "si", "sil", RSI},
+	RBP: {"rbp", "ebp", "bp", "bpl", RBP},
+	RSP: {"rsp", "esp", "sp", "spl", RSP},
+	R8:  {"r8", "r8d", "r8w", "r8l", R8},
+	R9:  {"r9", "r9d", "r9w", "r9l", R9},
+	R10: {"r10", "r10d", "r10w", "r10l", R10},
+	R11: {"r11", "r11d", "r11w", "r11l", R11},
+	R12: {"r12", "r12d", "r12w", "r12l", R12},
+	R13: {"r13", "r13d", "r13w", "r13l", R13},
+	R14: {"r14", "r14d", "r14w", "r14l", R14},
+	R15: {"r15", "r15d", "r15w", "r15l", R15},
 }
 
 const INSTRUCTION_POINTER = "rip"
@@ -117,10 +118,11 @@ func GetIntegralRegisterFamily(fam IntegralRegisterFamilyT) IntegralRegisterFami
 // only xmms for simplicity
 type FloatingRegisterFamily struct {
 	Name string
+	T FloatingRegisterFamilyT
 }
 
-func (f FloatingRegisterFamily) use() *FloatingRegister {
-	return &FloatingRegister{Family: f}
+func (f FloatingRegisterFamily) use() FloatingRegister {
+	return FloatingRegister{Family: f}
 }
 
 type FloatingRegisterFamilyT int 
@@ -154,7 +156,7 @@ func (f FloatingRegister) Equals(other Register) bool {
 }
 
 func GetFloatingRegisterFamily(fam FloatingRegisterFamilyT) FloatingRegisterFamily {
-	return FloatingRegisterFamily{Name: fmt.Sprintf("xmm%d", int(fam))}
+	return FloatingRegisterFamily{Name: fmt.Sprintf("xmm%d", int(fam)), T: fam}
 }
 
 var SYSV_GENERAL_PURPOSE_INTEGRAL_REGISTERS = []IntegralRegisterFamilyT{

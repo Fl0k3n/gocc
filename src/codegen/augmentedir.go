@@ -52,10 +52,17 @@ type AugmentedSymbol struct {
 	// StoreOnlyInMemory bool
 }
 
+
 type AugmentedFunctionIr struct {
 	Name string
 	Code []AugmentedIRLine
 	Snapshot *irs.NonGlobalsSnapshot
+	Args []*AugmentedSymbol
+	InRegisterArgsToPlaceOnCalleeStack []*irs.Symbol // args for which memory should be allocated
+	InRegisterArgsToStoreAfterFunctionEnter []*AugmentedSymbol // subset of the ones above that should be stored in that memory before any other code is executed
+	ArgsPlacedOnCallerStack []*AugmentedSymbol
+	IntegralRegistersToPersist []IntegralRegister
+	FloatingRegistersToPersist []FloatingRegister
 }
 
 type AugmentedLValue struct {
@@ -226,19 +233,19 @@ func (g *Generator) prepareAugmentedIr(fun *irs.FunctionIR) *AugmentedFunctionIr
 		var aline AugmentedIRLine
 		switch ir := line.(type) {
 		case *irs.BiSymbolAssignmentLine:
-			aline = AugmentedBiSymbolAssignmentLine{
+			aline = &AugmentedBiSymbolAssignmentLine{
 				LValue: &AugmentedLValue{IsDereferenced: ir.LValue.IsDereferenced, Sym: g.augmentSymbol(ir.LValue.Sym)},
 				RhsSymbol: g.augmentSymbol(ir.RhsSymbol),
 			}
 		case *irs.BinaryOperationLine:
-			aline = AugmentedBinaryOperationLine{
+			aline = &AugmentedBinaryOperationLine{
 				LhsSymbol: g.augmentSymbol(ir.LhsSymbol),
 				LeftOperand: g.augmentSymbol(ir.LeftOperand),
 				Operator: ir.Operator,
 				RightOperand: g.augmentSymbol(ir.RightOperand),
 			}
 		case *irs.ConstantAssignmentLine:
-			aline = AugmentedConstantAssignmentLine{
+			aline = &AugmentedConstantAssignmentLine{
 				LhsSymbol: g.augmentSymbol(ir.LhsSymbol),
 				Constant: ir.Constant,
 			}
@@ -247,7 +254,7 @@ func (g *Generator) prepareAugmentedIr(fun *irs.FunctionIR) *AugmentedFunctionIr
 			for _, arg := range ir.Args {
 				args = append(args, g.augmentSymbol(arg))
 			}
-			aline = AugmentedFunctionCallLine{
+			aline = &AugmentedFunctionCallLine{
 				ReturnSymbol: g.augmentSymbol(ir.ReturnSymbol),
 				FunctionSymbol: g.augmentSymbol(ir.FunctionSymbol),
 				Args: args,
@@ -255,34 +262,34 @@ func (g *Generator) prepareAugmentedIr(fun *irs.FunctionIR) *AugmentedFunctionIr
 				ViaStackArgs: []*AugmentedSymbol{},
 			}
 		case *irs.GotoLine:
-			aline = AugmentedGotoLine{
+			aline = &AugmentedGotoLine{
 				TargetLabel: ir.TargetLabel,
 			}
 		case *irs.IfGotoLine:
-			aline = AugmentedIfGotoLine{
+			aline = &AugmentedIfGotoLine{
 				TargetLabel: ir.TargetLabel,
 				ConditionSymbol: g.augmentSymbol(ir.ConditionSymbol),
 			}
 		case *irs.LabelLine:
-			aline = AugmentedLabelLine{
+			aline = &AugmentedLabelLine{
 				Label: ir.Label,
 			}
 		case *irs.ReturnLine:
-			aline = AugmentedReturnLine{
+			aline = &AugmentedReturnLine{
 				ReturnSymbol: g.augmentSymbol(ir.ReturnSymbol),
 			}
 		case *irs.StringAssignmentLine:
-			aline = AugmentedStringAssignmentLine{
+			aline = &AugmentedStringAssignmentLine{
 				LhsSymbol: g.augmentSymbol(ir.LhsSymbol),
 				Val: ir.Val,
 			}
 		case *irs.TypeCastLine:
-			aline = AugmentedTypeCastLine{
+			aline = &AugmentedTypeCastLine{
 				FromSymbol: g.augmentSymbol(ir.FromSymbol),
 				ToSymbol: g.augmentSymbol(ir.ToSymbol),
 			}
 		case *irs.UnaryOperationLine:
-			aline = AugmentedUnaryOperationLine{
+			aline = &AugmentedUnaryOperationLine{
 				LhsSymbol: g.augmentSymbol(ir.LhsSymbol),
 				Operator: ir.Operator,
 				Operand: g.augmentSymbol(ir.Operand),
@@ -292,9 +299,19 @@ func (g *Generator) prepareAugmentedIr(fun *irs.FunctionIR) *AugmentedFunctionIr
 		}
 		res = append(res, aline)
 	}
+	args := make([]*AugmentedSymbol, len(fun.Snapshot.ArgsSnapshot))
+	for argNum, arg := range fun.Snapshot.ArgsSnapshot {
+		args[argNum] = g.augmentSymbol(arg)
+	}
 	return &AugmentedFunctionIr{
 		Name: fun.Name,
 		Code: res,
 		Snapshot: fun.Snapshot,
+		Args: args,
+		InRegisterArgsToPlaceOnCalleeStack: []*irs.Symbol{},
+		ArgsPlacedOnCallerStack: []*AugmentedSymbol{},
+		IntegralRegistersToPersist: []IntegralRegister{},
+		FloatingRegistersToPersist: []FloatingRegister{},
+		InRegisterArgsToStoreAfterFunctionEnter: []*AugmentedSymbol{},
 	}
 }
