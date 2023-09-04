@@ -52,17 +52,22 @@ type AugmentedSymbol struct {
 	// StoreOnlyInMemory bool
 }
 
+type RegisterWithAccessor struct {
+	Register Register
+	MemoryAccessor MemoryAccessor
+}
 
 type AugmentedFunctionIr struct {
 	Name string
 	Code []AugmentedIRLine
 	Snapshot *irs.NonGlobalsSnapshot
+	ReturnLabel string
 	Args []*AugmentedSymbol
 	InRegisterArgsToPlaceOnCalleeStack []*irs.Symbol // args for which memory should be allocated
 	InRegisterArgsToStoreAfterFunctionEnter []*AugmentedSymbol // subset of the ones above that should be stored in that memory before any other code is executed
 	ArgsPlacedOnCallerStack []*AugmentedSymbol
-	IntegralRegistersToPersist []IntegralRegister
-	FloatingRegistersToPersist []FloatingRegister
+	IntegralRegistersToPersist []*RegisterWithAccessor
+	FloatingRegistersToPersist []*RegisterWithAccessor
 }
 
 type AugmentedLValue struct {
@@ -215,6 +220,9 @@ type AugmentedReturnLine struct {
 
 
 func (a AugmentedReturnLine) GetSymbols() (res []*AugmentedSymbol) {
+	if a.ReturnSymbol != nil {
+		res = append(res, a.ReturnSymbol)
+	}
 	return
 }
 
@@ -307,11 +315,12 @@ func (g *Generator) prepareAugmentedIr(fun *irs.FunctionIR) *AugmentedFunctionIr
 		Name: fun.Name,
 		Code: res,
 		Snapshot: fun.Snapshot,
+		ReturnLabel: fmt.Sprintf("0%s_RET", fun.Name),
 		Args: args,
 		InRegisterArgsToPlaceOnCalleeStack: []*irs.Symbol{},
 		ArgsPlacedOnCallerStack: []*AugmentedSymbol{},
-		IntegralRegistersToPersist: []IntegralRegister{},
-		FloatingRegistersToPersist: []FloatingRegister{},
+		IntegralRegistersToPersist: []*RegisterWithAccessor{},
+		FloatingRegistersToPersist: []*RegisterWithAccessor{},
 		InRegisterArgsToStoreAfterFunctionEnter: []*AugmentedSymbol{},
 	}
 }

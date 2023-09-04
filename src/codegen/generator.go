@@ -50,14 +50,18 @@ func (g *Generator) generateFunctionEpilogue(fun *AugmentedFunctionIr) {
 
 }
 
-func (g *Generator) load(asym *AugmentedSymbol) {
-	if integralReg, isIntegral := asym.Register.(IntegralRegister); isIntegral {
-		g.asm.MovMemoryToIntegralRegister(integralReg, asym.MemoryAccessor)
+func (g *Generator) load(destReg Register, srcMem MemoryAccessor) {
+	if integralReg, isIntegral := destReg.(IntegralRegister); isIntegral {
+		g.asm.MovMemoryToIntegralRegister(integralReg, srcMem)
 	}
 }
 
-func (g *Generator) loadAddress(asym *AugmentedSymbol) {
+func (g *Generator) loadSymbol(asym *AugmentedSymbol) {
+	g.load(asym.Register, asym.MemoryAccessor)
+}
 
+func (g *Generator) loadAddress(asym *AugmentedSymbol) {
+	g.asm.writeLine("LOAD ADDRESS!")
 }
 
 func (g *Generator) store(destMem MemoryAccessor, srcReg Register) {
@@ -88,7 +92,7 @@ func (g *Generator) increaseStackPointer(by int) {
 }
 
 func (g *Generator) copyRegister(dest Register, src Register) {
-
+	g.asm.writeLine("COPY REGISTER!")
 }
 
 func (g *Generator) call(asym *AugmentedSymbol) {
@@ -123,17 +127,22 @@ func (g *Generator) performBinaryOperationOnRegisters(leftReg Register, operator
 	return leftReg
 }
 
-func (g *Generator) pushCalleeSaveRegisters(fun *AugmentedFunctionIr) (stackDelta int) {
-	stackDelta = 0
-	for _, reg := range fun.IntegralRegistersToPersist {
-		g.asm.PushIntegralReg(reg)
-		stackDelta += reg.Size()
+func (g *Generator) storeCalleeSaveRegisters(fun *AugmentedFunctionIr) {
+	for _, regWithMem := range fun.IntegralRegistersToPersist {
+		g.store(regWithMem.MemoryAccessor, regWithMem.Register)
 	}
-	for _, reg := range fun.FloatingRegistersToPersist {
-		g.asm.PushFloatingReg(reg)
-		stackDelta += reg.Size()
+	for _, regWithMem := range fun.FloatingRegistersToPersist {
+		g.store(regWithMem.MemoryAccessor, regWithMem.Register)
 	}
-	return
+}
+
+func (g *Generator) restoreCalleeSaveRegisters(fun *AugmentedFunctionIr) {
+	for _, regWithMem := range fun.IntegralRegistersToPersist {
+		g.load(regWithMem.Register, regWithMem.MemoryAccessor)
+	}
+	for _, regWithMem := range fun.FloatingRegistersToPersist {
+		g.load(regWithMem.Register, regWithMem.MemoryAccessor)
+	}
 }
 
 // this should be needed only for the semi-useless basic allocator
@@ -148,7 +157,7 @@ func (g *Generator) storeArgsOnStackAndGetSubtract(l *AugmentedFunctionCallLine)
 	stackDiff := 0
 	for _, arg := range l.ViaStackArgs {
 		if arg.LoadBeforeRead {
-			g.load(arg)
+			g.loadSymbol(arg)
 		}
 		g.store(RegisterMemoryAccessor{
 			Register: g.registerAllocator.GetStackPointer(),
@@ -164,20 +173,30 @@ func (g *Generator) storeArgsOnStackAndGetSubtract(l *AugmentedFunctionCallLine)
 	return subtract + stackDiff
 }
 
-func (g *Generator) generateFunction(fun *irs.FunctionIR) {	
-	g.asm.EnterFunction(fun.Name)
-	augmentedFun := g.prepareAugmentedIr(fun)
-	g.registerAllocator.Alloc(augmentedFun)
+func (g *Generator) prepareStackForCodeGeneration(augmentedFun *AugmentedFunctionIr) (frameSize int) {
 	frameSizeAfterPrologue := SIZEOF_RETURN_ADDR + SIZEOF_RBP
 	stackSubtact := g.memoryManager.AllocStackMemoryAndGetStackSubtract(augmentedFun, 0, frameSizeAfterPrologue)
-	stackSubtact += g.pushCalleeSaveRegisters(augmentedFun)
-
 	stackSubtact = g.memoryManager.GetStackPointerAlignment(stackSubtact + frameSizeAfterPrologue) - frameSizeAfterPrologue
 
 	g.generateFunctionPrologue(augmentedFun)
 	g.subtractStackPointer(stackSubtact)
+	g.storeCalleeSaveRegisters(augmentedFun)
 	g.storeArgsPassedInRegsOnStack(augmentedFun)
-	for _, line := range augmentedFun.Code {
+	return stackSubtact + frameSizeAfterPrologue
+}
+
+// return value (if present) must be stored in appropriate register before this call
+func (g *Generator) returnFromFunction(fun *AugmentedFunctionIr) {
+	g.asm.PutLabel(fun.ReturnLabel)
+	g.restoreCalleeSaveRegisters(fun)
+	framePointer := g.registerAllocator.GetFramePointer()
+	g.asm.MovIntegralRegisterToIntegralRegister(g.registerAllocator.GetStackPointer(), framePointer)
+	g.asm.PopIntegralReg(framePointer)
+	g.asm.Return()
+}
+
+func (g *Generator) generateFunctionCode(fun *AugmentedFunctionIr) {
+	for _, line := range fun.Code {
 		switch ir := line.(type) {
 		case *AugmentedConstantAssignmentLine:
 			g.saveConstantInRegister(ir.LhsSymbol.Register, ir.Constant)
@@ -187,15 +206,15 @@ func (g *Generator) generateFunction(fun *irs.FunctionIR) {
 		case *AugmentedStringAssignmentLine:
 		case *AugmentedBiSymbolAssignmentLine:
 			if ir.RhsSymbol.LoadBeforeRead {
-				g.load(ir.RhsSymbol)
+				g.loadSymbol(ir.RhsSymbol)
 			}
 			g.storeInLValue(ir.LValue, ir.RhsSymbol.Register)
 		case *AugmentedBinaryOperationLine:
 			if ir.LeftOperand.LoadBeforeRead {
-				g.load(ir.LeftOperand)
+				g.loadSymbol(ir.LeftOperand)
 			}
 			if ir.RightOperand.LoadBeforeRead {
-				g.load(ir.RightOperand)
+				g.loadSymbol(ir.RightOperand)
 			}
 			// TODO some (most) operations allow one operand to be memory, consider using that for shorter code
 			resReg := g.performBinaryOperationOnRegisters(ir.LeftOperand.Register, ir.Operator, ir.RightOperand.Register)
@@ -209,7 +228,7 @@ func (g *Generator) generateFunction(fun *irs.FunctionIR) {
 		case *AugmentedFunctionCallLine:
 			for _, arg := range ir.ViaRegisterArgs {
 				if arg.LoadBeforeRead {
-					g.load(arg)
+					g.loadSymbol(arg)
 				}
 			}
 			stackSubtract := g.storeArgsOnStackAndGetSubtract(ir)
@@ -227,17 +246,33 @@ func (g *Generator) generateFunction(fun *irs.FunctionIR) {
 			g.asm.PutLabel(ir.Label)
 		case *AugmentedIfGotoLine:
 			if ir.ConditionSymbol.LoadBeforeRead {
-				g.load(ir.ConditionSymbol)
+				g.loadSymbol(ir.ConditionSymbol)
 			}
 			// TODO maybe try to optimize it even at this point
 			g.asm.CompareToZero(ir.ConditionSymbol.Register)
 			g.asm.JumpIfZero(ir.TargetLabel)
 		case *AugmentedReturnLine:
-			g.asm.writeLine("RETURN!")
+			if ir.ReturnSymbol != nil {
+				if ir.ReturnSymbol.LoadBeforeRead {
+					g.loadSymbol(ir.ReturnSymbol)
+				}
+			}
+			g.asm.JumpToLabel(fun.ReturnLabel)
 		default:
 			panic("unexpected ir line")
 		}
 	}
+}
+
+func (g *Generator) generateFunction(fun *irs.FunctionIR) {	
+	g.asm.EnterFunction(fun.Name)
+	augmentedFun := g.prepareAugmentedIr(fun)
+
+	g.registerAllocator.Alloc(augmentedFun)
+	g.prepareStackForCodeGeneration(augmentedFun)
+
+	g.generateFunctionCode(augmentedFun)
+	g.returnFromFunction(augmentedFun)
 }
 
 func (g *Generator) handleGlobals() {

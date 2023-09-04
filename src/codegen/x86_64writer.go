@@ -51,6 +51,14 @@ func (w *X86_64Writer) PushFloatingReg(reg FloatingRegister) {
 	w.writeLine(fmt.Sprintf("PUSH FLOAT TODO %s", reg.Name()))
 }
 
+func (w *X86_64Writer) PopIntegralReg(reg IntegralRegister) {
+	w.writeLine(fmt.Sprintf("pop %s", reg.EffectiveName))
+}
+
+func (w *X86_64Writer) PopFloatingReg(reg FloatingRegister) {
+	w.writeLine(fmt.Sprintf("POP FLOAT TODO %s", reg.Name()))
+}
+
 func (w *X86_64Writer) MovIntegralRegisterToIntegralRegister(dest IntegralRegister, src IntegralRegister) {
 	w.writeLine(fmt.Sprintf("mov %s, %s", dest.EffectiveName, src.EffectiveName))
 }
@@ -114,4 +122,8 @@ func (w *X86_64Writer) PushIntegralRegister(src IntegralRegister) {
 
 func (w *X86_64Writer) Call(mem MemoryAccessor) {
 	w.writeLine(fmt.Sprintf("call %s", mem.String()))
+}
+
+func (w *X86_64Writer) Return() {
+	w.writeLine("ret")
 }

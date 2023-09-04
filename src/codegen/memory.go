@@ -126,6 +126,25 @@ func (m *MemoryManager) setAddressesOfArgsOnStack(fun *AugmentedFunctionIr, rbpO
 	return curSubtract
 }
 
+func (m *MemoryManager) setAddressesOfCalleeSaveRegistersOnStack(fun *AugmentedFunctionIr, curSubtract int) int {
+	if remainder := curSubtract % REGISTER_ARG_ALIGNMENT; remainder != 0 {
+		curSubtract -= (REGISTER_ARG_ALIGNMENT - remainder)
+	}
+	for _, regWithMem := range fun.IntegralRegistersToPersist {
+		regWithMem.MemoryAccessor = &StackFrameOffsetMemoryAccessor{
+			Offset: curSubtract,
+		}
+		curSubtract -= regWithMem.Register.Size()
+	}
+	// TODO check alignment if floating registers of size > 8B are used
+	for _, regWithMem := range fun.FloatingRegistersToPersist {
+		regWithMem.MemoryAccessor = &StackFrameOffsetMemoryAccessor{
+			Offset: curSubtract,
+		}
+		curSubtract -= regWithMem.Register.Size()
+	}
+	return curSubtract
+}
 
 // rbpOffset contains difference from rbp to stack pointer, rbp itself must be guaranteed to be 16B aligned
 // if this is called just after function prologue (push rbp; mov rbp, rsp) then rbpOffset should be 0
@@ -139,7 +158,7 @@ func (m *MemoryManager) AllocStackMemoryAndGetStackSubtract(fun *AugmentedFuncti
 	size = m.placeOnStack(size, irs.LOCAL, fun.Snapshot.LocalsSnapshot)
 	size = m.placeOnStack(size, irs.TEMP, fun.Snapshot.TempsSnapshot)
 	size = m.setAddressesOfArgsOnStack(fun, rbpOffset, frameOffset, size)
-	// we must be aligned to 16 before next function call, but this includes 8B return address so we must be aligned to 8
+	size = m.setAddressesOfCalleeSaveRegistersOnStack(fun, size)
 	m.assignMemoryAccessorToSymbolUsages(fun)
 	return -size
 }

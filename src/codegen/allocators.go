@@ -230,12 +230,16 @@ func (a *BasicRegisterAllocator) handleFunctionEnter(fun *AugmentedFunctionIr) {
 func (a *BasicRegisterAllocator) setRegistersToPersistByCallee(fun *AugmentedFunctionIr) {
 	for _, csr := range SYSV_CALLEE_SAVE_INTEGRAL_REGISTERS {
 		if a.allocState.usedIntegralRegisters.Has(csr) {
-			fun.IntegralRegistersToPersist = append(fun.IntegralRegistersToPersist, GetIntegralRegisterFamily(csr).use(QWORD))
+			fun.IntegralRegistersToPersist = append(fun.IntegralRegistersToPersist, 
+				&RegisterWithAccessor{Register: GetIntegralRegisterFamily(csr).use(QWORD)},
+			)
 		}
 	}
 	for _, csr := range SYSV_CALLEE_SAVE_FLOATING_REGISTERS {
 		if a.allocState.usedFloatingRegisters.Has(csr) {
-			fun.FloatingRegistersToPersist = append(fun.FloatingRegistersToPersist, GetFloatingRegisterFamily(csr).use())
+			fun.FloatingRegistersToPersist = append(fun.FloatingRegistersToPersist, 
+				&RegisterWithAccessor{Register: GetFloatingRegisterFamily(csr).use()},
+			)
 		}
 	}
 }
