@@ -1,6 +1,7 @@
 package main
 
 import (
+	"asm"
 	"codegen"
 	"fmt"
 	"grammars"
@@ -216,6 +217,22 @@ func testAll() {
 	}
 }
 
+func testAssembler() {
+	writer := codegen.NewWriter()
+	writer.EnterFunction("test")
+	reg1 := codegen.GetIntegralRegisterFamily(codegen.R11).UseForSize(codegen.DWORD_SIZE)
+	reg2 := codegen.GetIntegralRegisterFamily(codegen.R12).UseForSize(codegen.DWORD_SIZE)
+	// writer.MovIntegralRegisterToIntegralRegister(reg1, reg2) // mov eax, ecx -> 89 c8 
+	// writer.MovMemoryToIntegralRegister(reg1, codegen.RegisterMemoryAccessor{reg2}) // mov eax, [ecx] -> 67 8b 01
+	// writer.MovIntegralRegisterToMemory(codegen.RegisterMemoryAccessor{reg2}, reg1) // mov [ecx], eax -> 67 89 01
+	writer.MovIntegralRegisterToMemory(codegen.RegisterMemoryAccessor{reg1}, reg2) // mov [ecx], eax -> 67 89 01
+	assembly := writer.GetAssembly()
+	assembler := asm.NewAssembler()
+	assembler.Assemble(assembly[0].Code[0])
+	assembler.PrintBytes()
+	fmt.Println("")
+}
+
 func serializeTables() {
 	grammarReader, err := grammars.NewReader("../resources/ansi_c_grammar")
 	if err != nil {
@@ -236,10 +253,11 @@ func serializeTables() {
 
 func main() {
 	// testParserSimple2()
-	testAll()
+	// testAll()
 	// testGrammarReader()
 	// testTokenizer()
 	// testTableBuilder()
 	// testTableBuilder2()
+	testAssembler()
 	// serializeTables()
 }

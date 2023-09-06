@@ -84,7 +84,7 @@ func (a *BasicRegisterAllocator) nextFreeFloatingRegister() FloatingRegisterFami
 func (a *BasicRegisterAllocator) allocFunctionReturnRegister(returnSymbol *AugmentedSymbol) Register {
 	switch a.memoryManager.classifySymbol(returnSymbol.Sym) {
 	case INTEGER:
-		reg := GetIntegralRegisterFamily(SYS_V_RETURN_INTEGRAL_REGISTER).useForSize(returnSymbol.Sym.Ctype.Size())
+		reg := GetIntegralRegisterFamily(SYS_V_RETURN_INTEGRAL_REGISTER).UseForSize(returnSymbol.Sym.Ctype.Size())
 		a.allocState.usedIntegralRegisters.Add(SYS_V_RETURN_INTEGRAL_REGISTER)
 		a.allocState.currentlyUsedIntegralRegisters.Add(SYS_V_RETURN_INTEGRAL_REGISTER)
 		return reg
@@ -121,7 +121,7 @@ func (a *BasicRegisterAllocator) getArgToRegisterMapping(Args []*irs.Symbol) []*
 				res = append(res, &ArgToRegisterMapping{
 					PassMode: REGISTER_ONLY,
 					StorageClass: INTEGER,
-					Register: GetIntegralRegisterFamily(regFamT).useForSize(arg.Ctype.Size()),
+					Register: GetIntegralRegisterFamily(regFamT).UseForSize(arg.Ctype.Size()),
 				})
 			}
 		case SSE:
@@ -175,7 +175,7 @@ func (a *BasicRegisterAllocator) allocFunctionArgRegisters(call *AugmentedFuncti
 	if len(viaStackIntegralArgs) > 0 {
 		stackMoverIntegralReg := a.nextFreeIntegralRegister()
 		for _, arg := range viaStackIntegralArgs {
-			arg.Register = stackMoverIntegralReg.useForSize(arg.Sym.Ctype.Size())
+			arg.Register = stackMoverIntegralReg.UseForSize(arg.Sym.Ctype.Size())
 		}
 	}
 	if len(viaStackFloatingArgs) > 0 {
@@ -192,7 +192,7 @@ func (a *BasicRegisterAllocator) allocAnything(symbols []*AugmentedSymbol) {
 		asym.StoreAfterWrite = true	
 		switch a.memoryManager.classifySymbol(asym.Sym) {
 		case INTEGER:
-			asym.Register = a.nextFreeIntegralRegister().useForSize(asym.Sym.Ctype.Size())
+			asym.Register = a.nextFreeIntegralRegister().UseForSize(asym.Sym.Ctype.Size())
 		case SSE:
 			asym.Register = a.nextFreeFloatingRegister().use()
 		case MEMORY, SPLIT:
@@ -231,7 +231,7 @@ func (a *BasicRegisterAllocator) setRegistersToPersistByCallee(fun *AugmentedFun
 	for _, csr := range SYSV_CALLEE_SAVE_INTEGRAL_REGISTERS {
 		if a.allocState.usedIntegralRegisters.Has(csr) {
 			fun.IntegralRegistersToPersist = append(fun.IntegralRegistersToPersist, 
-				&RegisterWithAccessor{Register: GetIntegralRegisterFamily(csr).use(QWORD)},
+				&RegisterWithAccessor{Register: GetIntegralRegisterFamily(csr).Use(QWORD)},
 			)
 		}
 	}
@@ -261,11 +261,11 @@ func (a *BasicRegisterAllocator) allocRegistersForBinaryOperation(l *AugmentedBi
 		a.allocState.currentlyUsedIntegralRegisters.Add(DIV_OP_DIVIDENT_HIGHER_BITS_REG)
 		a.allocState.currentlyUsedIntegralRegisters.Add(DIV_OP_DIVIDENT_LOWER_BITS_REG)
 		// this needs special handling with clearing the higher bits or zero extending lower etc
-		l.LeftOperand.Register = GetIntegralRegisterFamily(DIV_OP_DIVIDENT_LOWER_BITS_REG).useForSize(l.LeftOperand.Sym.Ctype.Size())
+		l.LeftOperand.Register = GetIntegralRegisterFamily(DIV_OP_DIVIDENT_LOWER_BITS_REG).UseForSize(l.LeftOperand.Sym.Ctype.Size())
 		if l.Operator == "/" {
-			l.LhsSymbol.Register = GetIntegralRegisterFamily(DIV_OP_DIVIDENT_LOWER_BITS_REG).useForSize(l.LeftOperand.Sym.Ctype.Size())
+			l.LhsSymbol.Register = GetIntegralRegisterFamily(DIV_OP_DIVIDENT_LOWER_BITS_REG).UseForSize(l.LeftOperand.Sym.Ctype.Size())
 		} else {
-			l.LhsSymbol.Register = GetIntegralRegisterFamily(DIV_OP_DIVIDENT_HIGHER_BITS_REG).useForSize(l.LeftOperand.Sym.Ctype.Size())
+			l.LhsSymbol.Register = GetIntegralRegisterFamily(DIV_OP_DIVIDENT_HIGHER_BITS_REG).UseForSize(l.LeftOperand.Sym.Ctype.Size())
 		}
 		a.markRegisterAsUsedInFunction(l.LeftOperand.Register)
 		a.markRegisterAsUsedInFunction(l.LhsSymbol.Register)
@@ -291,8 +291,12 @@ func (a *BasicRegisterAllocator) Alloc(fun *AugmentedFunctionIr) {
 				l.ReturnSymbol.StoreAfterWrite = true
 			}
 			a.allocFunctionArgRegisters(l)
-			l.FunctionSymbol.Register = a.nextFreeIntegralRegister().use(QWORD)
-			l.FunctionSymbol.LoadBeforeRead = true
+			if a.memoryManager.RequiresRegisterForCall(l.FunctionSymbol) {
+				l.FunctionSymbol.Register = a.nextFreeIntegralRegister().Use(QWORD)
+				l.FunctionSymbol.LoadBeforeRead = true
+			} else {
+				l.FunctionSymbol.LoadBeforeRead = false
+			}
 		case *AugmentedReturnLine:
 			if l.ReturnSymbol != nil {
 				l.ReturnSymbol.Register = a.allocFunctionReturnRegister(l.ReturnSymbol)
@@ -308,9 +312,9 @@ func (a *BasicRegisterAllocator) Alloc(fun *AugmentedFunctionIr) {
 }
 
 func (a *BasicRegisterAllocator) GetFramePointer() IntegralRegister {
-	return GetIntegralRegisterFamily(RBP).use(QWORD)
+	return GetIntegralRegisterFamily(RBP).Use(QWORD)
 }
 
 func (a *BasicRegisterAllocator) GetStackPointer() IntegralRegister {
-	return GetIntegralRegisterFamily(RSP).use(QWORD)
+	return GetIntegralRegisterFamily(RSP).Use(QWORD)
 }

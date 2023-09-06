@@ -31,8 +31,9 @@ type GlobalInitializer struct {
 
 type GlobalSymbol struct {
 	Symbol *Symbol
-	isExtern bool
-	isStatic bool
+	IsExtern bool
+	IsStatic bool
+	IsFunction bool // function, not function pointer
 	Initializers []*GlobalInitializer
 }
 

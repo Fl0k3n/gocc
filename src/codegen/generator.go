@@ -29,16 +29,6 @@ func NewGenerator(functions []*irs.FunctionIR, globals []*irs.GlobalSymbol,
 	}
 }
 
-func (g *Generator) augmentSymbol(sym *irs.Symbol) *AugmentedSymbol {
-	if sym == nil {
-		return nil
-	}
-	return &AugmentedSymbol{
-		Sym: sym,
-		Identity: fmt.Sprintf("%d_%d", int(sym.T), sym.Index),
-	}
-}
-
 func (g *Generator) generateFunctionPrologue(fun *AugmentedFunctionIr) {
 	framePtr := g.registerAllocator.GetFramePointer()
 	stackPtr := g.registerAllocator.GetStackPointer()
@@ -61,7 +51,7 @@ func (g *Generator) loadSymbol(asym *AugmentedSymbol) {
 }
 
 func (g *Generator) loadAddress(asym *AugmentedSymbol) {
-	g.asm.writeLine("LOAD ADDRESS!")
+	g.asm.writePlaceholder("LOAD ADDRESS!")
 }
 
 func (g *Generator) store(destMem MemoryAccessor, srcReg Register) {
@@ -92,13 +82,18 @@ func (g *Generator) increaseStackPointer(by int) {
 }
 
 func (g *Generator) copyRegister(dest Register, src Register) {
-	g.asm.writeLine("COPY REGISTER!")
+	// TODO
+	g.asm.MovIntegralRegisterToIntegralRegister(dest.(IntegralRegister), src.(IntegralRegister))
 }
 
 func (g *Generator) call(asym *AugmentedSymbol) {
-	reg := asym.Register.(IntegralRegister)
-	g.asm.MovMemoryToIntegralRegister(reg, asym.MemoryAccessor)
-	g.asm.Call(RegisterMemoryAccessor{Register: reg})
+	if g.memoryManager.RequiresRegisterForCall(asym) {
+		reg := asym.Register.(IntegralRegister)
+		g.asm.MovMemoryToIntegralRegister(reg, asym.MemoryAccessor)
+		g.asm.Call(RegisterMemoryAccessor{Register: reg})
+	} else {
+		g.asm.Call(asym.MemoryAccessor)
+	}
 }
 
 func (g *Generator) saveConstantInRegister(dest Register, con semantics.ProgramConstant) {
@@ -116,13 +111,13 @@ func (g *Generator) performBinaryOperationOnRegisters(leftReg Register, operator
 	// TODO this is placeholder
 	switch operator {
 	case "+":
-		g.asm.writeLine(fmt.Sprintf("add %s, %s", leftReg.Name(), rightReg.Name()))
+		g.asm.writePlaceholder(fmt.Sprintf("add %s, %s", leftReg.Name(), rightReg.Name()))
 	case "-":
-		g.asm.writeLine(fmt.Sprintf("sub %s, %s", leftReg.Name(), rightReg.Name()))
+		g.asm.writePlaceholder(fmt.Sprintf("sub %s, %s", leftReg.Name(), rightReg.Name()))
 	case "*":
-		g.asm.writeLine(fmt.Sprintf("imul %s, %s", leftReg.Name(), rightReg.Name()))
+		g.asm.writePlaceholder(fmt.Sprintf("imul %s, %s", leftReg.Name(), rightReg.Name()))
 	case "/", "%":
-		g.asm.writeLine(fmt.Sprintf("idiv %s", rightReg.Name()))
+		g.asm.writePlaceholder(fmt.Sprintf("idiv %s", rightReg.Name()))
 	}
 	return leftReg
 }
@@ -267,6 +262,7 @@ func (g *Generator) generateFunctionCode(fun *AugmentedFunctionIr) {
 func (g *Generator) generateFunction(fun *irs.FunctionIR) {	
 	g.asm.EnterFunction(fun.Name)
 	augmentedFun := g.prepareAugmentedIr(fun)
+	g.asm.PutLabel(createFunctionLabel(fun.Name))
 
 	g.registerAllocator.Alloc(augmentedFun)
 	g.prepareStackForCodeGeneration(augmentedFun)
@@ -275,12 +271,9 @@ func (g *Generator) generateFunction(fun *irs.FunctionIR) {
 	g.returnFromFunction(augmentedFun)
 }
 
-func (g *Generator) handleGlobals() {
-
-}
 
 func (g *Generator) Generate() {
-	g.handleGlobals()
+	g.memoryManager.AssignMemoryToGlobals(g.globals)
 	for _, fun := range g.functions {
 		g.generateFunction(fun)
 	}

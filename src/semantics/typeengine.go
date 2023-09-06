@@ -714,8 +714,6 @@ func (e *TypeEngine) GetFunctionDeclaration(fun *ast.FunctionDefinition) Functio
 		panic("didnt get declaration specifiers")
 	}
 	// TODO qualifiers
-	e.assert(len(fun.DeclarationSpecifiers.StorageClassSpecifiers) == 0,
-			"Function definition can't have storage specifiers", fun.LineInfo)
 	baseRetType, err := e.getPartialTypeFromSpecifiers(fun.DeclarationSpecifiers.TypeSpecifiers)
 	if err != nil {
 		baseRetType = VOID_POINTER
@@ -827,6 +825,21 @@ func (e *TypeEngine) GetDeclaredSymbols(dec *ast.Declaration) []*SymbolDeclarati
 	return res
 }
 
+// assumes that Ctype of type built using this is a FunctionPtrCtype
+func (e *TypeEngine) isFunctionAndNotFunctionPointer(dec *ast.Declarator) bool {
+	// TODO make sure that this covers all cases
+	df := dec.DirectDeclarator.(ast.DirectFunctionDeclarator)
+	if _, isDec := df.Declarator.(ast.DirectIdentifierDeclarator); isDec {
+		return true
+	}
+	return false
+}
+
+func (e *TypeEngine) IsStatic(fun *ast.FunctionDefinition) bool {
+	return len(fun.DeclarationSpecifiers.StorageClassSpecifiers) > 0 && 
+		fun.DeclarationSpecifiers.StorageClassSpecifiers[0].Val == string(STATIC)
+}
+
 func (e *TypeEngine) GetDeclaredGlobals(dec *ast.Declaration) []*GlobalDeclaration {
 	partialType, err := e.getPartialTypeFromSpecifiers(dec.DeclarationSpecifiers.TypeSpecifiers)
 	if err != nil {
@@ -846,14 +859,22 @@ func (e *TypeEngine) GetDeclaredGlobals(dec *ast.Declaration) []*GlobalDeclarati
 			isStatic = true
 		}
 	}
+	if dec.InitDeclaratorList == nil {
+		return res
+	}
 	for _, initDecl := range dec.InitDeclaratorList.InitDeclarators {
 		t, name := e.extractTypeAndName(initDecl.Declarator, partialType)
+		isFunction := false
+		if _, isFuncPtr := t.(FunctionPtrCtype); isFuncPtr {
+			isFunction = e.isFunctionAndNotFunctionPointer(initDecl.Declarator)
+		}
 		res = append(res, &GlobalDeclaration{
 			Name: name,
 			T: t,
 			Initializer: initDecl.Initializer,
 			Extern: isExtern,
 			Static: isStatic,
+			Function: isFunction,
 		})
 	}
 	return res

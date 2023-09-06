@@ -36,6 +36,7 @@ type GlobalDeclaration struct {
 	Initializer *ast.Initializer
 	Extern bool
 	Static bool
+	Function bool
 }
 
 type SymbolInitializer struct {

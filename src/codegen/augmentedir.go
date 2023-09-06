@@ -6,40 +6,10 @@ import (
 	"semantics"
 )
 
-type MemoryAccessor interface {
-	String() string
-}
-
-type StackFrameOffsetMemoryAccessor struct {
-	Offset int
-}
-
-func (s StackFrameOffsetMemoryAccessor) String() string {
-	return fmt.Sprintf("%d[RBP]", s.Offset)
-}
-
-type RegisterMemoryAccessor struct {
-	Register IntegralRegister
-}
-
-func (r RegisterMemoryAccessor) String() string {
-	return fmt.Sprintf("[%s]", r.Register.EffectiveName)
-}
-
-type GOTMemoryAccessor struct {
-	Offset int
-}
-
-func (g GOTMemoryAccessor) String() string {
-	return fmt.Sprintf("GOT@%d", g.Offset)
-}
-
-type PLTMemoryAccessor struct {
-	Name string
-}
-
-func (p PLTMemoryAccessor) String() string {
-	return fmt.Sprintf("PLT@%s", p.Name)
+type GlobalSymbolInfo struct {
+	IsExtern bool
+	IsStatic bool
+	IsFunction bool
 }
 
 type AugmentedSymbol struct {
@@ -49,6 +19,8 @@ type AugmentedSymbol struct {
 	Register Register
 	LoadBeforeRead bool
 	StoreAfterWrite bool
+	isGlobal bool
+	GlobalInfo *GlobalSymbolInfo
 	// StoreOnlyInMemory bool
 }
 
@@ -235,6 +207,30 @@ func (a AugmentedTypeCastLine) GetSymbols() (res []*AugmentedSymbol) {
 	return append(res, a.FromSymbol, a.ToSymbol)
 }
 
+func (g *Generator) getGlobalInfo(sym *irs.Symbol) *GlobalSymbolInfo {
+	global := g.globals[sym.Index]
+	return &GlobalSymbolInfo{
+		IsExtern: global.IsExtern,
+		IsStatic: global.IsStatic,
+		IsFunction: global.IsFunction,
+	}
+}
+
+func (g *Generator) augmentSymbol(sym *irs.Symbol) *AugmentedSymbol {
+	if sym == nil {
+		return nil
+	}
+	res := &AugmentedSymbol{
+		Sym: sym,
+		Identity: fmt.Sprintf("%d_%d", int(sym.T), sym.Index),
+		isGlobal: sym.T == irs.GLOBAL,
+	}
+	if res.isGlobal {
+		res.GlobalInfo = g.getGlobalInfo(sym)
+	}
+	return res
+}
+
 func (g *Generator) prepareAugmentedIr(fun *irs.FunctionIR) *AugmentedFunctionIr {
 	res := []AugmentedIRLine{}
 	for _, line := range fun.Code {
@@ -315,7 +311,7 @@ func (g *Generator) prepareAugmentedIr(fun *irs.FunctionIR) *AugmentedFunctionIr
 		Name: fun.Name,
 		Code: res,
 		Snapshot: fun.Snapshot,
-		ReturnLabel: fmt.Sprintf("0%s_RET", fun.Name),
+		ReturnLabel: createFunctionReturnLabel(fun.Name),
 		Args: args,
 		InRegisterArgsToPlaceOnCalleeStack: []*irs.Symbol{},
 		ArgsPlacedOnCallerStack: []*AugmentedSymbol{},

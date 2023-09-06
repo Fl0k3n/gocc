@@ -32,6 +32,7 @@ type ScopeManager struct {
 	typeEngine *semantics.TypeEngine
 	statementContexts *utils.Stack[StatementContext]
 	curFuncSnapshot *NonGlobalsSnapshot
+	globalSymbols []*GlobalSymbol
 }
 
 func newScopeManager(typeEngine *semantics.TypeEngine) *ScopeManager {
@@ -39,6 +40,7 @@ func newScopeManager(typeEngine *semantics.TypeEngine) *ScopeManager {
 		symtab: NewCountingSymtab(),
 		typeEngine: typeEngine,
 		statementContexts: utils.NewStack[StatementContext](),
+		globalSymbols: []*GlobalSymbol{},
 	}
 }
 
@@ -58,10 +60,10 @@ func (s *ScopeManager) getSymbol(name string) *Symbol {
 	return res
 }
 
-func (s *ScopeManager) EnterFunction(f *ast.FunctionDefinition) *semantics.FunctionPtrCtype {
+func (s *ScopeManager) EnterFunction(f *ast.FunctionDefinition, static bool) *semantics.FunctionPtrCtype {
 	s.curFuncSnapshot = newSnapshot()
 	fptr := s.typeEngine.GetFunctionDeclaration(f)
-	s.symtab.DefineNewOfType(fptr.Name(), GLOBAL, fptr)
+	s.newGlobalVariable(fptr.Name(), fptr, true, static, false, nil)
 	s.symtab.EnterScope(true)
 	for paramNum, paramType := range fptr.ParamTypes {
 		sym := s.symtab.DefineNewOfType(fptr.ParamNames[paramNum], ARG, paramType)
@@ -112,10 +114,22 @@ func (s *ScopeManager) newLocalVariable(name string, t semantics.Ctype) *Symbol 
 	return sym
 }
 
-func (s *ScopeManager) newGlobalVariable(name string, t semantics.Ctype) *Symbol {
-	return s.symtab.DefineNewOfType(name, GLOBAL, t)
+func (s *ScopeManager) newGlobalVariable(name string, t semantics.Ctype, function bool, static bool, extern bool, initializers []*GlobalInitializer) *Symbol {
+	sym := s.symtab.DefineNewOfType(name, GLOBAL, t)
+	s.globalSymbols = append(s.globalSymbols, &GlobalSymbol{
+		Symbol: sym,
+		IsExtern: extern,
+		IsStatic: static,
+		IsFunction: function,
+		Initializers: initializers,
+	})
+	return sym
 }
 
 func (s *ScopeManager) GetNonGlobalsSnapshot() *NonGlobalsSnapshot {
 	return s.curFuncSnapshot
+}
+
+func (s *ScopeManager) GetGlobalSymbols() []*GlobalSymbol {
+	return s.globalSymbols
 }

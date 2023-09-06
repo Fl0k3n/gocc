@@ -23,6 +23,7 @@ const (
 type MemoryManager struct {
 	typeEngine *semantics.TypeEngine
 	nonGlobalsMemMap map[irs.SymbolType][]MemoryAccessor
+	globalsMemMap []MemoryAccessor
 }
 
 func NewMemoryManager(typeEngine *semantics.TypeEngine) *MemoryManager {
@@ -33,15 +34,7 @@ func NewMemoryManager(typeEngine *semantics.TypeEngine) *MemoryManager {
 
 func (m *MemoryManager) getMemoryAccessor(asym *AugmentedSymbol) MemoryAccessor {
 	if asym.Sym.T == irs.GLOBAL {
-		if _, isFunction := asym.Sym.Ctype.(semantics.FunctionPtrCtype); isFunction {
-			return PLTMemoryAccessor{
-				Name: asym.Sym.Name,
-			}
-		} else {
-			return GOTMemoryAccessor{
-				Offset: asym.Sym.Index,
-			}
-		}
+		return m.globalsMemMap[asym.Sym.Index]
 	}
 	return m.nonGlobalsMemMap[asym.Sym.T][asym.Sym.Index]
 }
@@ -146,6 +139,17 @@ func (m *MemoryManager) setAddressesOfCalleeSaveRegistersOnStack(fun *AugmentedF
 	return curSubtract
 }
 
+func (m *MemoryManager) RequiresRegisterForCall(funSymbol *AugmentedSymbol) bool {
+	if !funSymbol.isGlobal {
+		return true
+	}
+	globalInfo := funSymbol.GlobalInfo
+	if globalInfo.IsFunction && globalInfo.IsStatic {
+		return false
+	}
+	return true
+}
+
 // rbpOffset contains difference from rbp to stack pointer, rbp itself must be guaranteed to be 16B aligned
 // if this is called just after function prologue (push rbp; mov rbp, rsp) then rbpOffset should be 0
 // if something was pushed after rbpOffset it should be negative
@@ -168,4 +172,32 @@ func (m *MemoryManager) GetStackPointerAlignment(frameOffset int) int {
 		frameOffset += STACK_ALIGNMENT - remainder
 	}
 	return frameOffset
+}
+
+func (m *MemoryManager) AssignMemoryToGlobals(globals []*irs.GlobalSymbol) {
+	m.globalsMemMap = make([]MemoryAccessor, len(globals))
+	for _, global := range globals {
+		idx := global.Symbol.Index
+		if global.IsFunction {
+			if global.IsStatic {
+				m.globalsMemMap[idx] = LabeledMemoryAccessor{
+					Label: global.Symbol.Name,
+				}
+			} else {
+				m.globalsMemMap[idx] = PLTMemoryAccessor{
+					Symbol: global.Symbol,
+				}
+			}
+		} else {
+			if global.IsStatic {
+				m.globalsMemMap[idx] = SectionMemoryAccessor{
+					Symbol: global.Symbol,
+				}
+			} else {
+				m.globalsMemMap[idx] = GOTMemoryAccessor{
+					Symbol: global.Symbol,
+				}
+			}
+		}
+	}
 }

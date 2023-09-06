@@ -34,7 +34,7 @@ type IntegralRegisterFamily struct {
 	T IntegralRegisterFamilyT
 }
 
-func (i IntegralRegisterFamily) use(varinat IntegralRegisterVariant) IntegralRegister {
+func (i IntegralRegisterFamily) Use(varinat IntegralRegisterVariant) IntegralRegister {
 	switch varinat {
 	case QWORD:
 		return IntegralRegister{Family: i, EffectiveName: i.QwordName, EffectiveSize: QWORD_SIZE}
@@ -49,7 +49,7 @@ func (i IntegralRegisterFamily) use(varinat IntegralRegisterVariant) IntegralReg
 	}
 }
 
-func (i IntegralRegisterFamily) useForSize(size int) IntegralRegister {
+func (i IntegralRegisterFamily) UseForSize(size int) IntegralRegister {
 	var variant IntegralRegisterVariant
 	switch size {
 	case QWORD_SIZE: variant = QWORD
@@ -58,7 +58,7 @@ func (i IntegralRegisterFamily) useForSize(size int) IntegralRegister {
 	case BYTE_SIZE: variant = BYTE
 	default: panic("Size doesn't fit to any register")
 	}
-	return i.use(variant)
+	return i.Use(variant)
 }
 
 type IntegralRegister struct {
@@ -108,8 +108,6 @@ var IntegralRegisterFamilies = map[IntegralRegisterFamilyT]IntegralRegisterFamil
 	R14: {"r14", "r14d", "r14w", "r14l", R14},
 	R15: {"r15", "r15d", "r15w", "r15l", R15},
 }
-
-const INSTRUCTION_POINTER = "rip"
 
 func GetIntegralRegisterFamily(fam IntegralRegisterFamilyT) IntegralRegisterFamily {
 	return IntegralRegisterFamilies[fam]

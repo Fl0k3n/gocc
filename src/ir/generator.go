@@ -12,7 +12,6 @@ type IRGenerator struct {
 	writer *Writer
 	labels *LabelProvider
 	curFunctionName string
-	globalSymbols []*GlobalSymbol
 }
 
 func NewGenerator(writer *Writer) *IRGenerator {
@@ -24,7 +23,6 @@ func NewGenerator(writer *Writer) *IRGenerator {
 		writer: writer,
 		typeEngine: typeEngine,
 		labels: newLabelProvider(),
-		globalSymbols: []*GlobalSymbol{},
 	}
 }
 
@@ -531,7 +529,7 @@ func (g *IRGenerator) generateCompoundStatement(cs *ast.CompoundStatement) {
 }
 
 func (g *IRGenerator) generateFunction(f *ast.FunctionDefinition) {
-	fun := g.scopeMgr.EnterFunction(f)
+	fun := g.scopeMgr.EnterFunction(f, g.typeEngine.IsStatic(f))
 	defer g.scopeMgr.LeaveFunction()
 	g.writer.EnterFunction(fun.Name())
 	g.curFunctionName = fun.Name()
@@ -554,7 +552,6 @@ func (g *IRGenerator) generateFunction(f *ast.FunctionDefinition) {
 func (g *IRGenerator) handleTopLevelDeclaration(dec *ast.Declaration) {
 	g.typeEngine.GetSymbolsForTopLevelDeclarationAndDefineNewTypes(dec)
 	for _, globalDef := range g.typeEngine.GetDeclaredGlobals(dec) {
-		sym := g.scopeMgr.newGlobalVariable(globalDef.Name, globalDef.T)
 		initializers := []*GlobalInitializer{}
 		if globalDef.Initializer != nil {
 			if structT, isStruct := globalDef.T.(semantics.StructCtype); isStruct {
@@ -571,13 +568,8 @@ func (g *IRGenerator) handleTopLevelDeclaration(dec *ast.Declaration) {
 				initializers = append(initializers, &GlobalInitializer{Offset: 0, Expression: globalDef.Initializer.Expression})
 			}
 		}
-		globalSym := GlobalSymbol{
-			Symbol: sym,
-			isExtern: globalDef.Extern,
-			isStatic: globalDef.Static,
-			Initializers: initializers,
-		}
-		g.globalSymbols = append(g.globalSymbols, &globalSym)
+		g.scopeMgr.newGlobalVariable(globalDef.Name, globalDef.T,
+					 globalDef.Function, globalDef.Static, globalDef.Extern, initializers)
 	}
 }
 
@@ -592,5 +584,5 @@ func (g *IRGenerator) Generate(root *ast.TranslationUnit) ([]*FunctionIR, []*Glo
 		}
 	}
 	g.writer.PrintAll()
-	return g.writer.GetFunctions(), g.globalSymbols, g.typeEngine
+	return g.writer.GetFunctions(), g.scopeMgr.GetGlobalSymbols(), g.typeEngine
 }
