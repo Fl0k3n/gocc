@@ -20,3 +20,14 @@ func createFunctionReturnLabel(funName string) string {
 func createFunctionLabel(funName string) string {
 	return funName
 }
+
+func getIntegralMemoryDescriptor(size int) (memDescriptor string) {
+	switch size {
+	case QWORD_SIZE: memDescriptor = "QWORD"
+	case DWORD_SIZE: memDescriptor = "DWORD"
+	case WORD_SIZE: memDescriptor = "WORD"
+	case BYTE_SIZE: memDescriptor = "BYTE"
+	default: panic("unknown size")
+	}
+	return
+}

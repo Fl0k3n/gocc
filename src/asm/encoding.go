@@ -1,6 +1,9 @@
 package asm
 
-import "codegen"
+import (
+	"codegen"
+	"fmt"
+)
 
 type REX struct {
 	IsNeeded bool
@@ -137,4 +140,16 @@ func bitmask(bits ...uint8) uint8 {
 func combineWithMasked(accumulator uint8, val uint8, mask uint8) uint8 {
 	accumulator |= (val & mask)
 	return accumulator
+}
+
+func StringifyBytes(bytes []uint8) string {
+	res := ""
+	for _, b := range bytes {
+		if b < 10 {
+			res += fmt.Sprintf("0%x ", b)
+		} else {
+			res += fmt.Sprintf("%x ", b)
+		}
+	}
+	return res
 }

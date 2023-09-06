@@ -5,19 +5,25 @@ import "codegen"
 const NOT_OPCODE uint8 = 0
 
 
-func (a *X86_64Assembler) getSizeOverridePrefixes(ops *codegen.Operands, rex *REX, usedOperationSize int, defaultOperationSize int) []uint8 {
+func (a *X86_64Assembler) getSizeOverridePrefixes(ops *codegen.Operands, rex *REX, defaultOperationSize int) []uint8 {
 	const ADDR_OVERLOAD uint8 = 0x67
 	const OP_OVERLOAD uint8 = 0x66
 	res := []uint8{}
 
-	if defaultOperationSize == codegen.DWORD_SIZE && usedOperationSize == codegen.WORD_SIZE {
+	if defaultOperationSize == codegen.DWORD_SIZE && ops.DataTransferSize == codegen.WORD_SIZE {
 		res = append(res, OP_OVERLOAD)
 	}
-	if usedOperationSize == codegen.QWORD_SIZE && defaultOperationSize != codegen.QWORD_SIZE {
+	if ops.DataTransferSize == codegen.QWORD_SIZE && defaultOperationSize != codegen.QWORD_SIZE {
 		rex.setSizeOverrideFlag()
 	}
 	if ops.IsFirstOperandMemory() || (ops.SecondOperand != nil && ops.IsSecondOperandMemory()) {
-		if usedOperationSize != codegen.QWORD_SIZE {
+		var memop codegen.MemoryAccessor
+		if ops.IsFirstOperandMemory() {
+			memop = ops.FirstOperand.Memory
+		} else {
+			memop = ops.SecondOperand.Memory
+		}
+		if memop.(codegen.RegisterMemoryAccessor).Register.Size() != codegen.QWORD_SIZE {
 			res = append(res, ADDR_OVERLOAD)
 		}
 	}
@@ -51,8 +57,28 @@ func (a *X86_64Assembler) getSIB(ops *codegen.Operands, sibOperand codegen.Memor
 	return sib
 }
 
+func (a *X86_64Assembler) assembleOIInstruction(opcode uint8, ops *codegen.Operands, im *codegen.Immediate, defaultOperationSize int) []uint8 {
+	rex := emptyREX()
+	reg := ops.FirstOperand.Register
+	rex.updateForRmExtensionIfNeeded(reg)
+	opcode += getTruncatedRegisterNum(reg)
+	res := a.getSizeOverridePrefixes(ops, &rex, defaultOperationSize)
+	if rex.IsNeeded {
+		res = append(res, rex.encode())
+	}
+	res = append(res, opcode)
+	res = append(res, im.EncodeToLittleEndianU2()...)
+	return res
+}
+
+func (a *X86_64Assembler) assembleMIInstruction(opcode uint8, modRmOpcode uint8, ops *codegen.Operands, im *codegen.Immediate, defaultOperationSize int) []uint8 {
+	mrAsm := a.assembleMRInstruction([]uint8{opcode}, ops, modRmOpcode, defaultOperationSize)
+	mrAsm = append(mrAsm, im.EncodeToLittleEndianU2()...)
+	return mrAsm
+}
+
 // assumes MR encoding so if both operands are registers first is obtained using rm bits second using reg bits
-func (a *X86_64Assembler) assembleInstruction(opcode []uint8, ops *codegen.Operands, modRmOpcode uint8, defaultOperationSize int, usedOperationSize int) []uint8 {
+func (a *X86_64Assembler) assembleMRInstruction(opcode []uint8, ops *codegen.Operands, modRmOpcode uint8, defaultOperationSize int) []uint8 {
 	modrm := ModRM{}
 	rex := emptyREX()
 	sib := emptySIB()
@@ -102,7 +128,7 @@ func (a *X86_64Assembler) assembleInstruction(opcode []uint8, ops *codegen.Opera
 		rex.updateForRmExtensionIfNeeded(ops.FirstOperand.Register)
 	}
 	
-	res := a.getSizeOverridePrefixes(ops, &rex, usedOperationSize, defaultOperationSize)
+	res := a.getSizeOverridePrefixes(ops, &rex, defaultOperationSize)
 	if rex.IsNeeded {
 		res = append(res, rex.encode())
 	}

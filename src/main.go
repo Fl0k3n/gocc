@@ -220,16 +220,36 @@ func testAll() {
 func testAssembler() {
 	writer := codegen.NewWriter()
 	writer.EnterFunction("test")
-	reg1 := codegen.GetIntegralRegisterFamily(codegen.R11).UseForSize(codegen.DWORD_SIZE)
-	reg2 := codegen.GetIntegralRegisterFamily(codegen.R12).UseForSize(codegen.DWORD_SIZE)
+	raxFam := codegen.GetIntegralRegisterFamily(codegen.RAX)
+	reg1 := codegen.GetIntegralRegisterFamily(codegen.R12).UseForSize(codegen.DWORD_SIZE)
+	reg2 := codegen.GetIntegralRegisterFamily(codegen.RAX).UseForSize(codegen.QWORD_SIZE)
 	// writer.MovIntegralRegisterToIntegralRegister(reg1, reg2) // mov eax, ecx -> 89 c8 
 	// writer.MovMemoryToIntegralRegister(reg1, codegen.RegisterMemoryAccessor{reg2}) // mov eax, [ecx] -> 67 8b 01
 	// writer.MovIntegralRegisterToMemory(codegen.RegisterMemoryAccessor{reg2}, reg1) // mov [ecx], eax -> 67 89 01
-	writer.MovIntegralRegisterToMemory(codegen.RegisterMemoryAccessor{reg1}, reg2) // mov [ecx], eax -> 67 89 01
+	// writer.MovIntegralRegisterToMemory(codegen.RegisterMemoryAccessor{reg1}, reg2) // mov [ecx], eax -> 67 89 01
+	writer.MovIntegralConstantToIntegralRegister(raxFam.UseForSize(codegen.QWORD_SIZE), 0x1234)
+	writer.MovIntegralConstantToIntegralRegister(raxFam.UseForSize(codegen.DWORD_SIZE), 0x1234)
+	writer.MovIntegralConstantToIntegralRegister(raxFam.UseForSize(codegen.WORD_SIZE), 0x1234)
+	writer.MovIntegralConstantToIntegralRegister(raxFam.UseForSize(codegen.BYTE_SIZE), 0x12)
+	// writer.MovIntegralConstantToMemory(codegen.RegisterMemoryAccessor{reg1}, 1, 0x12)
+	// writer.MovIntegralConstantToMemory(codegen.RegisterMemoryAccessor{reg1}, 2, 0x12)
+	// writer.MovIntegralConstantToMemory(codegen.RegisterMemoryAccessor{reg1}, 4, 0x12)
+	// writer.MovIntegralConstantToMemory(codegen.RegisterMemoryAccessor{reg1}, 8, 0x12)
+	// writer.MovIntegralConstantToMemory(codegen.RegisterMemoryAccessor{reg2}, 1, 0x12)
+	// writer.MovIntegralConstantToMemory(codegen.RegisterMemoryAccessor{reg2}, 2, 0x12)
+	// writer.MovIntegralConstantToMemory(codegen.RegisterMemoryAccessor{reg2}, 4, 0x12)
+	// writer.MovIntegralConstantToMemory(codegen.RegisterMemoryAccessor{reg2}, 8, 0x12)
+	fmt.Println(reg1)
+	fmt.Println(raxFam)
+	fmt.Println(reg2)
 	assembly := writer.GetAssembly()
+	asmLines := []codegen.AsmLine{}
+	for _, f := range assembly {
+		asmLines = append(asmLines, f.Code...)
+	}
 	assembler := asm.NewAssembler()
-	assembler.Assemble(assembly[0].Code[0])
-	assembler.PrintBytes()
+	assembler.AssembleMultiple(asmLines)
+	assembler.PrintAssemblyAlongAssembledBytes()
 	fmt.Println("")
 }
 

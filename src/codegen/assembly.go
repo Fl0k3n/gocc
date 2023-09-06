@@ -1,6 +1,8 @@
 package codegen
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type AsmLine interface {
 	String() string
@@ -42,7 +44,20 @@ type Displacement struct {
 }
 
 type Immediate struct {
+	Val int64
+	Size int
+}
 
+func (imm Immediate) EncodeToLittleEndianU2() []uint8 {
+	res := make([]uint8, imm.Size)
+	var mask int64 = 0xff
+	shift := 0
+	for i := 0; i < imm.Size; i++ {
+		res[i] = uint8((imm.Val & mask) >> shift)
+		shift += 8
+		mask <<= 8
+	}
+	return res
 }
 
 type Operands struct {
@@ -54,6 +69,29 @@ type Operands struct {
 	Uses32bDisplacement bool
 	UsesRipDisplacement bool
 	Displacement *Displacement
+	DataTransferSize int
+}
+
+func (o *Operands) ToAssembly() string {
+	// TODO
+	res := ""
+	if o.IsFirstOperandRegister() {
+		reg := o.FirstOperand.Register
+		res += reg.Name()
+	} else {
+		mem := o.FirstOperand.Memory.(RegisterMemoryAccessor)
+		res += getIntegralMemoryDescriptor(o.DataTransferSize) + " PTR [" + mem.Register.Name() + "]"
+	}
+	if o.SecondOperand != nil {
+		res += ", "
+		if o.IsSecondOperandRegister() {
+			res += o.SecondOperand.Register.Name()
+		} else {
+			mem := o.SecondOperand.Memory.(RegisterMemoryAccessor)
+			res += getIntegralMemoryDescriptor(o.DataTransferSize) + " PTR [" + mem.Register.Name() + "]"
+		}
+	}
+	return res
 }
 
 func emptyOperands() *Operands {
@@ -66,6 +104,7 @@ func emptyOperands() *Operands {
 		Uses32bDisplacement: false,
 		UsesRipDisplacement: false,
 		Displacement: nil,
+		DataTransferSize: -1,
 	}
 }
 
@@ -87,6 +126,22 @@ func (m *Operands) GetSizeFromRegister() int {
 		return m.SecondOperand.Register.Size()
 	}
 	panic("Requested register size with unset registers")
+}
+
+func (m *Operands) WithSizeFromRegister() *Operands {
+	if m.FirstOperand.Register != nil {
+		m.DataTransferSize = m.FirstOperand.Register.Size()
+	} else if m.SecondOperand != nil && m.SecondOperand.Register != nil {
+		m.DataTransferSize = m.SecondOperand.Register.Size()
+	} else {
+		panic("no register")
+	}
+	return m
+}
+
+func (m *Operands) WithExplicitSize(size int) *Operands {
+	m.DataTransferSize = size
+	return m
 }
 
 func (m *Operands) WithSib(SIB *SIB) *Operands {
@@ -115,13 +170,15 @@ type PushAsmLine struct {
 }
 
 type MovAsmLine struct {
-	UsesModRM bool 
 	Operands *Operands
-	OperandSize int
 	UsesImmediate bool
-	Imm Immediate
+	Imm *Immediate
 }
 
 func (l MovAsmLine) String() string {
-	return fmt.Sprintf("mov TODO")
+	ops := l.Operands.ToAssembly()
+	if l.UsesImmediate {
+		ops += fmt.Sprintf(", %d", l.Imm.Val)
+	}
+	return fmt.Sprintf("mov " + ops)
 }

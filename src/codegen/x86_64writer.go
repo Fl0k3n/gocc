@@ -68,56 +68,55 @@ func (w *X86_64Writer) PopFloatingReg(reg FloatingRegister) {
 }
 
 func (w *X86_64Writer) MovIntegralRegisterToIntegralRegister(dest IntegralRegister, src IntegralRegister) {
-	l := MovAsmLine{
-		UsesModRM: true,
-		Operands: emptyOperands().WithFirstOperand(justRegister(dest)).WithSecondOperand(justRegister(src)),
+	w.writeLine(MovAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(dest)).
+					WithSecondOperand(justRegister(src)).WithSizeFromRegister(),
 		UsesImmediate: false,
-	}
-	l.OperandSize = l.Operands.GetSizeFromRegister()
-	w.writeLine(l)
+	})
 }
 
 func (w *X86_64Writer) MovIntegralConstantToIntegralRegister(dest IntegralRegister, val int) {
-	w.writePlaceholder(fmt.Sprintf("mov %s, #%d", dest.EffectiveName, val))
-}
-
-func (w *X86_64Writer) getIntegralMemoryDescriptor(size int) (memDescriptor string) {
-	switch size {
-	case QWORD_SIZE: memDescriptor = "QWORD"
-	case DWORD_SIZE: memDescriptor = "DWORD"
-	case WORD_SIZE: memDescriptor = "WORD"
-	case BYTE_SIZE: memDescriptor = "BYTE"
-	default: panic("unknown size")
+	l := MovAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(dest)).WithSizeFromRegister(),
+		UsesImmediate: true,
+		Imm: &Immediate{
+			Val: int64(val),
+		},
 	}
-	return
+	immSize := l.Operands.DataTransferSize
+	if immSize == QWORD_SIZE {
+		immSize = 4
+	}
+	l.Imm.Size = immSize
+	w.writeLine(l)
 }
 
 func (w *X86_64Writer) MovMemoryToIntegralRegister(dest IntegralRegister, mem MemoryAccessor) {
-	l := MovAsmLine{
-		UsesModRM: true,
-		Operands: emptyOperands().WithFirstOperand(justRegister(dest)).WithSecondOperand(justMemory(mem)),
+	w.writeLine(MovAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(dest)).
+			WithSecondOperand(justMemory(mem)).WithSizeFromRegister(),
 		UsesImmediate: false,
-	}
-	l.OperandSize = l.Operands.GetSizeFromRegister()
-	w.writeLine(l)
-	// memDescriptor := w.getIntegralMemoryDescriptor(dest.EffectiveSize)
-	// w.writePlaceholder(fmt.Sprintf("mov %s, %s PTR %s", dest.EffectiveName, memDescriptor, mem.String()))
+	})
 }
 
 func (w *X86_64Writer) MovIntegralRegisterToMemory(dest MemoryAccessor, src IntegralRegister) {
-	l := MovAsmLine{
-		UsesModRM: true,
-		Operands: emptyOperands().WithFirstOperand(justMemory(dest)).WithSecondOperand(justRegister(src)),
+	w.writeLine(MovAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justMemory(dest)).
+			WithSecondOperand(justRegister(src)).WithSizeFromRegister(),
 		UsesImmediate: false,
-	}
-	l.OperandSize = l.Operands.GetSizeFromRegister()
-	w.writeLine(l)
-	// memDescriptor := w.getIntegralMemoryDescriptor(src.EffectiveSize)
-	// w.writePlaceholder(fmt.Sprintf("mov %s PTR %s, %s", memDescriptor, dest.String(), src.EffectiveName))
+	})
 }
 
-func (w *X86_64Writer) MovIntegralConstantToMemory(dest MemoryAccessor, val int) {
-	w.writePlaceholder(fmt.Sprintf("mov %s, #%d", dest.String(), val))
+func (w *X86_64Writer) MovIntegralConstantToMemory(dest MemoryAccessor, size int, val int) {
+	immSize := size 
+	if size == QWORD_SIZE {
+		immSize = 4
+	}
+	w.writeLine(MovAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justMemory(dest)).WithExplicitSize(size),
+		UsesImmediate: true,
+		Imm: &Immediate{Val: int64(val), Size: immSize},
+	})
 }
 
 func (w *X86_64Writer) SubtractConstantInteger(src IntegralRegister, val int) {
