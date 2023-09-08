@@ -1,11 +1,14 @@
 package codegen
 
-import "fmt"
+import (
+	"fmt"
+	"irs"
+)
 
 // Intel ASM syntax
 
 type FunctionCode struct {
-	Name string
+	Symbol *irs.GlobalSymbol
 	Code []AsmLine
 }
 
@@ -20,23 +23,12 @@ func NewWriter() *X86_64Writer {
 	}
 }
 
-func (w *X86_64Writer) EnterFunction(Name string) {
+func (w *X86_64Writer) EnterFunction(funSymbol *irs.GlobalSymbol) {
 	w.curFunc = &FunctionCode{
-		Name: Name,
+		Symbol: funSymbol,
 		Code: []AsmLine{},
 	}
 	w.functions = append(w.functions, w.curFunc)
-}
-
-func (w *X86_64Writer) PrintAll() {
-	for _, fun := range w.functions {
-		fmt.Println("")
-		fmt.Println("function " + fun.Name + ":")
-		fmt.Println("")
-		for _, line := range fun.Code {
-			fmt.Println(line.String())
-		}
-	}
 }
 
 func (w *X86_64Writer) GetAssembly() []*FunctionCode {
@@ -222,6 +214,9 @@ func (w *X86_64Writer) SetComparisonResult(reg IntegralRegister, condition JumpC
 		Condition: condition,
 		Negated: negated,
 	})
+	if reg.Size() != BYTE_SIZE {
+		w.ZeroExtend(reg, reg.Family.UseForSize(BYTE_SIZE))
+	}
 }
 
 func (w *X86_64Writer) JumpIfZero(label string) {
@@ -230,6 +225,31 @@ func (w *X86_64Writer) JumpIfZero(label string) {
 			WithPossiblyComplexMemoryFirstOperand(LabeledMemoryAccessor{Label: label}).WithExplicitSize(QWORD_SIZE),
 		Condition: EQUAL,
 		Negated: false,
+	})
+}
+
+func (w *X86_64Writer) ZeroExtend(dest IntegralRegister, src IntegralRegister) {
+	if dest.Size() == QWORD_SIZE {
+		dest = dest.Family.UseForSize(DWORD_SIZE)
+	}
+	w.writeLine(MovWithZeroExtend{
+		Operands: emptyOperands().WithFirstOperand(justRegister(dest)).
+			WithSecondOperand(justRegister(src)).WithExplicitSize(dest.Size()),
+		RightOperandSize: src.Size(),
+	})
+}
+
+func (w *X86_64Writer) SignExtend(dest IntegralRegister, src IntegralRegister) {
+	w.writeLine(MovWithSignExtend{
+		Operands: emptyOperands().WithFirstOperand(justRegister(dest)).
+			WithSecondOperand(justRegister(src)).WithExplicitSize(dest.Size()),
+		RightOperandSize: src.Size(),
+	})
+}
+
+func (w *X86_64Writer) NegateIntegralRegister(reg IntegralRegister) {
+	w.writeLine(NegateAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(reg)).WithSizeFromRegister(),
 	})
 }
 
@@ -242,3 +262,11 @@ func (w *X86_64Writer) Call(mem MemoryAccessor) {
 func (w *X86_64Writer) Return() {
 	w.writeLine(ReturnAsmLine{})
 }
+
+func (w *X86_64Writer) Reference(destReg IntegralRegister, mem MemoryAccessor) {
+	w.writeLine(LeaAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(destReg)).
+			WithPossiblyComplexMemorySecondOperand(mem).WithSizeFromRegister(),
+	})
+}
+

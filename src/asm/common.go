@@ -1,10 +1,19 @@
 package asm
 
-import "codegen"
+import (
+	"codegen"
+	"irs"
+)
 
 const NOT_OPCODE uint8 = 0
 const ADDR_OVERLOAD uint8 = 0x67
 const OP_OVERLOAD uint8 = 0x66
+
+type AssembledFunction struct {
+	FunctionSymbol *irs.GlobalSymbol
+	Size int
+	Offset int
+}
 
 func (a *X86_64Assembler) getSizeOverridePrefixes(ops *codegen.Operands, rex *REX, defaultOperationSize int) []uint8 {
 	res := []uint8{}
@@ -69,7 +78,8 @@ func (a *X86_64Assembler) assembleRaxImmInstruction(byteOpcode uint8, notByteOpc
 	case codegen.QWORD_SIZE:
 		rex := emptyREX()
 		rex.W = 1
-		a.write(rex.encode(), notByteOpcode)
+		res = append(res, rex.encode(), notByteOpcode)
+		// a.write(rex.encode(), notByteOpcode)
 	}
 	res = append(res, imm.EncodeToLittleEndianU2()...)
 	return res
@@ -90,13 +100,13 @@ func (a *X86_64Assembler) assembleOIInstruction(opcode uint8, ops *codegen.Opera
 }
 
 func (a *X86_64Assembler) assembleMIInstruction(opcode uint8, modRmOpcode uint8, ops *codegen.Operands, im *codegen.Immediate, defaultOperationSize int) []uint8 {
-	mrAsm := a.assembleMRInstruction([]uint8{opcode}, ops, modRmOpcode, defaultOperationSize)
+	mrAsm := a.assembleMRInstruction([]uint8{opcode}, ops, modRmOpcode, defaultOperationSize, false)
 	mrAsm = append(mrAsm, im.EncodeToLittleEndianU2()...)
 	return mrAsm
 }
 
 // assumes MR encoding so if both operands are registers first is obtained using rm bits second using reg bits
-func (a *X86_64Assembler) assembleMRInstruction(opcode []uint8, ops *codegen.Operands, modRmOpcode uint8, defaultOperationSize int) []uint8 {
+func (a *X86_64Assembler) assembleMRInstruction(opcode []uint8, ops *codegen.Operands, modRmOpcode uint8, defaultOperationSize int, useRMencoding bool) []uint8 {
 	modrm := ModRM{}
 	rex := emptyREX()
 	sib := emptySIB()
@@ -146,12 +156,21 @@ func (a *X86_64Assembler) assembleMRInstruction(opcode []uint8, ops *codegen.Ope
 		}
 	} else {
 		modrm.mod = 0b11
-		if ops.SecondOperand != nil {
-			modrm.reg = getTruncatedRegisterNum(ops.SecondOperand.Register)
-			rex.updateForRegExtensionIfNeeded(ops.SecondOperand.Register)
+		if useRMencoding {
+			if ops.SecondOperand != nil {
+				modrm.rm = getTruncatedRegisterNum(ops.SecondOperand.Register)
+				rex.updateForRmExtensionIfNeeded(ops.SecondOperand.Register)
+			}
+			modrm.reg = getTruncatedRegisterNum(ops.FirstOperand.Register)
+			rex.updateForRegExtensionIfNeeded(ops.FirstOperand.Register)
+		} else {
+			if ops.SecondOperand != nil {
+				modrm.reg = getTruncatedRegisterNum(ops.SecondOperand.Register)
+				rex.updateForRegExtensionIfNeeded(ops.SecondOperand.Register)
+			}
+			modrm.rm = getTruncatedRegisterNum(ops.FirstOperand.Register)
+			rex.updateForRmExtensionIfNeeded(ops.FirstOperand.Register)
 		}
-		modrm.rm = getTruncatedRegisterNum(ops.FirstOperand.Register)
-		rex.updateForRmExtensionIfNeeded(ops.FirstOperand.Register)
 	}
 	
 	res := a.getSizeOverridePrefixes(ops, &rex, defaultOperationSize)
@@ -164,7 +183,7 @@ func (a *X86_64Assembler) assembleMRInstruction(opcode []uint8, ops *codegen.Ope
 		res = append(res, sib.encode())
 	}
 	if ops.UsesRipDisplacement {
-		a.recordDisplacementToFix(ops.OriginalMemoryAccessor, len(a.code) + len(res), ops.Displacement.Size)
+		a.relocator.RecordDisplacementToFix(ops.OriginalMemoryAccessor, len(a.assembledCode) + len(res), ops.Displacement.Size, 0)
 	}
 	if ops.Uses32bDisplacement || ops.Uses8bDisplacement {
 		res = append(res, ops.Displacement.EncodeToLittleEndianU2()...)

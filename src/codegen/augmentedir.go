@@ -30,7 +30,7 @@ type RegisterWithAccessor struct {
 }
 
 type AugmentedFunctionIr struct {
-	Name string
+	FunctionSymbol *irs.GlobalSymbol
 	Code []AugmentedIRLine
 	Snapshot *irs.NonGlobalsSnapshot
 	ReturnLabel string
@@ -308,10 +308,10 @@ func (g *Generator) prepareAugmentedIr(fun *irs.FunctionIR) *AugmentedFunctionIr
 		args[argNum] = g.augmentSymbol(arg)
 	}
 	return &AugmentedFunctionIr{
-		Name: fun.Name,
+		FunctionSymbol: fun.FunctionSymbol,
 		Code: res,
 		Snapshot: fun.Snapshot,
-		ReturnLabel: createFunctionReturnLabel(fun.Name),
+		ReturnLabel: createFunctionReturnLabel(fun.FunctionSymbol.Symbol.Name),
 		Args: args,
 		InRegisterArgsToPlaceOnCalleeStack: []*irs.Symbol{},
 		ArgsPlacedOnCallerStack: []*AugmentedSymbol{},

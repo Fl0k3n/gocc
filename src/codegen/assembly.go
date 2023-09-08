@@ -427,3 +427,41 @@ type SignedDivAsmLine struct {
 func (l SignedDivAsmLine) String() string {
 	return fmt.Sprintf("idiv %s",l.Divider.ToAssembly())
 }
+
+type MovWithZeroExtend struct {
+	Operands *Operands
+	RightOperandSize int
+}
+
+func (l MovWithZeroExtend) String() string {
+	return fmt.Sprintf("movzx %s", l.Operands.ToAssembly())
+}
+
+type MovWithSignExtend struct {
+	Operands *Operands
+	RightOperandSize int
+}
+
+func (l MovWithSignExtend) String() string {
+	mnem := "movsx"
+	if l.Operands.FirstOperand.Register.Size() == QWORD_SIZE && l.RightOperandSize == DWORD_SIZE {
+		mnem = "movsxd"
+	}
+	return fmt.Sprintf("%s %s", mnem, l.Operands.ToAssembly())
+}
+
+type NegateAsmLine struct {
+	Operands *Operands
+}
+
+func (l NegateAsmLine) String() string {
+	return fmt.Sprintf("neg %s", l.Operands.ToAssembly())
+}
+
+type LeaAsmLine struct {
+	Operands *Operands
+}
+
+func (l LeaAsmLine) String() string {
+	return fmt.Sprintf("lea %s", l.Operands.ToAssembly())
+}

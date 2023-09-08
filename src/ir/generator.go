@@ -529,11 +529,11 @@ func (g *IRGenerator) generateCompoundStatement(cs *ast.CompoundStatement) {
 }
 
 func (g *IRGenerator) generateFunction(f *ast.FunctionDefinition) {
-	fun := g.scopeMgr.EnterFunction(f, g.typeEngine.IsStatic(f))
+	funPtr, funSymbol := g.scopeMgr.EnterFunction(f, g.typeEngine.IsStatic(f))
 	defer g.scopeMgr.LeaveFunction()
-	g.writer.EnterFunction(fun.Name())
-	g.curFunctionName = fun.Name()
-	g.labels.EnterFunction(fun.Name())
+	g.writer.EnterFunction(funSymbol)
+	g.curFunctionName = funSymbol.Symbol.Name
+	g.labels.EnterFunction(g.curFunctionName)
 	
 	if f.DeclarationList != nil {
 		panic("todo")
@@ -543,7 +543,7 @@ func (g *IRGenerator) generateFunction(f *ast.FunctionDefinition) {
 	}
 	
 	g.generateCompoundStatement(f.Body)
-	if g.typeEngine.ReturnsVoid(*fun) {
+	if g.typeEngine.ReturnsVoid(*funPtr) {
 		g.writer.WriteReturnLine(nil)
 	}
 	g.writer.SaveSnapshot(g.scopeMgr.GetNonGlobalsSnapshot())

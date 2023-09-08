@@ -28,7 +28,7 @@ func (w *Writer) WriteLine(line IRLine) {
 
 func (w *Writer) PrintAll() {
 	for _, fun := range w.functions {
-		fmt.Printf("function %s:\n", fun.Name)
+		fmt.Printf("function %s:\n", fun.FunctionSymbol.Symbol.Name)
 		for _, line := range fun.Code {
 			if _, isLabel := line.(*LabelLine); isLabel {
 				fmt.Println(line.String())
@@ -157,10 +157,10 @@ func (w *Writer) WriteTypeCastLine(lhs *Symbol, rhs *Symbol) {
 	})
 }
 
-func (w *Writer) EnterFunction(name string) {
+func (w *Writer) EnterFunction(functionSymbol *GlobalSymbol) {
 	w.curFunc = &FunctionIR{
 		Code: []IRLine{},
-		Name: name,
+		FunctionSymbol: functionSymbol,
 	}
 	w.functions = append(w.functions, w.curFunc)
 }

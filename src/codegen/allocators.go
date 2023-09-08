@@ -278,6 +278,26 @@ func (a *BasicRegisterAllocator) allocRegistersForBinaryOperation(l *AugmentedBi
 	l.LhsSymbol.StoreAfterWrite = true
 }
 
+func (a *BasicRegisterAllocator) allocRegistersForUnaryOperation(l *AugmentedUnaryOperationLine) {
+	l.Operand.LoadBeforeRead = false
+	switch l.Operator {
+	case "*":
+		reg := a.nextFreeIntegralRegister()
+		l.LhsSymbol.Register = reg.UseForSize(l.LhsSymbol.Sym.Ctype.Size())
+		l.Operand.Register = reg.UseForSize(QWORD_SIZE)
+		l.Operand.LoadBeforeRead = true
+	case "&":
+		l.LhsSymbol.Register = a.nextFreeIntegralRegister().UseForSize(l.LhsSymbol.Sym.Ctype.Size())
+	case "!", "-":
+		l.Operand.Register = a.nextFreeIntegralRegister().UseForSize(l.Operand.Register.Size())
+		l.Operand.LoadBeforeRead = true
+		l.LhsSymbol.Register = l.Operand.Register
+	default:
+		a.allocAnything(l.GetSymbols())
+	}
+	l.LhsSymbol.StoreAfterWrite = true
+}
+
 func (a *BasicRegisterAllocator) Alloc(fun *AugmentedFunctionIr) {
 	a.resetFunctionState()
 	a.handleFunctionEnter(fun)
@@ -304,6 +324,8 @@ func (a *BasicRegisterAllocator) Alloc(fun *AugmentedFunctionIr) {
 			}
 		case *AugmentedBinaryOperationLine:
 			a.allocRegistersForBinaryOperation(l)
+		case *AugmentedUnaryOperationLine:
+			a.allocRegistersForUnaryOperation(l)
 		default:
 			a.allocAnything(l.GetSymbols())
 		}

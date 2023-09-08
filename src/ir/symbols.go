@@ -26,7 +26,7 @@ type Symbol struct {
 
 type GlobalInitializer struct {
 	Offset int
-	Expression ast.Expression
+	Expression ast.Expression // TODO turn this into binary value
 }
 
 type GlobalSymbol struct {

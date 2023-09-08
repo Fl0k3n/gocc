@@ -12,7 +12,7 @@ type IRLine interface {
 
 type FunctionIR struct {
 	Code []IRLine
-	Name string
+	FunctionSymbol *GlobalSymbol
 	Snapshot *NonGlobalsSnapshot
 }
 

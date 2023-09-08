@@ -10,27 +10,20 @@ type X86_64Assembler struct {
 	assembledCode []uint8
 	individualCodeAsms [][]uint8
 	code []codegen.AsmLine
-	displacementsToFix []DisplacementToFix
-	labels map[string]int
+	relocator *Relocator
 }
 
-func NewAssembler() *X86_64Assembler {
+func NewAssembler(relocator *Relocator) *X86_64Assembler {
 	return &X86_64Assembler{
 		assembledCode: []uint8{},
 		code: []codegen.AsmLine{},
 		individualCodeAsms: [][]uint8{}, // TODO
-		displacementsToFix: []DisplacementToFix{},
-		labels: map[string]int{},
+		relocator: relocator,
 	}
 }
 
 func (a *X86_64Assembler) write(bytes ...uint8) {
 	a.assembledCode = append(a.assembledCode, bytes...)
-}
-
-func (a *X86_64Assembler) recordDisplacementToFix(accessor codegen.MemoryAccessor, offset int, sizeToFix int) {
-	a.displacementsToFix = append(a.displacementsToFix, DisplacementToFix{
-		MemoryAccessor: accessor, CodeOffset: offset, SizeToFix: sizeToFix})
 }
 
 func (a *X86_64Assembler) assembleMov(m codegen.MovAsmLine) {
@@ -66,7 +59,7 @@ func (a *X86_64Assembler) assembleMov(m codegen.MovAsmLine) {
 				opcode = 0x8B
 			}
 		}
-		a.write(a.assembleMRInstruction([]uint8{opcode}, m.Operands, NOT_OPCODE, codegen.DWORD_SIZE)...)
+		a.write(a.assembleMRInstruction([]uint8{opcode}, m.Operands, NOT_OPCODE, codegen.DWORD_SIZE, false)...)
 	}
 }
 
@@ -80,10 +73,10 @@ func (a *X86_64Assembler) assembleUnconditionalJump(code codegen.JumpAsmLine) {
 			opcode = 0xE9
 		}
 		a.write(opcode)
-		a.recordDisplacementToFix(code.Target.OriginalMemoryAccessor, len(a.code), disp.Size)
+		a.relocator.RecordDisplacementToFix(code.Target.OriginalMemoryAccessor, len(a.assembledCode), disp.Size, 0)
 		a.write(disp.EncodeToLittleEndianU2()...)
 	} else {
-		a.write(a.assembleMRInstruction([]uint8{0xFF}, code.Target, 4, codegen.QWORD_SIZE)...)
+		a.write(a.assembleMRInstruction([]uint8{0xFF}, code.Target, 4, codegen.QWORD_SIZE, false)...)
 	}
 }
 
@@ -110,7 +103,7 @@ func (a *X86_64Assembler) assembleConditionalJump(code codegen.ConditionalJumpAs
 		opcode[len(opcode) - 1] += 1
 	}
 	a.write(opcode...)
-	a.recordDisplacementToFix(code.Target.OriginalMemoryAccessor, len(a.code), disp.Size)
+	a.relocator.RecordDisplacementToFix(code.Target.OriginalMemoryAccessor, len(a.assembledCode), disp.Size, 0)
 	a.write(disp.EncodeToLittleEndianU2()...)
 }
 
@@ -119,7 +112,7 @@ func (a *X86_64Assembler) assembleSetcc(code codegen.SetccAsmLine) {
 	if code.Negated {
 		opcode[len(opcode) - 1]++
 	}
-	a.write(a.assembleMRInstruction(opcode, code.Operands, NOT_OPCODE, codegen.BYTE_SIZE)...)
+	a.write(a.assembleMRInstruction(opcode, code.Operands, NOT_OPCODE, codegen.BYTE_SIZE, false)...)
 }
 
 func (a *X86_64Assembler) assembleCmp(c codegen.CompareAsmLine) {
@@ -149,7 +142,7 @@ func (a *X86_64Assembler) assembleCmp(c codegen.CompareAsmLine) {
 				opcode = 0x3B
 			}
 		}
-		a.write(a.assembleMRInstruction([]uint8{opcode}, c.Operands, NOT_OPCODE, codegen.DWORD_SIZE)...)
+		a.write(a.assembleMRInstruction([]uint8{opcode}, c.Operands, NOT_OPCODE, codegen.DWORD_SIZE, false)...)
 	}
 }
 
@@ -176,7 +169,7 @@ func (a *X86_64Assembler) assemblePush(p codegen.PushAsmLine) {
 		}
 		a.write(opcode)
 	} else {
-		a.write(a.assembleMRInstruction([]uint8{0xFF}, p.Operand, 6, codegen.QWORD_SIZE)...)
+		a.write(a.assembleMRInstruction([]uint8{0xFF}, p.Operand, 6, codegen.QWORD_SIZE, false)...)
 	}
 }
 
@@ -194,17 +187,17 @@ func (a *X86_64Assembler) assemblePop(p codegen.PopAsmLine) {
 		}
 		a.write(opcode)
 	} else {
-		a.write(a.assembleMRInstruction([]uint8{0x0F}, p.Operand, 0, codegen.QWORD_SIZE)...)
+		a.write(a.assembleMRInstruction([]uint8{0x0F}, p.Operand, 0, codegen.QWORD_SIZE, false)...)
 	}
 }
 
 func (a *X86_64Assembler) assembleCall(c codegen.CallAsmLine) {
 	if c.Target.UsesRipDisplacement {
 		a.write(0xE8)
-		a.recordDisplacementToFix(c.Target.OriginalMemoryAccessor, len(a.code), c.Target.Displacement.Size)
+		a.relocator.RecordDisplacementToFix(c.Target.OriginalMemoryAccessor, len(a.assembledCode), c.Target.Displacement.Size, 0)
 		a.write(c.Target.Displacement.EncodeToLittleEndianU2()...)
 	} else {
-		a.write(a.assembleMRInstruction([]uint8{0xFF}, c.Target, 2, codegen.QWORD_SIZE)...)
+		a.write(a.assembleMRInstruction([]uint8{0xFF}, c.Target, 2, codegen.QWORD_SIZE, false)...)
 	}
 }
 
@@ -239,7 +232,7 @@ func (a *X86_64Assembler) assembleAdd(c codegen.AddAsmLine) {
 				opcode = 0x03
 			}
 		}
-		a.write(a.assembleMRInstruction([]uint8{opcode}, c.Operands, NOT_OPCODE, codegen.DWORD_SIZE)...)
+		a.write(a.assembleMRInstruction([]uint8{opcode}, c.Operands, NOT_OPCODE, codegen.DWORD_SIZE, false)...)
 	}	
 }
 
@@ -270,26 +263,13 @@ func (a *X86_64Assembler) assembleSub(c codegen.SubAsmLine) {
 				opcode = 0x2B
 			}
 		}
-		a.write(a.assembleMRInstruction([]uint8{opcode}, c.Operands, NOT_OPCODE, codegen.DWORD_SIZE)...)
+		a.write(a.assembleMRInstruction([]uint8{opcode}, c.Operands, NOT_OPCODE, codegen.DWORD_SIZE, false)...)
 	}	
 }
 
 func (a *X86_64Assembler) assembleImul(m codegen.SignedMulAsmLine) {
 	// TODO handle immediate
-	bothRegisters := m.Operands.IsFirstOperandRegister() && m.Operands.IsSecondOperandRegister()
-	if bothRegisters {
-		// swap operands to respect RM encoding instead of MR
-		tmp := m.Operands.FirstOperand
-		m.Operands.FirstOperand = m.Operands.SecondOperand
-		m.Operands.SecondOperand = tmp
-	}
-	a.write(a.assembleMRInstruction([]uint8{0x0F, 0xAF}, m.Operands, NOT_OPCODE, codegen.DWORD_SIZE)...)
-	if bothRegisters {
-		// restore just in case
-		tmp := m.Operands.FirstOperand
-		m.Operands.FirstOperand = m.Operands.SecondOperand
-		m.Operands.SecondOperand = tmp
-	}
+	a.write(a.assembleMRInstruction([]uint8{0x0F, 0xAF}, m.Operands, NOT_OPCODE, codegen.DWORD_SIZE, true)...)
 }
 
 func (a *X86_64Assembler) assembleIdiv(d codegen.SignedDivAsmLine) {
@@ -300,10 +280,44 @@ func (a *X86_64Assembler) assembleIdiv(d codegen.SignedDivAsmLine) {
 	} else {
 		opcode = 0xF7
 	}
-	a.write(a.assembleMRInstruction([]uint8{opcode}, d.Divider, 7, codegen.DWORD_SIZE)...)
+	a.write(a.assembleMRInstruction([]uint8{opcode}, d.Divider, 7, codegen.DWORD_SIZE, false)...)
 }
 
-func (a *X86_64Assembler) Assemble(code codegen.AsmLine) {
+func (a *X86_64Assembler) assembleMovzx(m codegen.MovWithZeroExtend) {
+	var opcode uint8 = 0xB7
+	if m.RightOperandSize == codegen.BYTE_SIZE {
+		opcode = 0xB6
+	}
+	a.write(a.assembleMRInstruction([]uint8{0x0F, opcode}, m.Operands, NOT_OPCODE, codegen.DWORD_SIZE, true)...)
+}
+
+func (a *X86_64Assembler) assembleMovsx(m codegen.MovWithSignExtend) {
+	var opcode []uint8
+	if m.RightOperandSize == codegen.BYTE_SIZE {
+		opcode = []uint8{0x0F, 0xBE}
+	} else if m.RightOperandSize == codegen.DWORD_SIZE && m.Operands.FirstOperand.Register.Size() == codegen.QWORD_SIZE {
+		opcode = []uint8{0x63}
+	} else {
+		opcode = []uint8{0x0F, 0xBF}
+	}
+	a.write(a.assembleMRInstruction(opcode, m.Operands, NOT_OPCODE, codegen.DWORD_SIZE, true)...)
+}
+
+func (a *X86_64Assembler) assembleNeg(n codegen.NegateAsmLine) {
+	var opcode uint8
+	if n.Operands.DataTransferSize == codegen.BYTE_SIZE {
+		opcode = 0xF6
+	} else {
+		opcode = 0xF7
+	}
+	a.write(a.assembleMRInstruction([]uint8{opcode}, n.Operands, 3, codegen.DWORD_SIZE, false)...)
+}
+
+func (a *X86_64Assembler) assembleLea(l codegen.LeaAsmLine) {
+	a.write(a.assembleMRInstruction([]uint8{0x8D}, l.Operands, NOT_OPCODE, codegen.DWORD_SIZE, true)...)
+}
+
+func (a *X86_64Assembler) assembleLine(code codegen.AsmLine) {
 	if _, isPlaceholder := code.(codegen.PlaceholderAsmLine); isPlaceholder {
 		return
 	}
@@ -313,7 +327,7 @@ func (a *X86_64Assembler) Assemble(code codegen.AsmLine) {
 	case codegen.MovAsmLine:
 		a.assembleMov(c)
 	case codegen.LabelAsmLine:
-		a.labels[c.Label] = len(a.code)
+		a.relocator.PutLabel(c.Label, len(a.assembledCode))
 	case codegen.JumpAsmLine:
 		a.assembleUnconditionalJump(c)
 	case codegen.ConditionalJumpAsmLine:
@@ -338,7 +352,15 @@ func (a *X86_64Assembler) Assemble(code codegen.AsmLine) {
 		a.assembleImul(c)
 	case codegen.SignedDivAsmLine:
 		a.assembleIdiv(c)
-	default:
+	case codegen.MovWithZeroExtend:
+		a.assembleMovzx(c)
+	case codegen.MovWithSignExtend:
+		a.assembleMovsx(c)
+	case codegen.NegateAsmLine:
+		a.assembleNeg(c)
+	case codegen.LeaAsmLine:
+		a.assembleLea(c)
+	default:  
 		panic("Unsupported")
 	}
 	a.individualCodeAsms = append(a.individualCodeAsms, a.assembledCode[sizeBefore:])
@@ -347,8 +369,24 @@ func (a *X86_64Assembler) Assemble(code codegen.AsmLine) {
 // TODO this is just for testing
 func (a *X86_64Assembler) AssembleMultiple(codeLines []codegen.AsmLine) {
 	for _, l := range codeLines {
-		a.Assemble(l)
+		a.assembleLine(l)
 	}
+}
+
+func (a *X86_64Assembler) Assemble(functions []*codegen.FunctionCode) ([]*AssembledFunction, []uint8) {
+	assembledFuncs := []*AssembledFunction{}
+	for _, f := range functions {
+		offset := len(a.assembledCode)
+		for _, line := range f.Code {
+			a.assembleLine(line)
+		}
+		assembledFuncs = append(assembledFuncs, &AssembledFunction{
+			FunctionSymbol: f.Symbol,
+			Offset: offset,
+			Size: len(a.assembledCode) - offset,
+		})
+	}
+	return assembledFuncs, a.assembledCode
 }
 
 func (a *X86_64Assembler) PrintBytes() {
@@ -373,4 +411,8 @@ func (a *X86_64Assembler) PrintAssemblyAlongAssembledBytes() {
 		padding := 40 - len(str)
 		fmt.Printf("%s%s | %s\n", str, strings.Repeat(" ", padding), StringifyBytes(assembled))
 	}
+}
+
+func (a *X86_64Assembler) GetAssembledBytes() []uint8 {
+	return a.assembledCode	
 }

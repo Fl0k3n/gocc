@@ -35,10 +35,6 @@ func (g *Generator) generateFunctionPrologue(fun *AugmentedFunctionIr) {
 	g.asm.MovIntegralRegisterToIntegralRegister(framePtr, stackPtr)
 }
 
-func (g *Generator) generateFunctionEpilogue(fun *AugmentedFunctionIr) {
-
-}
-
 func (g *Generator) load(destReg Register, srcMem MemoryAccessor) {
 	if integralReg, isIntegral := destReg.(IntegralRegister); isIntegral {
 		g.asm.MovMemoryToIntegralRegister(integralReg, srcMem)
@@ -132,6 +128,32 @@ func (g *Generator) performBinaryOperationOnRegisters(leftReg Register, operator
 		panic("unexpected register")
 	} 
 	return leftReg
+}
+
+func (g *Generator) performUnaryOperationOnRegister(register Register, operator string) Register {
+	switch reg := register.(type) {
+		case IntegralRegister:
+			switch operator {
+			case "!":
+				g.asm.CompareToZero(reg)
+				g.asm.SetComparisonResult(reg, EQUAL, false)
+			case "-":
+				g.asm.NegateIntegralRegister(reg)
+			default:
+				panic("unexpected register unary operator")
+			}
+	}
+	return register
+}
+
+func (g *Generator) loadReference(lhsSym *AugmentedSymbol, rhsSym *AugmentedSymbol) {
+	g.asm.Reference(lhsSym.Register.(IntegralRegister), rhsSym.MemoryAccessor)
+}
+
+func (g *Generator) dereference(lhsSym *AugmentedSymbol, rhsSym *AugmentedSymbol) {
+	g.asm.MovMemoryToIntegralRegister(lhsSym.Register.(IntegralRegister), RegisterMemoryAccessor{
+		Register: rhsSym.Register.(IntegralRegister),
+	})
 }
 
 func (g *Generator) storeCalleeSaveRegisters(fun *AugmentedFunctionIr) {
@@ -232,6 +254,22 @@ func (g *Generator) generateFunctionCode(fun *AugmentedFunctionIr) {
 				g.store(ir.LhsSymbol.MemoryAccessor, ir.LhsSymbol.Register)
 			}
 		case *AugmentedUnaryOperationLine:
+			if ir.Operand.LoadBeforeRead {
+				g.loadSymbol(ir.Operand)
+			}
+			if ir.Operator == "*" {
+				g.dereference(ir.LhsSymbol, ir.Operand)
+			} else if ir.Operator == "&" {
+				g.loadReference(ir.LhsSymbol, ir.Operand)
+			} else {
+				resReg := g.performUnaryOperationOnRegister(ir.Operand.Register, ir.Operator)
+				if !resReg.Equals(ir.LhsSymbol.Register) {
+					g.copyRegister(ir.LhsSymbol.Register, resReg)
+				}
+			}
+			if ir.LhsSymbol.StoreAfterWrite {
+				g.store(ir.LhsSymbol.MemoryAccessor, ir.LhsSymbol.Register)
+			}
 		case *AugmentedFunctionCallLine:
 			for _, arg := range ir.ViaRegisterArgs {
 				if arg.LoadBeforeRead {
@@ -272,9 +310,9 @@ func (g *Generator) generateFunctionCode(fun *AugmentedFunctionIr) {
 }
 
 func (g *Generator) generateFunction(fun *irs.FunctionIR) {	
-	g.asm.EnterFunction(fun.Name)
+	g.asm.EnterFunction(fun.FunctionSymbol)
 	augmentedFun := g.prepareAugmentedIr(fun)
-	g.asm.PutLabel(createFunctionLabel(fun.Name))
+	g.asm.PutLabel(createFunctionLabel(fun.FunctionSymbol.Symbol.Name))
 
 	g.registerAllocator.Alloc(augmentedFun)
 	g.prepareStackForCodeGeneration(augmentedFun)
@@ -289,6 +327,5 @@ func (g *Generator) Generate() []*FunctionCode {
 	for _, fun := range g.functions {
 		g.generateFunction(fun)
 	}
-	g.asm.PrintAll()
 	return g.asm.GetAssembly()
 }

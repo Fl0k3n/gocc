@@ -60,16 +60,16 @@ func (s *ScopeManager) getSymbol(name string) *Symbol {
 	return res
 }
 
-func (s *ScopeManager) EnterFunction(f *ast.FunctionDefinition, static bool) *semantics.FunctionPtrCtype {
+func (s *ScopeManager) EnterFunction(f *ast.FunctionDefinition, static bool) (*semantics.FunctionPtrCtype, *GlobalSymbol) {
 	s.curFuncSnapshot = newSnapshot()
 	fptr := s.typeEngine.GetFunctionDeclaration(f)
-	s.newGlobalVariable(fptr.Name(), fptr, true, static, false, nil)
+	functionSymbol := s.newGlobalVariable(fptr.Name(), fptr, true, static, false, nil)
 	s.symtab.EnterScope(true)
 	for paramNum, paramType := range fptr.ParamTypes {
 		sym := s.symtab.DefineNewOfType(fptr.ParamNames[paramNum], ARG, paramType)
 		s.curFuncSnapshot.ArgsSnapshot = append(s.curFuncSnapshot.ArgsSnapshot, sym)
 	}
-	return &fptr
+	return &fptr, functionSymbol
 }
 
 func (s *ScopeManager) LeaveFunction() {
@@ -114,16 +114,17 @@ func (s *ScopeManager) newLocalVariable(name string, t semantics.Ctype) *Symbol 
 	return sym
 }
 
-func (s *ScopeManager) newGlobalVariable(name string, t semantics.Ctype, function bool, static bool, extern bool, initializers []*GlobalInitializer) *Symbol {
+func (s *ScopeManager) newGlobalVariable(name string, t semantics.Ctype, function bool, static bool, extern bool, initializers []*GlobalInitializer) *GlobalSymbol {
 	sym := s.symtab.DefineNewOfType(name, GLOBAL, t)
-	s.globalSymbols = append(s.globalSymbols, &GlobalSymbol{
+	global := &GlobalSymbol{
 		Symbol: sym,
 		IsExtern: extern,
 		IsStatic: static,
 		IsFunction: function,
 		Initializers: initializers,
-	})
-	return sym
+	}
+	s.globalSymbols = append(s.globalSymbols, global)
+	return global
 }
 
 func (s *ScopeManager) GetNonGlobalsSnapshot() *NonGlobalsSnapshot {

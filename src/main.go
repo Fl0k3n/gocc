@@ -3,6 +3,7 @@ package main
 import (
 	"asm"
 	"codegen"
+	"elf"
 	"fmt"
 	"grammars"
 	"irs"
@@ -191,42 +192,44 @@ func testAll() {
 	}
 	// p := parsers.NewForGrammar(grammar, tokenizer)
 	p := parsers.NewFromFile(grammar, tokenizer, "/home/flok3n/misc/acttab.gob", "/home/flok3n/misc/gototab.gob", false)
-	tu, err := p.BuildParseTree()
+	translationUnit, err := p.BuildParseTree()
 	tokenizer.Finish()
 	if err != nil {
 		fmt.Println("Parser error")
 		fmt.Println(err)
+		return
 	}
-	// fmt.Println(tu.GetLineBounds())
 	et := semantics.NewErrorTracker()
 	analyzer := semantics.NewAnalyzer(et)
-	analyzer.Analyze(&tu)
+	analyzer.Analyze(&translationUnit)
 	if et.HasError() {
 		et.PrintErrors()
 	} else {
 		irWriter := irs.NewWriter()
 		irGen := irs.NewGenerator(irWriter)
-		functionsIr, globals, typeEngine := irGen.Generate(&tu)
+		functionsIr, globals, typeEngine := irGen.Generate(&translationUnit)
 		memoryManager := codegen.NewMemoryManager(typeEngine)
 		registerAllocator := codegen.NewBasicAllocator(memoryManager)
 		asmWriter := codegen.NewWriter()
 		codeGen := codegen.NewGenerator(
 			functionsIr, globals, registerAllocator, memoryManager, asmWriter, typeEngine,
 		)
-		code := codeGen.Generate()
-		asmLines := []codegen.AsmLine{}
-		for _, f := range code {
-			asmLines = append(asmLines, f.Code...)
-		}
-		assembler := asm.NewAssembler()
-		assembler.AssembleMultiple(asmLines)
+		assemblyCode := codeGen.Generate()
+		relocator := asm.NewRelocator()
+		assembler := asm.NewAssembler(relocator)
+		assembledFunctions, assembledCode := assembler.Assemble(assemblyCode)
 		assembler.PrintAssemblyAlongAssembledBytes()
+		relocator.PrintDisplacementsToFix(assembledCode)
+		relocator.PrepareForRelocation(assembledCode)
+		relocator.PrintDisplacementsToFix(assembledCode)
+		elfBuilder := elf.NewBuilder(assembledCode, assembledFunctions, globals)
+		elfBuilder.CreateRelocatableELF("test")
 	}
 }
 
 func testAssembler() {
 	writer := codegen.NewWriter()
-	writer.EnterFunction("test")
+	writer.EnterFunction(&irs.GlobalSymbol{Symbol: &irs.Symbol{Name: "test"}})
 	raxFam := codegen.GetIntegralRegisterFamily(codegen.RAX)
 	r10Fam := codegen.GetIntegralRegisterFamily(codegen.R10)
 	rspFam := codegen.GetIntegralRegisterFamily(codegen.RSP)
@@ -281,13 +284,24 @@ func testAssembler() {
 	// writer.SignedDivideRaxRdxByIntegralRegister(rcxFam.UseForSize(codegen.DWORD_SIZE))
 	// writer.SignedDivideRaxRdxByIntegralRegister(rcxFam.UseForSize(codegen.WORD_SIZE))
 	// writer.SignedDivideRaxRdxByIntegralRegister(rcxFam.UseForSize(codegen.BYTE_SIZE))
+	// writer.ZeroExtend(raxFam.UseForSize(codegen.QWORD_SIZE), raxFam.UseForSize(codegen.BYTE_SIZE))
+	// writer.ZeroExtend(raxFam.UseForSize(codegen.DWORD_SIZE), raxFam.UseForSize(codegen.BYTE_SIZE))
+	// writer.ZeroExtend(raxFam.UseForSize(codegen.WORD_SIZE), raxFam.UseForSize(codegen.BYTE_SIZE))
+	// writer.ZeroExtend(r10Fam.UseForSize(codegen.QWORD_SIZE), raxFam.UseForSize(codegen.BYTE_SIZE))
+	// writer.ZeroExtend(r10Fam.UseForSize(codegen.DWORD_SIZE), raxFam.UseForSize(codegen.BYTE_SIZE))
+	// writer.ZeroExtend(r10Fam.UseForSize(codegen.WORD_SIZE), raxFam.UseForSize(codegen.BYTE_SIZE))
+	// writer.ZeroExtend(r10Fam.UseForSize(codegen.DWORD_SIZE), raxFam.UseForSize(codegen.WORD_SIZE))
+	writer.Reference(raxFam.UseForSize(codegen.QWORD_SIZE), codegen.RegisterMemoryAccessor{Register: raxFam.UseForSize(codegen.QWORD_SIZE)})
+	writer.Reference(raxFam.UseForSize(codegen.QWORD_SIZE), codegen.StackFrameOffsetMemoryAccessor{Offset: 4})
+	writer.Reference(raxFam.UseForSize(codegen.QWORD_SIZE), codegen.GOTMemoryAccessor{Symbol: nil})
 	fmt.Println(raxFam, r10Fam, rspFam, reg1, reg2, rcxFam)
 	assembly := writer.GetAssembly()
 	asmLines := []codegen.AsmLine{}
 	for _, f := range assembly {
 		asmLines = append(asmLines, f.Code...)
 	}
-	assembler := asm.NewAssembler()
+	relocator := asm.NewRelocator()
+	assembler := asm.NewAssembler(relocator)
 	assembler.AssembleMultiple(asmLines)
 	assembler.PrintAssemblyAlongAssembledBytes()
 	fmt.Println("")
@@ -310,14 +324,13 @@ func serializeTables() {
 	tb.SerializeTables("/home/flok3n/misc/acttab.gob", "/home/flok3n/misc/gototab.gob")
 }
 
-
 func main() {
 	// testParserSimple2()
-	// testAll()
+	testAll()
 	// testGrammarReader()
 	// testTokenizer()
 	// testTableBuilder()
 	// testTableBuilder2()
-	testAssembler()
+	// testAssembler()
 	// serializeTables()
 }

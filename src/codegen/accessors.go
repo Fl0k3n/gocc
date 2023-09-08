@@ -38,7 +38,7 @@ type GOTMemoryAccessor struct {
 }
 
 func (g GOTMemoryAccessor) String() string {
-	return fmt.Sprintf("GOT@%s", g.Symbol.Name)
+	return fmt.Sprintf("%s@GOT", g.Symbol.Name)
 }
 
 type PLTMemoryAccessor struct {
@@ -46,7 +46,7 @@ type PLTMemoryAccessor struct {
 }
 
 func (p PLTMemoryAccessor) String() string {
-	return fmt.Sprintf("PLT@%s", p.Symbol.Name)
+	return fmt.Sprintf("%s@PLT", p.Symbol.Name)
 }
 
 type SectionMemoryAccessor struct {
@@ -54,5 +54,5 @@ type SectionMemoryAccessor struct {
 }
 
 func (p SectionMemoryAccessor) String() string {
-	return fmt.Sprintf("KnownSection@%s", p.Symbol.Name)
+	return fmt.Sprintf("%s@KnownSection", p.Symbol.Name)
 }
