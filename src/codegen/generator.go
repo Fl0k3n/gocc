@@ -1,7 +1,6 @@
 package codegen
 
 import (
-	"fmt"
 	"irs"
 	"semantics"
 )
@@ -108,17 +107,30 @@ func (g *Generator) saveConstantInRegister(dest Register, con semantics.ProgramC
 }
 
 func (g *Generator) performBinaryOperationOnRegisters(leftReg Register, operator string, rightReg Register) (resultReg Register) {
-	// TODO this is placeholder
-	switch operator {
-	case "+":
-		g.asm.writePlaceholder(fmt.Sprintf("add %s, %s", leftReg.Name(), rightReg.Name()))
-	case "-":
-		g.asm.writePlaceholder(fmt.Sprintf("sub %s, %s", leftReg.Name(), rightReg.Name()))
-	case "*":
-		g.asm.writePlaceholder(fmt.Sprintf("imul %s, %s", leftReg.Name(), rightReg.Name()))
-	case "/", "%":
-		g.asm.writePlaceholder(fmt.Sprintf("idiv %s", rightReg.Name()))
-	}
+	switch lreg := leftReg.(type) {
+	case IntegralRegister:
+		rreg := rightReg.(IntegralRegister)
+		switch operator {
+		case "+":
+			g.asm.AddIntegralRegisters(lreg, rreg)
+		case "-":
+			g.asm.SubIntegralRegisters(lreg, rreg)
+		case "*":
+			// TODO unsigned and sign extend both regs to word if they are byte
+			g.asm.SignedMultiplyIntegralRegisters(lreg, rreg)
+		case "/", "%":
+			// TODO this behaves differently for bytes (not dl:al but whole in ax)
+			// also clear rax rdx, this assumes that left represents rax or rdx depending on operator
+			g.asm.SignedDivideRaxRdxByIntegralRegister(rreg)
+		case "==", "<", "<=", ">", ">=":
+			g.asm.CompareIntegralRegisters(lreg, rreg)
+			g.asm.SetComparisonResult(lreg, RELATIONAL_OPERATOR_TO_CONDITION[operator], false)
+		}
+	case FloatingRegister:
+		// rreg := rightReg.(FloatingRegister)
+	default:
+		panic("unexpected register")
+	} 
 	return leftReg
 }
 
@@ -211,7 +223,7 @@ func (g *Generator) generateFunctionCode(fun *AugmentedFunctionIr) {
 			if ir.RightOperand.LoadBeforeRead {
 				g.loadSymbol(ir.RightOperand)
 			}
-			// TODO some (most) operations allow one operand to be memory, consider using that for shorter code
+			// TODO some (most) operations allow one operand to be memory, use that
 			resReg := g.performBinaryOperationOnRegisters(ir.LeftOperand.Register, ir.Operator, ir.RightOperand.Register)
 			if !resReg.Equals(ir.LhsSymbol.Register) {
 				g.copyRegister(ir.LhsSymbol.Register, resReg)	
@@ -272,11 +284,11 @@ func (g *Generator) generateFunction(fun *irs.FunctionIR) {
 }
 
 
-func (g *Generator) Generate() {
+func (g *Generator) Generate() []*FunctionCode {
 	g.memoryManager.AssignMemoryToGlobals(g.globals)
 	for _, fun := range g.functions {
 		g.generateFunction(fun)
 	}
 	g.asm.PrintAll()
+	return g.asm.GetAssembly()
 }
-

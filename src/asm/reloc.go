@@ -1,6 +1,9 @@
 package asm
 
-import "irs"
+import (
+	"codegen"
+	"irs"
+)
 
 type CodeRelocationType int
 
@@ -12,6 +15,12 @@ const (
 	FROM_PLT
 	FROM_GOT
 )
+
+type DisplacementToFix struct {
+	MemoryAccessor codegen.MemoryAccessor
+	CodeOffset int
+	SizeToFix int
+}
 
 type CodeRelocationInfo struct {
 	Offset int

@@ -3,12 +3,15 @@ package asm
 import (
 	"codegen"
 	"fmt"
+	"strings"
 )
 
 type X86_64Assembler struct {
 	assembledCode []uint8
 	individualCodeAsms [][]uint8
 	code []codegen.AsmLine
+	displacementsToFix []DisplacementToFix
+	labels map[string]int
 }
 
 func NewAssembler() *X86_64Assembler {
@@ -16,11 +19,18 @@ func NewAssembler() *X86_64Assembler {
 		assembledCode: []uint8{},
 		code: []codegen.AsmLine{},
 		individualCodeAsms: [][]uint8{}, // TODO
+		displacementsToFix: []DisplacementToFix{},
+		labels: map[string]int{},
 	}
 }
 
 func (a *X86_64Assembler) write(bytes ...uint8) {
 	a.assembledCode = append(a.assembledCode, bytes...)
+}
+
+func (a *X86_64Assembler) recordDisplacementToFix(accessor codegen.MemoryAccessor, offset int, sizeToFix int) {
+	a.displacementsToFix = append(a.displacementsToFix, DisplacementToFix{
+		MemoryAccessor: accessor, CodeOffset: offset, SizeToFix: sizeToFix})
 }
 
 func (a *X86_64Assembler) assembleMov(m codegen.MovAsmLine) {
@@ -60,14 +70,274 @@ func (a *X86_64Assembler) assembleMov(m codegen.MovAsmLine) {
 	}
 }
 
+func (a *X86_64Assembler) assembleUnconditionalJump(code codegen.JumpAsmLine) {
+	if code.Target.UsesRipDisplacement {
+		var opcode uint8
+		disp := code.Target.Displacement
+		if disp.Size == codegen.BYTE_SIZE {
+			opcode = 0xEB
+		} else {
+			opcode = 0xE9
+		}
+		a.write(opcode)
+		a.recordDisplacementToFix(code.Target.OriginalMemoryAccessor, len(a.code), disp.Size)
+		a.write(disp.EncodeToLittleEndianU2()...)
+	} else {
+		a.write(a.assembleMRInstruction([]uint8{0xFF}, code.Target, 4, codegen.QWORD_SIZE)...)
+	}
+}
+
+func (a *X86_64Assembler) assembleConditionalJump(code codegen.ConditionalJumpAsmLine) {
+	if !code.Target.UsesRipDisplacement {
+		panic("expected rip jcc")
+	}
+	disp := code.Target.Displacement
+	var opcode []uint8
+	if disp.Size == codegen.BYTE_SIZE {
+		if op, ok := nonNegatedJcc8bLUT[code.Condition]; !ok {
+			panic("jcc opcode not known")
+		} else {
+			opcode = []uint8{op}
+		}
+	} else {
+		if op, ok := nonNegatedJcc32bLUT[code.Condition]; !ok {
+			panic("jcc opcode not known")
+		} else {
+			opcode = op
+		}
+	}
+	if code.Negated {
+		opcode[len(opcode) - 1] += 1
+	}
+	a.write(opcode...)
+	a.recordDisplacementToFix(code.Target.OriginalMemoryAccessor, len(a.code), disp.Size)
+	a.write(disp.EncodeToLittleEndianU2()...)
+}
+
+func (a *X86_64Assembler) assembleSetcc(code codegen.SetccAsmLine) {
+	opcode := nonNegatedSetccLUT[code.Condition]
+	if code.Negated {
+		opcode[len(opcode) - 1]++
+	}
+	a.write(a.assembleMRInstruction(opcode, code.Operands, NOT_OPCODE, codegen.BYTE_SIZE)...)
+}
+
+func (a *X86_64Assembler) assembleCmp(c codegen.CompareAsmLine) {
+	var opcode uint8
+	if c.UsesImmediate {
+		if c.Operands.IsFirstOperandRegister() &&
+		   c.Operands.FirstOperand.Register.(codegen.IntegralRegister).Family.T == codegen.RAX {
+			a.write(a.assembleRaxImmInstruction(0x3D, 0x3D, c.Operands, c.Imm)...)
+		} else {
+			if c.Operands.DataTransferSize == codegen.BYTE_SIZE {
+				a.write(a.assembleMIInstruction(0x80, 7, c.Operands, c.Imm, codegen.DWORD_SIZE)...)
+			} else {
+				a.write(a.assembleMIInstruction(0x81, 7, c.Operands, c.Imm, codegen.DWORD_SIZE)...)
+			}
+		}
+	} else {
+		if c.Operands.IsFirstOperandMemory() || (c.Operands.IsFirstOperandRegister() && c.Operands.IsSecondOperandRegister()) {
+			if c.Operands.DataTransferSize == codegen.BYTE_SIZE {
+				opcode = 0x38
+			} else {
+				opcode = 0x39
+			}
+		} else {
+			if c.Operands.DataTransferSize == codegen.BYTE_SIZE {
+				opcode = 0x3A
+			} else {
+				opcode = 0x3B
+			}
+		}
+		a.write(a.assembleMRInstruction([]uint8{opcode}, c.Operands, NOT_OPCODE, codegen.DWORD_SIZE)...)
+	}
+}
+
+func (a *X86_64Assembler) assemblePush(p codegen.PushAsmLine) {
+	var opcode uint8
+	if p.UsesImmediate {
+		if p.Imm.Size == codegen.BYTE_SIZE {
+			opcode = 0x6A
+		} else {
+			opcode = 0x68
+		}
+		a.write(opcode)
+		a.write(p.Imm.EncodeToLittleEndianU2()...)
+	} else if p.Operand.IsFirstOperandRegister() {
+		reg := p.Operand.FirstOperand.Register
+		opcode := 0x50 + getTruncatedRegisterNum(reg)
+		if p.Operand.DataTransferSize == codegen.WORD_SIZE {
+			a.write(OP_OVERLOAD)
+		}
+		rex := emptyREX()
+		rex.updateForRegExtensionIfNeeded(reg)
+		if rex.IsNeeded {
+			a.write(rex.encode())
+		}
+		a.write(opcode)
+	} else {
+		a.write(a.assembleMRInstruction([]uint8{0xFF}, p.Operand, 6, codegen.QWORD_SIZE)...)
+	}
+}
+
+func (a *X86_64Assembler) assemblePop(p codegen.PopAsmLine) {
+	if p.Operand.IsFirstOperandRegister() {
+		reg := p.Operand.FirstOperand.Register
+		opcode := 0x58 + getTruncatedRegisterNum(reg)
+		if p.Operand.DataTransferSize == codegen.WORD_SIZE {
+			a.write(OP_OVERLOAD)
+		}
+		rex := emptyREX()
+		rex.updateForRegExtensionIfNeeded(reg)
+		if rex.IsNeeded {
+			a.write(rex.encode())
+		}
+		a.write(opcode)
+	} else {
+		a.write(a.assembleMRInstruction([]uint8{0x0F}, p.Operand, 0, codegen.QWORD_SIZE)...)
+	}
+}
+
+func (a *X86_64Assembler) assembleCall(c codegen.CallAsmLine) {
+	if c.Target.UsesRipDisplacement {
+		a.write(0xE8)
+		a.recordDisplacementToFix(c.Target.OriginalMemoryAccessor, len(a.code), c.Target.Displacement.Size)
+		a.write(c.Target.Displacement.EncodeToLittleEndianU2()...)
+	} else {
+		a.write(a.assembleMRInstruction([]uint8{0xFF}, c.Target, 2, codegen.QWORD_SIZE)...)
+	}
+}
+
+func (a *X86_64Assembler) assembleRet(c codegen.ReturnAsmLine) {
+	a.write(0xC3)
+}
+
+func (a *X86_64Assembler) assembleAdd(c codegen.AddAsmLine) {
+	var opcode uint8
+	if c.UsesImmediate {
+		if c.Operands.IsFirstOperandRegister() &&
+		   c.Operands.FirstOperand.Register.(codegen.IntegralRegister).Family.T == codegen.RAX {
+			a.write(a.assembleRaxImmInstruction(0x04, 0x05, c.Operands, c.Imm)...)
+		} else {
+			if c.Operands.DataTransferSize == codegen.BYTE_SIZE {
+				a.write(a.assembleMIInstruction(0x80, 0, c.Operands, c.Imm, codegen.DWORD_SIZE)...)
+			} else {
+				a.write(a.assembleMIInstruction(0x81, 0, c.Operands, c.Imm, codegen.DWORD_SIZE)...)
+			}
+		}
+	} else {
+		if c.Operands.IsFirstOperandMemory() || (c.Operands.IsFirstOperandRegister() && c.Operands.IsSecondOperandRegister()) {
+			if c.Operands.DataTransferSize == codegen.BYTE_SIZE {
+				opcode = 0x00
+			} else {
+				opcode = 0x01
+			}
+		} else {
+			if c.Operands.DataTransferSize == codegen.BYTE_SIZE {
+				opcode = 0x02
+			} else {
+				opcode = 0x03
+			}
+		}
+		a.write(a.assembleMRInstruction([]uint8{opcode}, c.Operands, NOT_OPCODE, codegen.DWORD_SIZE)...)
+	}	
+}
+
+func (a *X86_64Assembler) assembleSub(c codegen.SubAsmLine) {
+	var opcode uint8
+	if c.UsesImmediate {
+		if c.Operands.IsFirstOperandRegister() &&
+		   c.Operands.FirstOperand.Register.(codegen.IntegralRegister).Family.T == codegen.RAX {
+			a.write(a.assembleRaxImmInstruction(0x2C, 0x2D, c.Operands, c.Imm)...)
+		} else {
+			if c.Operands.DataTransferSize == codegen.BYTE_SIZE {
+				a.write(a.assembleMIInstruction(0x80, 5, c.Operands, c.Imm, codegen.DWORD_SIZE)...)
+			} else {
+				a.write(a.assembleMIInstruction(0x81, 5, c.Operands, c.Imm, codegen.DWORD_SIZE)...)
+			}
+		}
+	} else {
+		if c.Operands.IsFirstOperandMemory() || (c.Operands.IsFirstOperandRegister() && c.Operands.IsSecondOperandRegister()) {
+			if c.Operands.DataTransferSize == codegen.BYTE_SIZE {
+				opcode = 0x28
+			} else {
+				opcode = 0x29
+			}
+		} else {
+			if c.Operands.DataTransferSize == codegen.BYTE_SIZE {
+				opcode = 0x2A
+			} else {
+				opcode = 0x2B
+			}
+		}
+		a.write(a.assembleMRInstruction([]uint8{opcode}, c.Operands, NOT_OPCODE, codegen.DWORD_SIZE)...)
+	}	
+}
+
+func (a *X86_64Assembler) assembleImul(m codegen.SignedMulAsmLine) {
+	// TODO handle immediate
+	bothRegisters := m.Operands.IsFirstOperandRegister() && m.Operands.IsSecondOperandRegister()
+	if bothRegisters {
+		// swap operands to respect RM encoding instead of MR
+		tmp := m.Operands.FirstOperand
+		m.Operands.FirstOperand = m.Operands.SecondOperand
+		m.Operands.SecondOperand = tmp
+	}
+	a.write(a.assembleMRInstruction([]uint8{0x0F, 0xAF}, m.Operands, NOT_OPCODE, codegen.DWORD_SIZE)...)
+	if bothRegisters {
+		// restore just in case
+		tmp := m.Operands.FirstOperand
+		m.Operands.FirstOperand = m.Operands.SecondOperand
+		m.Operands.SecondOperand = tmp
+	}
+}
+
+func (a *X86_64Assembler) assembleIdiv(d codegen.SignedDivAsmLine) {
+	// TODO support for bytes
+	var opcode uint8
+	if d.Divider.DataTransferSize == codegen.BYTE_SIZE {
+		opcode = 0xF6
+	} else {
+		opcode = 0xF7
+	}
+	a.write(a.assembleMRInstruction([]uint8{opcode}, d.Divider, 7, codegen.DWORD_SIZE)...)
+}
+
 func (a *X86_64Assembler) Assemble(code codegen.AsmLine) {
+	if _, isPlaceholder := code.(codegen.PlaceholderAsmLine); isPlaceholder {
+		return
+	}
 	sizeBefore := len(a.assembledCode)
 	a.code = append(a.code, code) // TODO
 	switch c := code.(type) {
 	case codegen.MovAsmLine:
 		a.assembleMov(c)
-	case codegen.PlaceholderAsmLine:
-		fmt.Println("Skipping placeholder")
+	case codegen.LabelAsmLine:
+		a.labels[c.Label] = len(a.code)
+	case codegen.JumpAsmLine:
+		a.assembleUnconditionalJump(c)
+	case codegen.ConditionalJumpAsmLine:
+		a.assembleConditionalJump(c)
+	case codegen.SetccAsmLine:
+		a.assembleSetcc(c)
+	case codegen.CompareAsmLine:
+		a.assembleCmp(c)
+	case codegen.PushAsmLine:
+		a.assemblePush(c)
+	case codegen.PopAsmLine:
+		a.assemblePop(c)
+	case codegen.CallAsmLine:
+		a.assembleCall(c)
+	case codegen.ReturnAsmLine:
+		a.assembleRet(c)		
+	case codegen.AddAsmLine:
+		a.assembleAdd(c)
+	case codegen.SubAsmLine:
+		a.assembleSub(c)
+	case codegen.SignedMulAsmLine:
+		a.assembleImul(c)
+	case codegen.SignedDivAsmLine:
+		a.assembleIdiv(c)
 	default:
 		panic("Unsupported")
 	}
@@ -99,6 +369,8 @@ func (a *X86_64Assembler) PrintAssemblyAlongAssembledBytes() {
 	for i := range a.code {
 		assembly := a.code[i]
 		assembled := a.individualCodeAsms[i]
-		fmt.Printf("%s  |  %s\n", assembly.String(), StringifyBytes(assembled))
+		str := assembly.String()
+		padding := 40 - len(str)
+		fmt.Printf("%s%s | %s\n", str, strings.Repeat(" ", padding), StringifyBytes(assembled))
 	}
 }

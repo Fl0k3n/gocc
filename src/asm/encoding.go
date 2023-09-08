@@ -145,7 +145,7 @@ func combineWithMasked(accumulator uint8, val uint8, mask uint8) uint8 {
 func StringifyBytes(bytes []uint8) string {
 	res := ""
 	for _, b := range bytes {
-		if b < 10 {
+		if b < 16 {
 			res += fmt.Sprintf("0%x ", b)
 		} else {
 			res += fmt.Sprintf("%x ", b)

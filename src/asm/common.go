@@ -3,11 +3,10 @@ package asm
 import "codegen"
 
 const NOT_OPCODE uint8 = 0
-
+const ADDR_OVERLOAD uint8 = 0x67
+const OP_OVERLOAD uint8 = 0x66
 
 func (a *X86_64Assembler) getSizeOverridePrefixes(ops *codegen.Operands, rex *REX, defaultOperationSize int) []uint8 {
-	const ADDR_OVERLOAD uint8 = 0x67
-	const OP_OVERLOAD uint8 = 0x66
 	res := []uint8{}
 
 	if defaultOperationSize == codegen.DWORD_SIZE && ops.DataTransferSize == codegen.WORD_SIZE {
@@ -16,7 +15,7 @@ func (a *X86_64Assembler) getSizeOverridePrefixes(ops *codegen.Operands, rex *RE
 	if ops.DataTransferSize == codegen.QWORD_SIZE && defaultOperationSize != codegen.QWORD_SIZE {
 		rex.setSizeOverrideFlag()
 	}
-	if ops.IsFirstOperandMemory() || (ops.SecondOperand != nil && ops.IsSecondOperandMemory()) {
+	if !ops.UsesRipDisplacement && (ops.IsFirstOperandMemory() || (ops.SecondOperand != nil && ops.IsSecondOperandMemory())) {
 		var memop codegen.MemoryAccessor
 		if ops.IsFirstOperandMemory() {
 			memop = ops.FirstOperand.Memory
@@ -30,7 +29,7 @@ func (a *X86_64Assembler) getSizeOverridePrefixes(ops *codegen.Operands, rex *RE
 	return res
 }
 
-// assumes instruction that doesn't have explicit SIB
+// assumes instruction doesn't have explicit SIB
 func (a *X86_64Assembler) needsImplicitSIB(ops *codegen.Operands) bool {
 	var memoryOperand codegen.MemoryAccessor
 	if ops.IsFirstOperandMemory() {
@@ -55,6 +54,25 @@ func (a *X86_64Assembler) getSIB(ops *codegen.Operands, sibOperand codegen.Memor
 		sib.base = getTruncatedRegisterNum(reg)
 	}
 	return sib
+}
+
+// assumes that default operation size is 32b
+func (a *X86_64Assembler) assembleRaxImmInstruction(byteOpcode uint8, notByteOpcode uint8, ops *codegen.Operands, imm *codegen.Immediate) []uint8 {
+	res := []uint8{}
+	switch ops.DataTransferSize {
+	case codegen.BYTE_SIZE:
+		res = append(res, byteOpcode)
+	case codegen.WORD_SIZE:
+		res = append(res, OP_OVERLOAD, notByteOpcode)
+	case codegen.DWORD_SIZE:
+		res = append(res, notByteOpcode)
+	case codegen.QWORD_SIZE:
+		rex := emptyREX()
+		rex.W = 1
+		a.write(rex.encode(), notByteOpcode)
+	}
+	res = append(res, imm.EncodeToLittleEndianU2()...)
+	return res
 }
 
 func (a *X86_64Assembler) assembleOIInstruction(opcode uint8, ops *codegen.Operands, im *codegen.Immediate, defaultOperationSize int) []uint8 {
@@ -86,37 +104,45 @@ func (a *X86_64Assembler) assembleMRInstruction(opcode []uint8, ops *codegen.Ope
 	if ops.SecondOperand == nil {
 		modrm.reg = modRmOpcode
 	} 	
-	// TODO RIP displacement
 	if ops.IsFirstOperandMemory() || (ops.SecondOperand != nil && ops.IsSecondOperandMemory()) {
-		if ops.Uses8bDisplacement {
-			modrm.mod = 0b01
-		} else if ops.Uses32bDisplacement {
-			modrm.mod = 0b10
-		} else {
+		if ops.UsesRipDisplacement {
 			modrm.mod = 0b00
-		}
-		var memoryOperand codegen.MemoryAccessor
-		if ops.IsFirstOperandMemory() {
-			if ops.SecondOperand != nil {
+			modrm.rm = 0b101
+			if ops.SecondOperand != nil && ops.IsSecondOperandRegister() {
 				modrm.reg = getTruncatedRegisterNum(ops.SecondOperand.Register)
 				rex.updateForRegExtensionIfNeeded(ops.SecondOperand.Register)
 			}
-			memoryOperand = ops.FirstOperand.Memory
 		} else {
-			modrm.reg = getTruncatedRegisterNum(ops.FirstOperand.Register)
-			rex.updateForRegExtensionIfNeeded(ops.FirstOperand.Register)
-			memoryOperand = ops.SecondOperand.Memory
-		}
-		if ops.UsesExplicitSib {
-			modrm.rm = 0b100
-			// TODO handle SIB
-		} else if a.needsImplicitSIB(ops) {
-			modrm.rm = 0b100
-			sib = a.getSIB(ops, memoryOperand, &rex)
-		} else {
-			memReg := memoryOperand.(codegen.RegisterMemoryAccessor).Register
-			modrm.rm = getTruncatedRegisterNum(memReg)
-			rex.updateForRmExtensionIfNeeded(memReg)
+			if ops.Uses8bDisplacement {
+				modrm.mod = 0b01
+			} else if ops.Uses32bDisplacement {
+				modrm.mod = 0b10
+			} else {
+				modrm.mod = 0b00
+			}
+			var memoryOperand codegen.MemoryAccessor
+			if ops.IsFirstOperandMemory() {
+				if ops.SecondOperand != nil {
+					modrm.reg = getTruncatedRegisterNum(ops.SecondOperand.Register)
+					rex.updateForRegExtensionIfNeeded(ops.SecondOperand.Register)
+				}
+				memoryOperand = ops.FirstOperand.Memory
+			} else {
+				modrm.reg = getTruncatedRegisterNum(ops.FirstOperand.Register)
+				rex.updateForRegExtensionIfNeeded(ops.FirstOperand.Register)
+				memoryOperand = ops.SecondOperand.Memory
+			}
+			if ops.UsesExplicitSib {
+				modrm.rm = 0b100
+				// TODO handle SIB
+			} else if a.needsImplicitSIB(ops) {
+				modrm.rm = 0b100
+				sib = a.getSIB(ops, memoryOperand, &rex)
+			} else {
+				memReg := memoryOperand.(codegen.RegisterMemoryAccessor).Register
+				modrm.rm = getTruncatedRegisterNum(memReg)
+				rex.updateForRmExtensionIfNeeded(memReg)
+			}
 		}
 	} else {
 		modrm.mod = 0b11
@@ -137,9 +163,11 @@ func (a *X86_64Assembler) assembleMRInstruction(opcode []uint8, ops *codegen.Ope
 	if sib.isNeeded {
 		res = append(res, sib.encode())
 	}
+	if ops.UsesRipDisplacement {
+		a.recordDisplacementToFix(ops.OriginalMemoryAccessor, len(a.code) + len(res), ops.Displacement.Size)
+	}
+	if ops.Uses32bDisplacement || ops.Uses8bDisplacement {
+		res = append(res, ops.Displacement.EncodeToLittleEndianU2()...)
+	}
 	return res
-}
-
-func (a *X86_64Assembler) assembleImmediateForSize(imm *codegen.Immediate, size int) []uint8 {
-	return []uint8{}
 }

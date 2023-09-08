@@ -67,7 +67,7 @@ func (m *MemoryManager) placeOnStack(curSize int, symbolsT irs.SymbolType, snaps
 		if remainder := curSize % t.RequiredAlignment(); remainder != 0 {
 			prevPadding = t.RequiredAlignment() - remainder
 		}
-		mmap = append(mmap, &StackFrameOffsetMemoryAccessor{
+		mmap = append(mmap, StackFrameOffsetMemoryAccessor{
 			Offset: curSize - prevPadding,
 		})
 		curSize -= t.Size() - prevPadding
@@ -101,7 +101,7 @@ func (m *MemoryManager) setAddressesOfArgsOnStack(fun *AugmentedFunctionIr, rbpO
 	delta := rbpOffset + frameOffset
 	for _, arg := range fun.ArgsPlacedOnCallerStack {
 		// TODO structs
-		mmap[arg.Sym.Index] = &StackFrameOffsetMemoryAccessor{
+		mmap[arg.Sym.Index] = StackFrameOffsetMemoryAccessor{
 			Offset: delta,
 		}
 		delta += SIZEOF_STACK_ARG
@@ -110,7 +110,7 @@ func (m *MemoryManager) setAddressesOfArgsOnStack(fun *AugmentedFunctionIr, rbpO
 		curSubtract -= (REGISTER_ARG_ALIGNMENT - remainder)
 	}
 	for _, arg := range fun.InRegisterArgsToPlaceOnCalleeStack {
-		mmap[arg.Index] = &StackFrameOffsetMemoryAccessor{
+		mmap[arg.Index] = StackFrameOffsetMemoryAccessor{
 			Offset: curSubtract,
 		}
 		curSubtract -= SIZEOF_STACK_ARG
@@ -124,14 +124,14 @@ func (m *MemoryManager) setAddressesOfCalleeSaveRegistersOnStack(fun *AugmentedF
 		curSubtract -= (REGISTER_ARG_ALIGNMENT - remainder)
 	}
 	for _, regWithMem := range fun.IntegralRegistersToPersist {
-		regWithMem.MemoryAccessor = &StackFrameOffsetMemoryAccessor{
+		regWithMem.MemoryAccessor = StackFrameOffsetMemoryAccessor{
 			Offset: curSubtract,
 		}
 		curSubtract -= regWithMem.Register.Size()
 	}
 	// TODO check alignment if floating registers of size > 8B are used
 	for _, regWithMem := range fun.FloatingRegistersToPersist {
-		regWithMem.MemoryAccessor = &StackFrameOffsetMemoryAccessor{
+		regWithMem.MemoryAccessor = StackFrameOffsetMemoryAccessor{
 			Offset: curSubtract,
 		}
 		curSubtract -= regWithMem.Register.Size()

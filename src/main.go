@@ -213,7 +213,14 @@ func testAll() {
 		codeGen := codegen.NewGenerator(
 			functionsIr, globals, registerAllocator, memoryManager, asmWriter, typeEngine,
 		)
-		codeGen.Generate()
+		code := codeGen.Generate()
+		asmLines := []codegen.AsmLine{}
+		for _, f := range code {
+			asmLines = append(asmLines, f.Code...)
+		}
+		assembler := asm.NewAssembler()
+		assembler.AssembleMultiple(asmLines)
+		assembler.PrintAssemblyAlongAssembledBytes()
 	}
 }
 
@@ -221,16 +228,19 @@ func testAssembler() {
 	writer := codegen.NewWriter()
 	writer.EnterFunction("test")
 	raxFam := codegen.GetIntegralRegisterFamily(codegen.RAX)
+	r10Fam := codegen.GetIntegralRegisterFamily(codegen.R10)
+	rspFam := codegen.GetIntegralRegisterFamily(codegen.RSP)
+	rcxFam := codegen.GetIntegralRegisterFamily(codegen.RCX)
 	reg1 := codegen.GetIntegralRegisterFamily(codegen.R12).UseForSize(codegen.DWORD_SIZE)
 	reg2 := codegen.GetIntegralRegisterFamily(codegen.RAX).UseForSize(codegen.QWORD_SIZE)
 	// writer.MovIntegralRegisterToIntegralRegister(reg1, reg2) // mov eax, ecx -> 89 c8 
 	// writer.MovMemoryToIntegralRegister(reg1, codegen.RegisterMemoryAccessor{reg2}) // mov eax, [ecx] -> 67 8b 01
 	// writer.MovIntegralRegisterToMemory(codegen.RegisterMemoryAccessor{reg2}, reg1) // mov [ecx], eax -> 67 89 01
 	// writer.MovIntegralRegisterToMemory(codegen.RegisterMemoryAccessor{reg1}, reg2) // mov [ecx], eax -> 67 89 01
-	writer.MovIntegralConstantToIntegralRegister(raxFam.UseForSize(codegen.QWORD_SIZE), 0x1234)
-	writer.MovIntegralConstantToIntegralRegister(raxFam.UseForSize(codegen.DWORD_SIZE), 0x1234)
-	writer.MovIntegralConstantToIntegralRegister(raxFam.UseForSize(codegen.WORD_SIZE), 0x1234)
-	writer.MovIntegralConstantToIntegralRegister(raxFam.UseForSize(codegen.BYTE_SIZE), 0x12)
+	// writer.MovIntegralConstantToIntegralRegister(raxFam.UseForSize(codegen.QWORD_SIZE), 0x1234)
+	// writer.MovIntegralConstantToIntegralRegister(raxFam.UseForSize(codegen.DWORD_SIZE), 0x1234)
+	// writer.MovIntegralConstantToIntegralRegister(raxFam.UseForSize(codegen.WORD_SIZE), 0x1234)
+	// writer.MovIntegralConstantToIntegralRegister(raxFam.UseForSize(codegen.BYTE_SIZE), 0x12)
 	// writer.MovIntegralConstantToMemory(codegen.RegisterMemoryAccessor{reg1}, 1, 0x12)
 	// writer.MovIntegralConstantToMemory(codegen.RegisterMemoryAccessor{reg1}, 2, 0x12)
 	// writer.MovIntegralConstantToMemory(codegen.RegisterMemoryAccessor{reg1}, 4, 0x12)
@@ -239,9 +249,39 @@ func testAssembler() {
 	// writer.MovIntegralConstantToMemory(codegen.RegisterMemoryAccessor{reg2}, 2, 0x12)
 	// writer.MovIntegralConstantToMemory(codegen.RegisterMemoryAccessor{reg2}, 4, 0x12)
 	// writer.MovIntegralConstantToMemory(codegen.RegisterMemoryAccessor{reg2}, 8, 0x12)
-	fmt.Println(reg1)
-	fmt.Println(raxFam)
-	fmt.Println(reg2)
+	// writer.MovIntegralRegisterToMemory(codegen.LabeledMemoryAccessor{"test"}, raxFam.UseForSize(codegen.QWORD_SIZE))
+	// writer.MovIntegralRegisterToMemory(codegen.LabeledMemoryAccessor{"test"}, raxFam.UseForSize(codegen.DWORD_SIZE))
+	// writer.MovMemoryToIntegralRegister(raxFam.UseForSize(codegen.QWORD_SIZE), codegen.LabeledMemoryAccessor{"test"})
+	// writer.MovMemoryToIntegralRegister(raxFam.UseForSize(codegen.DWORD_SIZE), codegen.LabeledMemoryAccessor{"test"})
+	// writer.JumpToLabel("test")
+	// writer.JumpIfZero("test")
+	// writer.PushIntegralReg(raxFam.UseForSize(codegen.QWORD_SIZE))
+	// writer.PushIntegralReg(raxFam.UseForSize(codegen.WORD_SIZE))
+	// writer.PushIntegralReg(rspFam.UseForSize(codegen.QWORD_SIZE))
+	// writer.AddIntegralRegisters(raxFam.UseForSize(codegen.QWORD_SIZE), rcxFam.UseForSize(codegen.QWORD_SIZE))
+	// writer.AddIntegralRegisters(raxFam.UseForSize(codegen.DWORD_SIZE), rcxFam.UseForSize(codegen.DWORD_SIZE))
+	// writer.AddIntegralRegisters(raxFam.UseForSize(codegen.WORD_SIZE), rcxFam.UseForSize(codegen.WORD_SIZE))
+	// writer.AddIntegralRegisters(raxFam.UseForSize(codegen.BYTE_SIZE), rcxFam.UseForSize(codegen.BYTE_SIZE))
+	// writer.AddIntegralRegisters(r10Fam.UseForSize(codegen.QWORD_SIZE), rcxFam.UseForSize(codegen.QWORD_SIZE))
+	// writer.AddIntegralRegisters(r10Fam.UseForSize(codegen.DWORD_SIZE), rcxFam.UseForSize(codegen.DWORD_SIZE))
+	// writer.AddIntegralRegisters(r10Fam.UseForSize(codegen.WORD_SIZE), rcxFam.UseForSize(codegen.WORD_SIZE))
+	// writer.AddIntegralRegisters(r10Fam.UseForSize(codegen.BYTE_SIZE), rcxFam.UseForSize(codegen.BYTE_SIZE))
+	// writer.AddConstantInteger(raxFam.UseForSize(codegen.QWORD_SIZE), 1)
+	// writer.AddConstantInteger(raxFam.UseForSize(codegen.DWORD_SIZE), 1)
+	// writer.AddConstantInteger(raxFam.UseForSize(codegen.WORD_SIZE), 1)
+	// writer.AddConstantInteger(raxFam.UseForSize(codegen.BYTE_SIZE), 1)
+	// writer.AddConstantInteger(r10Fam.UseForSize(codegen.QWORD_SIZE), 1)
+	// writer.AddConstantInteger(r10Fam.UseForSize(codegen.DWORD_SIZE), 1)
+	// writer.AddConstantInteger(r10Fam.UseForSize(codegen.WORD_SIZE), 1)
+	// writer.AddConstantInteger(r10Fam.UseForSize(codegen.BYTE_SIZE), 1)
+	// writer.SignedMultiplyIntegralRegisters(raxFam.UseForSize(codegen.WORD_SIZE), r10Fam.UseForSize(codegen.WORD_SIZE))
+	// writer.SignedMultiplyIntegralRegisters(raxFam.UseForSize(codegen.DWORD_SIZE), r10Fam.UseForSize(codegen.DWORD_SIZE))
+	// writer.SignedMultiplyIntegralRegisters(raxFam.UseForSize(codegen.QWORD_SIZE), r10Fam.UseForSize(codegen.QWORD_SIZE))
+	// writer.SignedDivideRaxRdxByIntegralRegister(rcxFam.UseForSize(codegen.QWORD_SIZE))
+	// writer.SignedDivideRaxRdxByIntegralRegister(rcxFam.UseForSize(codegen.DWORD_SIZE))
+	// writer.SignedDivideRaxRdxByIntegralRegister(rcxFam.UseForSize(codegen.WORD_SIZE))
+	// writer.SignedDivideRaxRdxByIntegralRegister(rcxFam.UseForSize(codegen.BYTE_SIZE))
+	fmt.Println(raxFam, r10Fam, rspFam, reg1, reg2, rcxFam)
 	assembly := writer.GetAssembly()
 	asmLines := []codegen.AsmLine{}
 	for _, f := range assembly {

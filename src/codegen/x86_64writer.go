@@ -34,7 +34,7 @@ func (w *X86_64Writer) PrintAll() {
 		fmt.Println("function " + fun.Name + ":")
 		fmt.Println("")
 		for _, line := range fun.Code {
-			fmt.Println(line)
+			fmt.Println(line.String())
 		}
 	}
 }
@@ -52,7 +52,12 @@ func (w *X86_64Writer) writeLine(asmLine AsmLine) {
 }
 
 func (w *X86_64Writer) PushIntegralReg(reg IntegralRegister) {
-	w.writePlaceholder(fmt.Sprintf("push %s", reg.EffectiveName))
+	if reg.EffectiveSize == DWORD_SIZE {
+		panic("can't push dword")
+	}
+	w.writeLine(PushAsmLine{
+		Operand: emptyOperands().WithFirstOperand(justRegister(reg)).WithSizeFromRegister(),
+	})
 }
 
 func (w *X86_64Writer) PushFloatingReg(reg FloatingRegister) {
@@ -60,7 +65,12 @@ func (w *X86_64Writer) PushFloatingReg(reg FloatingRegister) {
 }
 
 func (w *X86_64Writer) PopIntegralReg(reg IntegralRegister) {
-	w.writePlaceholder(fmt.Sprintf("pop %s", reg.EffectiveName))
+	if reg.EffectiveSize == DWORD_SIZE {
+		panic("can't pop dword")
+	}
+	w.writeLine(PopAsmLine{
+		Operand: emptyOperands().WithFirstOperand(justRegister(reg)).WithSizeFromRegister(),
+	})
 }
 
 func (w *X86_64Writer) PopFloatingReg(reg FloatingRegister) {
@@ -94,14 +104,14 @@ func (w *X86_64Writer) MovIntegralConstantToIntegralRegister(dest IntegralRegist
 func (w *X86_64Writer) MovMemoryToIntegralRegister(dest IntegralRegister, mem MemoryAccessor) {
 	w.writeLine(MovAsmLine{
 		Operands: emptyOperands().WithFirstOperand(justRegister(dest)).
-			WithSecondOperand(justMemory(mem)).WithSizeFromRegister(),
+			WithPossiblyComplexMemorySecondOperand(mem).WithSizeFromRegister(),
 		UsesImmediate: false,
 	})
 }
 
 func (w *X86_64Writer) MovIntegralRegisterToMemory(dest MemoryAccessor, src IntegralRegister) {
 	w.writeLine(MovAsmLine{
-		Operands: emptyOperands().WithFirstOperand(justMemory(dest)).
+		Operands: emptyOperands().WithPossiblyComplexMemoryFirstOperand(dest).
 			WithSecondOperand(justRegister(src)).WithSizeFromRegister(),
 		UsesImmediate: false,
 	})
@@ -113,44 +123,122 @@ func (w *X86_64Writer) MovIntegralConstantToMemory(dest MemoryAccessor, size int
 		immSize = 4
 	}
 	w.writeLine(MovAsmLine{
-		Operands: emptyOperands().WithFirstOperand(justMemory(dest)).WithExplicitSize(size),
+		Operands: emptyOperands().WithPossiblyComplexMemoryFirstOperand(dest).WithExplicitSize(size),
 		UsesImmediate: true,
 		Imm: &Immediate{Val: int64(val), Size: immSize},
 	})
 }
 
-func (w *X86_64Writer) SubtractConstantInteger(src IntegralRegister, val int) {
-	w.writePlaceholder(fmt.Sprintf("sub %s, %d", src.EffectiveName, val))
+func (w *X86_64Writer) AddIntegralRegisters(left IntegralRegister, right IntegralRegister) {
+	w.writeLine(AddAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(left)).
+			WithSecondOperand(justRegister(right)).WithSizeFromRegister(),
+		UsesImmediate: false,
+	})
 }
 
+func (w *X86_64Writer) SubIntegralRegisters(left IntegralRegister, right IntegralRegister) {
+	w.writeLine(SubAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(left)).
+			WithSecondOperand(justRegister(right)).WithSizeFromRegister(),
+		UsesImmediate: false,
+	})
+}
+
+func (w *X86_64Writer) SignedMultiplyIntegralRegisters(left IntegralRegister, right IntegralRegister) {
+	w.writeLine(SignedMulAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(left)). 
+			WithSecondOperand(justRegister(right)).WithSizeFromRegister(),
+	})	
+}
+
+func (w *X86_64Writer) SignedDivideRaxRdxByIntegralRegister(divider IntegralRegister) {
+	w.writeLine(SignedDivAsmLine{
+		Divider: emptyOperands().WithFirstOperand(justRegister(divider)).WithSizeFromRegister(),
+	})
+}
+
+func (w *X86_64Writer) SubtractConstantInteger(src IntegralRegister, val int) {
+	immSize := src.Size() 
+	if immSize == QWORD_SIZE {
+		immSize = 4
+	}
+	w.writeLine(SubAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(src)).WithSizeFromRegister(),
+		UsesImmediate: true,
+		Imm: &Immediate{Val: int64(val), Size: immSize},
+	})}
+
 func (w *X86_64Writer) AddConstantInteger(src IntegralRegister, val int) {
-	w.writePlaceholder(fmt.Sprintf("add %s, %d", src.EffectiveName, val))
+	immSize := src.Size() 
+	if immSize == QWORD_SIZE {
+		immSize = 4
+	}
+	w.writeLine(AddAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(src)).WithSizeFromRegister(),
+		UsesImmediate: true,
+		Imm: &Immediate{Val: int64(val), Size: immSize},
+	})
 }
 
 func (w *X86_64Writer) PutLabel(label string) {
-	w.writePlaceholder(label + ":")
+	w.writeLine(LabelAsmLine{
+		Label: label,
+	})
 }
 
 func (w *X86_64Writer) JumpToLabel(label string) {
-	w.writePlaceholder("jmp " + label)
+	w.writeLine(JumpAsmLine{
+		Target: emptyOperands().
+			WithPossiblyComplexMemoryFirstOperand(LabeledMemoryAccessor{Label: label}).
+			WithExplicitSize(QWORD_SIZE),
+	})
 }
 
 func (w *X86_64Writer) CompareToZero(reg Register) {
-	w.writePlaceholder(fmt.Sprintf("cmp %s, 0", reg.Name()))
+	immSize := reg.(IntegralRegister).Size()
+	if immSize == QWORD_SIZE {
+		immSize = DWORD_SIZE
+	}
+	w.writeLine(CompareAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(reg)).WithSizeFromRegister(),
+		UsesImmediate: true,
+		Imm: &Immediate{Val: int64(0), Size: immSize},
+	})
+}
+
+func (w *X86_64Writer) CompareIntegralRegisters(left IntegralRegister, right IntegralRegister) {
+	w.writeLine(CompareAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(left)).
+			WithSecondOperand(justRegister(right)).WithSizeFromRegister(),
+		UsesImmediate: false,
+	})
+}
+
+func (w *X86_64Writer) SetComparisonResult(reg IntegralRegister, condition JumpCondition, negated bool) {
+	w.writeLine(SetccAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(reg.Family.UseForSize(BYTE_SIZE))). 
+			WithExplicitSize(BYTE_SIZE),
+		Condition: condition,
+		Negated: negated,
+	})
 }
 
 func (w *X86_64Writer) JumpIfZero(label string) {
-	w.writePlaceholder("jz " + label)
-}
-
-func (w *X86_64Writer) PushIntegralRegister(src IntegralRegister) {
-	w.writePlaceholder(fmt.Sprintf("push %s", src.Name()))
+	w.writeLine(ConditionalJumpAsmLine{
+		Target: emptyOperands().
+			WithPossiblyComplexMemoryFirstOperand(LabeledMemoryAccessor{Label: label}).WithExplicitSize(QWORD_SIZE),
+		Condition: EQUAL,
+		Negated: false,
+	})
 }
 
 func (w *X86_64Writer) Call(mem MemoryAccessor) {
-	w.writePlaceholder(fmt.Sprintf("call %s", mem.String()))
+	w.writeLine(CallAsmLine{
+		Target: emptyOperands().WithPossiblyComplexMemoryFirstOperand(mem).WithExplicitSize(QWORD_SIZE),
+	})
 }
 
 func (w *X86_64Writer) Return() {
-	w.writePlaceholder("ret")
+	w.writeLine(ReturnAsmLine{})
 }

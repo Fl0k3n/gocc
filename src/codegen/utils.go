@@ -31,3 +31,31 @@ func getIntegralMemoryDescriptor(size int) (memDescriptor string) {
 	}
 	return
 }
+
+func stringifyDisplacement(displacement *Displacement) (sign string, val int) {
+	sign = "+"
+	val = displacement.Val
+	if val < 0 {
+		sign = "-"
+		val = -1 * val
+	}
+	return
+}
+
+func stringifyMemoryAccessor(mem MemoryAccessor, usesRip bool, usesDisplacement bool, displacement *Displacement, opSize int) string {
+	var res string
+	descriptor := getIntegralMemoryDescriptor(opSize)
+	if usesRip {
+		sign, displacement := stringifyDisplacement(displacement)
+		res = fmt.Sprintf("%s PTR [rip %s %d]", descriptor, sign, displacement)
+	} else {
+		mem := mem.(RegisterMemoryAccessor)
+		if usesDisplacement {
+			sign, displacement := stringifyDisplacement(displacement)
+			res = fmt.Sprintf("%s PTR [%s %s %d]", descriptor, mem.Register.Name(), sign, displacement)
+		} else {
+			res = descriptor + " PTR [" + mem.Register.Name() + "]"
+		}
+	}
+	return res
+}

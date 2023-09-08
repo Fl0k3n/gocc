@@ -99,14 +99,14 @@ var IntegralRegisterFamilies = map[IntegralRegisterFamilyT]IntegralRegisterFamil
 	RSI: {"rsi", "esi", "si", "sil", RSI},
 	RBP: {"rbp", "ebp", "bp", "bpl", RBP},
 	RSP: {"rsp", "esp", "sp", "spl", RSP},
-	R8:  {"r8", "r8d", "r8w", "r8l", R8},
-	R9:  {"r9", "r9d", "r9w", "r9l", R9},
-	R10: {"r10", "r10d", "r10w", "r10l", R10},
-	R11: {"r11", "r11d", "r11w", "r11l", R11},
-	R12: {"r12", "r12d", "r12w", "r12l", R12},
-	R13: {"r13", "r13d", "r13w", "r13l", R13},
-	R14: {"r14", "r14d", "r14w", "r14l", R14},
-	R15: {"r15", "r15d", "r15w", "r15l", R15},
+	R8:  {"r8", "r8d", "r8w", "r8b", R8},
+	R9:  {"r9", "r9d", "r9w", "r9b", R9},
+	R10: {"r10", "r10d", "r10w", "r10b", R10},
+	R11: {"r11", "r11d", "r11w", "r11b", R11},
+	R12: {"r12", "r12d", "r12w", "r12b", R12},
+	R13: {"r13", "r13d", "r13w", "r13b", R13},
+	R14: {"r14", "r14d", "r14w", "r14b", R14},
+	R15: {"r15", "r15d", "r15w", "r15b", R15},
 }
 
 func GetIntegralRegisterFamily(fam IntegralRegisterFamilyT) IntegralRegisterFamily {
