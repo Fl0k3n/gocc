@@ -73,31 +73,20 @@ func (w *X86_64Writer) MovIntegralRegisterToIntegralRegister(dest IntegralRegist
 	w.writeLine(MovAsmLine{
 		Operands: emptyOperands().WithFirstOperand(justRegister(dest)).
 					WithSecondOperand(justRegister(src)).WithSizeFromRegister(),
-		UsesImmediate: false,
 	})
 }
 
 func (w *X86_64Writer) MovIntegralConstantToIntegralRegister(dest IntegralRegister, val int) {
-	l := MovAsmLine{
-		Operands: emptyOperands().WithFirstOperand(justRegister(dest)).WithSizeFromRegister(),
-		UsesImmediate: true,
-		Imm: &Immediate{
-			Val: int64(val),
-		},
-	}
-	immSize := l.Operands.DataTransferSize
-	if immSize == QWORD_SIZE {
-		immSize = 4
-	}
-	l.Imm.Size = immSize
-	w.writeLine(l)
+	w.writeLine(MovAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(dest)).WithSizeFromRegister().
+			WithAutoSizedImmediate(&Immediate{Val: int64(val)}),
+	})
 }
 
 func (w *X86_64Writer) MovMemoryToIntegralRegister(dest IntegralRegister, mem MemoryAccessor) {
 	w.writeLine(MovAsmLine{
 		Operands: emptyOperands().WithFirstOperand(justRegister(dest)).
 			WithPossiblyComplexMemorySecondOperand(mem).WithSizeFromRegister(),
-		UsesImmediate: false,
 	})
 }
 
@@ -105,19 +94,13 @@ func (w *X86_64Writer) MovIntegralRegisterToMemory(dest MemoryAccessor, src Inte
 	w.writeLine(MovAsmLine{
 		Operands: emptyOperands().WithPossiblyComplexMemoryFirstOperand(dest).
 			WithSecondOperand(justRegister(src)).WithSizeFromRegister(),
-		UsesImmediate: false,
 	})
 }
 
 func (w *X86_64Writer) MovIntegralConstantToMemory(dest MemoryAccessor, size int, val int) {
-	immSize := size 
-	if size == QWORD_SIZE {
-		immSize = 4
-	}
 	w.writeLine(MovAsmLine{
-		Operands: emptyOperands().WithPossiblyComplexMemoryFirstOperand(dest).WithExplicitSize(size),
-		UsesImmediate: true,
-		Imm: &Immediate{Val: int64(val), Size: immSize},
+		Operands: emptyOperands().WithPossiblyComplexMemoryFirstOperand(dest).WithExplicitSize(size).
+			WithAutoSizedImmediate(&Immediate{Val: int64(val)}),
 	})
 }
 
@@ -125,7 +108,6 @@ func (w *X86_64Writer) AddIntegralRegisters(left IntegralRegister, right Integra
 	w.writeLine(AddAsmLine{
 		Operands: emptyOperands().WithFirstOperand(justRegister(left)).
 			WithSecondOperand(justRegister(right)).WithSizeFromRegister(),
-		UsesImmediate: false,
 	})
 }
 
@@ -133,7 +115,6 @@ func (w *X86_64Writer) SubIntegralRegisters(left IntegralRegister, right Integra
 	w.writeLine(SubAsmLine{
 		Operands: emptyOperands().WithFirstOperand(justRegister(left)).
 			WithSecondOperand(justRegister(right)).WithSizeFromRegister(),
-		UsesImmediate: false,
 	})
 }
 
@@ -151,25 +132,15 @@ func (w *X86_64Writer) SignedDivideRaxRdxByIntegralRegister(divider IntegralRegi
 }
 
 func (w *X86_64Writer) SubtractConstantInteger(src IntegralRegister, val int) {
-	immSize := src.Size() 
-	if immSize == QWORD_SIZE {
-		immSize = 4
-	}
 	w.writeLine(SubAsmLine{
-		Operands: emptyOperands().WithFirstOperand(justRegister(src)).WithSizeFromRegister(),
-		UsesImmediate: true,
-		Imm: &Immediate{Val: int64(val), Size: immSize},
+		Operands: emptyOperands().WithFirstOperand(justRegister(src)).WithSizeFromRegister(). 
+			WithAutoSizedImmediate(&Immediate{Val: int64(val)}),
 	})}
 
 func (w *X86_64Writer) AddConstantInteger(src IntegralRegister, val int) {
-	immSize := src.Size() 
-	if immSize == QWORD_SIZE {
-		immSize = 4
-	}
 	w.writeLine(AddAsmLine{
-		Operands: emptyOperands().WithFirstOperand(justRegister(src)).WithSizeFromRegister(),
-		UsesImmediate: true,
-		Imm: &Immediate{Val: int64(val), Size: immSize},
+		Operands: emptyOperands().WithFirstOperand(justRegister(src)).WithSizeFromRegister(). 
+			WithAutoSizedImmediate(&Immediate{Val: int64(val)}),
 	})
 }
 
@@ -188,14 +159,9 @@ func (w *X86_64Writer) JumpToLabel(label string) {
 }
 
 func (w *X86_64Writer) CompareToZero(reg Register) {
-	immSize := reg.(IntegralRegister).Size()
-	if immSize == QWORD_SIZE {
-		immSize = DWORD_SIZE
-	}
 	w.writeLine(CompareAsmLine{
-		Operands: emptyOperands().WithFirstOperand(justRegister(reg)).WithSizeFromRegister(),
-		UsesImmediate: true,
-		Imm: &Immediate{Val: int64(0), Size: immSize},
+		Operands: emptyOperands().WithFirstOperand(justRegister(reg)).WithSizeFromRegister().
+			WithAutoSizedImmediate(&Immediate{Val: int64(0)}),
 	})
 }
 
@@ -203,7 +169,6 @@ func (w *X86_64Writer) CompareIntegralRegisters(left IntegralRegister, right Int
 	w.writeLine(CompareAsmLine{
 		Operands: emptyOperands().WithFirstOperand(justRegister(left)).
 			WithSecondOperand(justRegister(right)).WithSizeFromRegister(),
-		UsesImmediate: false,
 	})
 }
 

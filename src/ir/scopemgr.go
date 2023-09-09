@@ -63,7 +63,7 @@ func (s *ScopeManager) getSymbol(name string) *Symbol {
 func (s *ScopeManager) EnterFunction(f *ast.FunctionDefinition, static bool) (*semantics.FunctionPtrCtype, *GlobalSymbol) {
 	s.curFuncSnapshot = newSnapshot()
 	fptr := s.typeEngine.GetFunctionDeclaration(f)
-	functionSymbol := s.newGlobalVariable(fptr.Name(), fptr, true, static, false, nil)
+	functionSymbol := s.newGlobalVariable(fptr.Name(), fptr, true, static, false, []*GlobalInitializer{})
 	s.symtab.EnterScope(true)
 	for paramNum, paramType := range fptr.ParamTypes {
 		sym := s.symtab.DefineNewOfType(fptr.ParamNames[paramNum], ARG, paramType)

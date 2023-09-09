@@ -126,6 +126,10 @@ func (imm Immediate) EncodeToLittleEndianU2() []uint8 {
 	return res
 }
 
+func (imm Immediate) String() string {
+	return fmt.Sprintf("%d", imm.Val)
+}
+
 type Operands struct {
 	FirstOperand *RegisterOrMemoryOperand
 	SecondOperand *RegisterOrMemoryOperand
@@ -135,6 +139,8 @@ type Operands struct {
 	Uses32bDisplacement bool
 	UsesRipDisplacement bool
 	Displacement *Displacement
+	UsesImmediate bool
+	Imm *Immediate
 	DataTransferSize int
 	OriginalMemoryAccessor MemoryAccessor
 }
@@ -142,19 +148,22 @@ type Operands struct {
 func (o *Operands) ToAssembly() string {
 	res := ""
 	if o.IsFirstOperandRegister() {
-		reg := o.FirstOperand.Register
-		res += reg.Name()
-	} else {
-		res += stringifyMemoryAccessor(o.FirstOperand.Memory, o.UsesRipDisplacement,
+		res = o.FirstOperand.Register.Name()
+	} else if o.IsFirstOperandMemory() {
+		res = stringifyMemoryAccessor(o.FirstOperand.Memory, o.UsesRipDisplacement,
 				 o.Uses32bDisplacement || o.Uses8bDisplacement, o.Displacement, o.DataTransferSize)
+	} else if o.UsesImmediate {
+		res = o.Imm.String()
 	}
 	if o.SecondOperand != nil {
 		res += ", "
 		if o.IsSecondOperandRegister() {
 			res += o.SecondOperand.Register.Name()
-		} else {
+		} else if o.IsSecondOperandMemory() {
 			res += stringifyMemoryAccessor(o.SecondOperand.Memory, o.UsesRipDisplacement,
 				o.Uses32bDisplacement || o.Uses8bDisplacement, o.Displacement, o.DataTransferSize)
+		} else {
+			res += o.Imm.String()
 		}
 	}
 	return res
@@ -170,6 +179,8 @@ func emptyOperands() *Operands {
 		Uses32bDisplacement: false,
 		UsesRipDisplacement: false,
 		Displacement: nil,
+		UsesImmediate: false,
+		Imm: nil,
 		DataTransferSize: -1,
 		OriginalMemoryAccessor: nil,
 	}
@@ -198,6 +209,21 @@ func (m *Operands) WithPossiblyComplexMemoryFirstOperand(mem MemoryAccessor) *Op
 func (m *Operands) WithPossiblyComplexMemorySecondOperand(mem MemoryAccessor) *Operands {
 	setSimplifiedMemoryAccessor(m, mem, false)
 	return m 	
+}
+
+func (m *Operands) WithImmediate(imm *Immediate) *Operands {
+	m.Imm = imm
+	m.UsesImmediate = true
+	return m
+}
+
+func (m *Operands) WithAutoSizedImmediate(imm *Immediate) *Operands {
+	if m.DataTransferSize == QWORD_SIZE {
+		imm.Size = DWORD_SIZE
+	} else {
+		imm.Size = m.DataTransferSize
+	}
+	return m.WithImmediate(imm)	
 }
 
 func (m *Operands) GetSizeFromRegister() int {
@@ -259,16 +285,10 @@ func (l LabelAsmLine) String() string {
 
 type MovAsmLine struct {
 	Operands *Operands
-	UsesImmediate bool
-	Imm *Immediate
 }
 
 func (l MovAsmLine) String() string {
-	ops := l.Operands.ToAssembly()
-	if l.UsesImmediate {
-		ops += fmt.Sprintf(", %d", l.Imm.Val)
-	}
-	return fmt.Sprintf("mov " + ops)
+	return fmt.Sprintf("mov " + l.Operands.ToAssembly())
 }
 
 type JumpAsmLine struct {
@@ -335,27 +355,19 @@ func (l SetccAsmLine) String() string {
 
 type CompareAsmLine struct {
 	Operands *Operands
-	UsesImmediate bool
-	Imm *Immediate
 }
 
 func (l CompareAsmLine) String() string {
-	ops := l.Operands.ToAssembly()
-	if l.UsesImmediate {
-		ops += fmt.Sprintf(", %d", l.Imm.Val)
-	}
-	return fmt.Sprintf("cmp " + ops)
+	return fmt.Sprintf("cmp " + l.Operands.ToAssembly())
 }
 
 type PushAsmLine struct {
 	Operand *Operands
-	UsesImmediate bool
-	Imm *Immediate
 }
 
 func (l PushAsmLine) String() string {
-	if l.UsesImmediate {
-		return fmt.Sprintf("push %s %d", getIntegralMemoryDescriptor(l.Imm.Size), l.Imm.Val)
+	if l.Operand.UsesImmediate {
+		return fmt.Sprintf("push %s %d", getIntegralMemoryDescriptor(l.Operand.Imm.Size), l.Operand.Imm.Val)
 	} else {
 		return fmt.Sprintf("push %s", l.Operand.ToAssembly())
 	}
@@ -385,35 +397,22 @@ func (l ReturnAsmLine) String() string {
 
 type AddAsmLine struct {
 	Operands *Operands
-	UsesImmediate bool
-	Imm *Immediate
 }
 
 func (l AddAsmLine) String() string {
-	ops := l.Operands.ToAssembly()
-	if l.UsesImmediate {
-		ops += fmt.Sprintf(", %d", l.Imm.Val)
-	}
-	return fmt.Sprintf("add " + ops)
+	return fmt.Sprintf("add " + l.Operands.ToAssembly())
 }
 
 type SubAsmLine struct {
 	Operands *Operands
-	UsesImmediate bool
-	Imm *Immediate
 }
 
 func (l SubAsmLine) String() string {
-	ops := l.Operands.ToAssembly()
-	if l.UsesImmediate {
-		ops += fmt.Sprintf(", %d", l.Imm.Val)
-	}
-	return fmt.Sprintf("sub " + ops)
+	return fmt.Sprintf("sub " + l.Operands.ToAssembly())
 }
 
 type SignedMulAsmLine struct {
 	Operands *Operands
-	// todo third immediate operand
 }
 
 func (l SignedMulAsmLine) String() string {

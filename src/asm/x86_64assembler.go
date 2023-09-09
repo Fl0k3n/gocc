@@ -28,22 +28,22 @@ func (a *X86_64Assembler) write(bytes ...uint8) {
 
 func (a *X86_64Assembler) assembleMov(m codegen.MovAsmLine) {
 	var opcode uint8
-	if m.UsesImmediate {
+	if m.Operands.UsesImmediate {
 		if m.Operands.IsFirstOperandRegister() {
 			if m.Operands.DataTransferSize == codegen.QWORD_SIZE {
-				a.write(a.assembleMIInstruction(0xC7, 0, m.Operands, m.Imm, codegen.DWORD_SIZE)...)
+				a.write(a.assembleMIInstruction(0xC7, 0, m.Operands, codegen.DWORD_SIZE)...)
 			} else if m.Operands.DataTransferSize == codegen.BYTE_SIZE {
-				a.write(a.assembleOIInstruction(0xB0, m.Operands, m.Imm, codegen.DWORD_SIZE,)...)
+				a.write(a.assembleOIInstruction(0xB0, m.Operands, codegen.DWORD_SIZE)...)
 			} else {
-				a.write(a.assembleOIInstruction(0xB8, m.Operands, m.Imm, codegen.DWORD_SIZE,)...)
+				a.write(a.assembleOIInstruction(0xB8, m.Operands, codegen.DWORD_SIZE)...)
 			}
 		} else {
-			if m.Imm.Size == codegen.BYTE_SIZE {
+			if m.Operands.Imm.Size == codegen.BYTE_SIZE {
 				opcode = 0xC6
 			} else {
 				opcode = 0xC7
 			}
-			a.write(a.assembleMIInstruction(opcode, 0, m.Operands, m.Imm, codegen.DWORD_SIZE)...)
+			a.write(a.assembleMIInstruction(opcode, 0, m.Operands, codegen.DWORD_SIZE)...)
 		}
 	} else {
 		if m.Operands.IsFirstOperandMemory() || (m.Operands.IsFirstOperandRegister() && m.Operands.IsSecondOperandRegister()) {
@@ -117,15 +117,15 @@ func (a *X86_64Assembler) assembleSetcc(code codegen.SetccAsmLine) {
 
 func (a *X86_64Assembler) assembleCmp(c codegen.CompareAsmLine) {
 	var opcode uint8
-	if c.UsesImmediate {
+	if c.Operands.UsesImmediate {
 		if c.Operands.IsFirstOperandRegister() &&
 		   c.Operands.FirstOperand.Register.(codegen.IntegralRegister).Family.T == codegen.RAX {
-			a.write(a.assembleRaxImmInstruction(0x3D, 0x3D, c.Operands, c.Imm)...)
+			a.write(a.assembleRaxImmInstruction(0x3D, 0x3D, c.Operands)...)
 		} else {
 			if c.Operands.DataTransferSize == codegen.BYTE_SIZE {
-				a.write(a.assembleMIInstruction(0x80, 7, c.Operands, c.Imm, codegen.DWORD_SIZE)...)
+				a.write(a.assembleMIInstruction(0x80, 7, c.Operands, codegen.DWORD_SIZE)...)
 			} else {
-				a.write(a.assembleMIInstruction(0x81, 7, c.Operands, c.Imm, codegen.DWORD_SIZE)...)
+				a.write(a.assembleMIInstruction(0x81, 7, c.Operands, codegen.DWORD_SIZE)...)
 			}
 		}
 	} else {
@@ -148,14 +148,14 @@ func (a *X86_64Assembler) assembleCmp(c codegen.CompareAsmLine) {
 
 func (a *X86_64Assembler) assemblePush(p codegen.PushAsmLine) {
 	var opcode uint8
-	if p.UsesImmediate {
-		if p.Imm.Size == codegen.BYTE_SIZE {
+	if p.Operand.UsesImmediate {
+		if p.Operand.Imm.Size == codegen.BYTE_SIZE {
 			opcode = 0x6A
 		} else {
 			opcode = 0x68
 		}
 		a.write(opcode)
-		a.write(p.Imm.EncodeToLittleEndianU2()...)
+		a.write(p.Operand.Imm.EncodeToLittleEndianU2()...)
 	} else if p.Operand.IsFirstOperandRegister() {
 		reg := p.Operand.FirstOperand.Register
 		opcode := 0x50 + getTruncatedRegisterNum(reg)
@@ -207,15 +207,15 @@ func (a *X86_64Assembler) assembleRet(c codegen.ReturnAsmLine) {
 
 func (a *X86_64Assembler) assembleAdd(c codegen.AddAsmLine) {
 	var opcode uint8
-	if c.UsesImmediate {
+	if c.Operands.UsesImmediate {
 		if c.Operands.IsFirstOperandRegister() &&
 		   c.Operands.FirstOperand.Register.(codegen.IntegralRegister).Family.T == codegen.RAX {
-			a.write(a.assembleRaxImmInstruction(0x04, 0x05, c.Operands, c.Imm)...)
+			a.write(a.assembleRaxImmInstruction(0x04, 0x05, c.Operands)...)
 		} else {
 			if c.Operands.DataTransferSize == codegen.BYTE_SIZE {
-				a.write(a.assembleMIInstruction(0x80, 0, c.Operands, c.Imm, codegen.DWORD_SIZE)...)
+				a.write(a.assembleMIInstruction(0x80, 0, c.Operands, codegen.DWORD_SIZE)...)
 			} else {
-				a.write(a.assembleMIInstruction(0x81, 0, c.Operands, c.Imm, codegen.DWORD_SIZE)...)
+				a.write(a.assembleMIInstruction(0x81, 0, c.Operands, codegen.DWORD_SIZE)...)
 			}
 		}
 	} else {
@@ -238,15 +238,15 @@ func (a *X86_64Assembler) assembleAdd(c codegen.AddAsmLine) {
 
 func (a *X86_64Assembler) assembleSub(c codegen.SubAsmLine) {
 	var opcode uint8
-	if c.UsesImmediate {
+	if c.Operands.UsesImmediate {
 		if c.Operands.IsFirstOperandRegister() &&
 		   c.Operands.FirstOperand.Register.(codegen.IntegralRegister).Family.T == codegen.RAX {
-			a.write(a.assembleRaxImmInstruction(0x2C, 0x2D, c.Operands, c.Imm)...)
+			a.write(a.assembleRaxImmInstruction(0x2C, 0x2D, c.Operands)...)
 		} else {
 			if c.Operands.DataTransferSize == codegen.BYTE_SIZE {
-				a.write(a.assembleMIInstruction(0x80, 5, c.Operands, c.Imm, codegen.DWORD_SIZE)...)
+				a.write(a.assembleMIInstruction(0x80, 5, c.Operands, codegen.DWORD_SIZE)...)
 			} else {
-				a.write(a.assembleMIInstruction(0x81, 5, c.Operands, c.Imm, codegen.DWORD_SIZE)...)
+				a.write(a.assembleMIInstruction(0x81, 5, c.Operands, codegen.DWORD_SIZE)...)
 			}
 		}
 	} else {

@@ -66,7 +66,7 @@ func (a *X86_64Assembler) getSIB(ops *codegen.Operands, sibOperand codegen.Memor
 }
 
 // assumes that default operation size is 32b
-func (a *X86_64Assembler) assembleRaxImmInstruction(byteOpcode uint8, notByteOpcode uint8, ops *codegen.Operands, imm *codegen.Immediate) []uint8 {
+func (a *X86_64Assembler) assembleRaxImmInstruction(byteOpcode uint8, notByteOpcode uint8, ops *codegen.Operands) []uint8 {
 	res := []uint8{}
 	switch ops.DataTransferSize {
 	case codegen.BYTE_SIZE:
@@ -79,13 +79,12 @@ func (a *X86_64Assembler) assembleRaxImmInstruction(byteOpcode uint8, notByteOpc
 		rex := emptyREX()
 		rex.W = 1
 		res = append(res, rex.encode(), notByteOpcode)
-		// a.write(rex.encode(), notByteOpcode)
 	}
-	res = append(res, imm.EncodeToLittleEndianU2()...)
+	res = append(res, ops.Imm.EncodeToLittleEndianU2()...)
 	return res
 }
 
-func (a *X86_64Assembler) assembleOIInstruction(opcode uint8, ops *codegen.Operands, im *codegen.Immediate, defaultOperationSize int) []uint8 {
+func (a *X86_64Assembler) assembleOIInstruction(opcode uint8, ops *codegen.Operands, defaultOperationSize int) []uint8 {
 	rex := emptyREX()
 	reg := ops.FirstOperand.Register
 	rex.updateForRmExtensionIfNeeded(reg)
@@ -95,13 +94,13 @@ func (a *X86_64Assembler) assembleOIInstruction(opcode uint8, ops *codegen.Opera
 		res = append(res, rex.encode())
 	}
 	res = append(res, opcode)
-	res = append(res, im.EncodeToLittleEndianU2()...)
+	res = append(res, ops.Imm.EncodeToLittleEndianU2()...)
 	return res
 }
 
-func (a *X86_64Assembler) assembleMIInstruction(opcode uint8, modRmOpcode uint8, ops *codegen.Operands, im *codegen.Immediate, defaultOperationSize int) []uint8 {
+func (a *X86_64Assembler) assembleMIInstruction(opcode uint8, modRmOpcode uint8, ops *codegen.Operands, defaultOperationSize int) []uint8 {
 	mrAsm := a.assembleMRInstruction([]uint8{opcode}, ops, modRmOpcode, defaultOperationSize, false)
-	mrAsm = append(mrAsm, im.EncodeToLittleEndianU2()...)
+	mrAsm = append(mrAsm, ops.Imm.EncodeToLittleEndianU2()...)
 	return mrAsm
 }
 
@@ -183,7 +182,12 @@ func (a *X86_64Assembler) assembleMRInstruction(opcode []uint8, ops *codegen.Ope
 		res = append(res, sib.encode())
 	}
 	if ops.UsesRipDisplacement {
-		a.relocator.RecordDisplacementToFix(ops.OriginalMemoryAccessor, len(a.assembledCode) + len(res), ops.Displacement.Size, 0)
+		remainingInstructionSize := 0
+		if ops.UsesImmediate {
+			remainingInstructionSize = ops.Imm.Size
+		}
+		a.relocator.RecordDisplacementToFix(ops.OriginalMemoryAccessor,
+			len(a.assembledCode) + len(res), ops.Displacement.Size, remainingInstructionSize)
 	}
 	if ops.Uses32bDisplacement || ops.Uses8bDisplacement {
 		res = append(res, ops.Displacement.EncodeToLittleEndianU2()...)

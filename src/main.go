@@ -223,7 +223,11 @@ func testAll() {
 		relocator.PrepareForRelocation(assembledCode)
 		relocator.PrintDisplacementsToFix(assembledCode)
 		elfBuilder := elf.NewBuilder(assembledCode, assembledFunctions, globals)
-		elfBuilder.CreateRelocatableELF("test")
+		if err := elfBuilder.CreateRelocatableELF("test.c", "/home/flok3n/develop/from_scratch/gocc/resources/csrc/elf"); err != nil {
+			fmt.Println(err)
+		} else {
+			fmt.Println("OK")
+		}
 	}
 }
 

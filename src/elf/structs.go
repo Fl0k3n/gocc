@@ -3,18 +3,18 @@ package elf
 type SectionType uint32
 
 const (
-	NULL SectionType = iota
-	PROGBITS
-	SYMTAB
-	STRRAB 
-	RELA
-	HASH 
-	DYNAMIC 
-	NOTE 
-	NOBITS 
-	REL 
-	SHLIB
-	DYNSYM // and some other not needed
+	S_NULL SectionType = iota
+	S_PROGBITS
+	S_SYMTAB
+	S_STRRAB 
+	S_RELA
+	S_HASH 
+	S_DYNAMIC 
+	S_NOTE 
+	S_NOBITS 
+	S_REL 
+	S_SHLIB
+	S_DYNSYM // and some other not needed
 )
 
 type SectionFlag uint64
@@ -48,6 +48,8 @@ const RESERVED_SYMBOL_OTHER_FIELD = 0
 // names based on official ELF spec (changed due to Go privacy model), types simplified to limit typecasting
 // only ELF_64 is supported, and only to the degree neccessary
 
+const ELF_HEADER_SIZE = 64
+
 type Header struct {
 	Eident [16]uint8
 	Etype uint16
@@ -65,6 +67,18 @@ type Header struct {
 	Eshstrndx uint16
 }
 
+func (h *Header) ToBytes() []byte {
+	res := make([]byte, ELF_HEADER_SIZE)
+	for i := 0; i < 16; i++ {
+		res[i] = h.Eident[i]
+	}
+	encodeUnsignedIntsToLittleEndianU2(res, 16, h.Etype, h.Emachine, h.Eversion, h.Eentry, 
+		h.Ephoff, h.Eshoff, h.Eflags, h.Eehsize, h.Ephentsize, h.Ephnum, h.Eshentsize, h.Eshnum, h.Eshstrndx)
+	return res
+}
+
+const SECTION_HEADER_SIZE = 64
+
 type SectionHeader struct {
 	Sname uint32
 	Stype uint32
@@ -78,6 +92,15 @@ type SectionHeader struct {
 	Sentsize uint64
 }
 
+func (h *SectionHeader) ToBytes() []byte {
+	res := make([]byte, SECTION_HEADER_SIZE)
+	encodeUnsignedIntsToLittleEndianU2(res, 0, h.Sname, h.Stype, h.Sflags, h.Saddr, h.Soffset,
+		h.Ssize, h.Slink, h.Sinfo, h.Saddralign, h.Sentsize)
+	return res
+}
+
+const SYMBOL_SIZE = 24
+
 type Symbol struct {
 	Sname uint32
 	Sinfo uint8
@@ -85,4 +108,10 @@ type Symbol struct {
 	Sshndx uint16 
 	Svalue uint64 
 	Ssize uint64
+}
+
+func (s *Symbol) ToBytes() []byte {
+	res := make([]byte, SYMBOL_SIZE)
+	encodeUnsignedIntsToLittleEndianU2(res, 0, s.Sname, s.Sinfo, s.Sother, s.Sshndx, s.Svalue, s.Ssize)
+	return res
 }
