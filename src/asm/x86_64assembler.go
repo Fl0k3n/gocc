@@ -408,7 +408,10 @@ func (a *X86_64Assembler) PrintAssemblyAlongAssembledBytes() {
 		assembly := a.code[i]
 		assembled := a.individualCodeAsms[i]
 		str := assembly.String()
-		padding := 40 - len(str)
+		padding := 60 - len(str)
+		if padding < 0 {
+			padding = 0
+		}
 		fmt.Printf("%s%s | %s\n", str, strings.Repeat(" ", padding), StringifyBytes(assembled))
 	}
 }

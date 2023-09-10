@@ -150,6 +150,10 @@ func (m *MemoryManager) RequiresRegisterForCall(funSymbol *AugmentedSymbol) bool
 	return true
 }
 
+func (m *MemoryManager) UsesGOTAddressing(sym *AugmentedSymbol) bool {
+	return sym.isGlobal && !sym.GlobalInfo.IsFunction && !sym.GlobalInfo.IsStatic
+}
+
 // rbpOffset contains difference from rbp to stack pointer, rbp itself must be guaranteed to be 16B aligned
 // if this is called just after function prologue (push rbp; mov rbp, rsp) then rbpOffset should be 0
 // if something was pushed after rbpOffset it should be negative

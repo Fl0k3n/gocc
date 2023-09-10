@@ -8,9 +8,14 @@ const SYMTAB = ".symtab"
 const STRTAB = ".strtab"
 const SECTION_STRTAB = ".shstrtab"
 
+const RELA_TEXT = ".rela.text"
+
 const NULL_SECTION_IDX = 0
 
 const UNKNOWN_SECTION_ALIGNEMNT = 0
+
+const SHN_ABS uint16 = 0xfff1
+const SHN_UNDEF uint16 = 0
 
 type SectionHdrTable struct {
 	sectionStrtab *Strtab
@@ -74,13 +79,28 @@ func (s *SectionHdrTable) CreateTextSectionHeader(fileStartOffset int, size int)
 		Sname: s.sectionStrtab.GetIdx(TEXT),
 		Stype: uint32(S_PROGBITS),
 		Sflags: uint64(S_ALLOC) | uint64(S_EXEC),
-		Saddr: 0, // this should be at linking stage, for other sections too
+		Saddr: 0, // this should be set at linking stage, for other sections too
 		Soffset: uint64(fileStartOffset),
 		Ssize: uint64(size),
 		Slink: 0,
 		Sinfo: 0,
 		Saddralign: 1,
 		Sentsize: 0,
+	}
+}
+
+func (s *SectionHdrTable) CreateRelaTextSectionHeader(fileStartOffset int, size int, alignment int) {
+	s.sectionHeaders[s.GetSectionIdx(RELA_TEXT)] = SectionHeader{
+		Sname: s.sectionStrtab.GetIdx(RELA_TEXT),
+		Stype: uint32(S_RELA),
+		Sflags: S_INFO,
+		Saddr: 0,
+		Soffset: uint64(fileStartOffset),
+		Ssize: uint64(size),
+		Slink: uint32(s.GetSectionIdx(SYMTAB)),
+		Sinfo: uint32(s.GetSectionIdx(TEXT)),
+		Saddralign: uint64(alignment),
+		Sentsize: RELA_ENTRY_SIZE,
 	}
 }
 

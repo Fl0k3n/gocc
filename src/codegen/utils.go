@@ -42,12 +42,30 @@ func stringifyDisplacement(displacement *Displacement) (sign string, val int) {
 	return
 }
 
-func stringifyMemoryAccessor(mem MemoryAccessor, usesRip bool, usesDisplacement bool, displacement *Displacement, opSize int) string {
+func stringifyMemoryAccessor(
+	mem MemoryAccessor,
+	usesRip bool,
+	usesDisplacement bool,
+	displacement *Displacement,
+	opSize int,
+	originalMemoryAccessor MemoryAccessor,
+) string {
 	var res string
 	descriptor := getIntegralMemoryDescriptor(opSize)
 	if usesRip {
 		sign, displacement := stringifyDisplacement(displacement)
-		res = fmt.Sprintf("%s PTR [rip %s %d]", descriptor, sign, displacement)
+		ogMemAccessorInfo := ""
+		switch ma := originalMemoryAccessor.(type) {
+		case GOTMemoryAccessor:
+			ogMemAccessorInfo = fmt.Sprintf(" (%s@GOT)", ma.Symbol.Name)
+		case PLTMemoryAccessor:
+			ogMemAccessorInfo = fmt.Sprintf(" (%s@PLT)", ma.Symbol.Name)
+		case LabeledMemoryAccessor:
+			ogMemAccessorInfo = fmt.Sprintf(" (%s)", ma.Label)
+		case SectionMemoryAccessor:
+			ogMemAccessorInfo = fmt.Sprintf(" (%s@Section)", ma.Symbol.Name)
+		}
+		res = fmt.Sprintf("%s PTR [rip %s %d]%s", descriptor, sign, displacement, ogMemAccessorInfo)
 	} else {
 		mem := mem.(RegisterMemoryAccessor)
 		if usesDisplacement {

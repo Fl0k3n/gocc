@@ -2,6 +2,7 @@ package elf
 
 import (
 	"asm"
+	"codegen"
 	"irs"
 	"utils"
 )
@@ -17,9 +18,16 @@ type ELFBuilder struct {
 	sectionAlignment map[string]int
 	sectionHdrTable *SectionHdrTable
 	initializedGlobalOffsets map[string]int
+	displacementsToFix []asm.DisplacementToFix
+	symbolNameToIdx map[string]int
 }
 
-func NewBuilder(code []uint8, assembledFunctions []*asm.AssembledFunction, globals []*irs.GlobalSymbol) *ELFBuilder {
+func NewBuilder(
+	code []uint8,
+	assembledFunctions []*asm.AssembledFunction,
+	globals []*irs.GlobalSymbol,
+	displacementsToFix []asm.DisplacementToFix,
+) *ELFBuilder {
 	definedFunctions := utils.NewSet[string]()
 	for _, fun := range assembledFunctions {
 		definedFunctions.Add(fun.FunctionSymbol.Symbol.Name)
@@ -35,7 +43,18 @@ func NewBuilder(code []uint8, assembledFunctions []*asm.AssembledFunction, globa
 		sectionAlignment: nil,
 		sectionHdrTable: newSectionHdrTable(),
 		initializedGlobalOffsets: map[string]int{},
+		displacementsToFix: displacementsToFix,
+		symbolNameToIdx: map[string]int{},
 	}
+}
+
+func (e *ELFBuilder) getGlobalByName(name string) *irs.GlobalSymbol {
+	for _, g := range e.globals {
+		if g.Symbol.Name == name {
+			return g
+		}
+	}
+	panic("Global " + name + " not found")
 }
 
 func (e *ELFBuilder) getSymbolSection(global *irs.GlobalSymbol) string {
@@ -49,7 +68,7 @@ func (e *ELFBuilder) getSymbolSection(global *irs.GlobalSymbol) string {
 		return BSS
 	} 
 	return DATA
-} 
+}
 
 func (e *ELFBuilder) classifyBinding(global *irs.GlobalSymbol) SymbolBinding {
 	if global.IsStatic || (global.IsFunction && e.definedFunctions.Has(global.Symbol.Name)) {
@@ -60,15 +79,19 @@ func (e *ELFBuilder) classifyBinding(global *irs.GlobalSymbol) SymbolBinding {
 }
 
 func (e *ELFBuilder) classifyType(global *irs.GlobalSymbol) SymbolType {
+	if global.IsExtern {
+		return ST_NOTYPE
+	}
 	if global.IsFunction {
 		return ST_FUNC
 	}
 	return ST_OBJECT
 }
 
-func (e *ELFBuilder) checkWhatSectionsAreNeeded() (data bool, bss bool) {
+func (e *ELFBuilder) checkWhatSectionsAreNeeded() (data bool, bss bool, relaText bool) {
 	data = false
 	bss = false
+	relaText = len(e.displacementsToFix) > 0
 	for _, global := range e.globals {
 		if global.IsFunction {
 			continue
@@ -84,8 +107,12 @@ func (e *ELFBuilder) checkWhatSectionsAreNeeded() (data bool, bss bool) {
 
 func (e *ELFBuilder) prepareSections() (sectionsThatNeedSymbol []string) {
 	sectionsThatNeedSymbol = append(sectionsThatNeedSymbol, TEXT)
-	needsData, needsBss := e.checkWhatSectionsAreNeeded()
+	needsData, needsBss, needsRelaText := e.checkWhatSectionsAreNeeded()
 	var symtabSectionIdx uint16 = 2
+	relaTextIdx := symtabSectionIdx
+	if needsRelaText {
+		symtabSectionIdx++
+	} 
 	dataSectionIdx := symtabSectionIdx
 	if needsData {
 		symtabSectionIdx++
@@ -107,6 +134,11 @@ func (e *ELFBuilder) prepareSections() (sectionsThatNeedSymbol []string) {
 		SYMTAB: 1,
 		STRTAB: 1,
 		SECTION_STRTAB: 1,
+	}
+	if needsRelaText {
+		sectionIdxs[RELA_TEXT] = relaTextIdx
+		e.sectionAlignment[RELA_TEXT] = 8
+		sectionsThatNeedSymbol = append(sectionsThatNeedSymbol, RELA_TEXT)
 	}
 	if needsData {
 		sectionIdxs[DATA] = dataSectionIdx
@@ -161,47 +193,55 @@ func (e *ELFBuilder) assignSymbolToSection(global *irs.GlobalSymbol, section str
 	}
 }
 
+func (e *ELFBuilder) addSymbolToSymtab(symbol *Symbol, name string) {
+	e.symbolNameToIdx[name] = len(e.symbols)
+	e.symbols = append(e.symbols, symbol)
+}
+
 func (e *ELFBuilder) createSymbols(sectionsRequiringSymbol []string, sourceFileName string) {
 	NULL_SYMBOL := &Symbol{
 		Sname: NULL_SYMBOL_STR_ID,
 		Sinfo: encodeSymbolInfo(SB_LOCAL, ST_NOTYPE),
 		Sother: 0, 
-		Sshndx: 0, 
+		Sshndx: SHN_UNDEF, 
 		Svalue: 0, 
 		Ssize: 0,
 	}
-	e.symbols = append(e.symbols, NULL_SYMBOL)
+	e.addSymbolToSymtab(NULL_SYMBOL, NULL_SYMBOL_STR)
 	FILE_SYMBOL := &Symbol{
 		Sname: e.strtab.PutString(sourceFileName),
 		Sinfo: encodeSymbolInfo(SB_LOCAL, ST_FILE),
 		Sother: 0, 
-		Sshndx: 0, 
+		Sshndx: SHN_ABS, 
 		Svalue: 0, 
 		Ssize: 0,
 	}
-	e.symbols = append(e.symbols, FILE_SYMBOL)
+	e.addSymbolToSymtab(FILE_SYMBOL, sourceFileName)
 	for _, sectionName := range sectionsRequiringSymbol {
-		sectionStrId := e.strtab.PutString(sectionName)
-		e.symbols = append(e.symbols, &Symbol{
-			Sname: sectionStrId,
+		e.addSymbolToSymtab(&Symbol{
+			Sname: e.strtab.PutString(sectionName),
 			Sinfo: encodeSymbolInfo(SB_LOCAL, ST_SECTION),
 			Sother: RESERVED_SYMBOL_OTHER_FIELD,
 			Sshndx: e.sectionHdrTable.GetSectionIdx(sectionName),
 			Svalue: 0,
 			Ssize: 0,
-		})
+		}, sectionName)
 	}
 
 	textSectionidx := e.sectionHdrTable.GetSectionIdx(TEXT)
 	for _, fun := range e.assembledFunctions {
-		e.symbols = append(e.symbols, &Symbol{
+		var binding SymbolBinding = SB_GLOBAL
+		if fun.FunctionSymbol.IsStatic {
+			binding = SB_LOCAL
+		}
+		e.addSymbolToSymtab(&Symbol{
 			Sname: e.strtab.PutString(fun.FunctionSymbol.Symbol.Name),
-			Sinfo: encodeSymbolInfo(SB_LOCAL, ST_FUNC),
+			Sinfo: encodeSymbolInfo(binding, ST_FUNC),
 			Sother: RESERVED_SYMBOL_OTHER_FIELD,
 			Sshndx: textSectionidx,
 			Svalue: uint64(fun.Offset),
 			Ssize: uint64(fun.Size),
-		})
+		}, fun.FunctionSymbol.Symbol.Name)
 	}
 
 	for _, global := range e.globals {
@@ -209,14 +249,14 @@ func (e *ELFBuilder) createSymbols(sectionsRequiringSymbol []string, sourceFileN
 			continue
 		}
 		section := e.getSymbolSection(global)
-		e.symbols = append(e.symbols, &Symbol{
+		e.addSymbolToSymtab(&Symbol{
 			Sname: e.strtab.PutString(global.Symbol.Name),
 			Sinfo: encodeSymbolInfo(e.classifyBinding(global), e.classifyType(global)),
 			Sother: RESERVED_SYMBOL_OTHER_FIELD,
 			Sshndx: e.sectionHdrTable.GetSectionIdx(section),
 			Svalue: uint64(e.assignSymbolToSection(global, section)),
 			Ssize: uint64(e.getSymbolSize(global, section)),
-		})
+		}, global.Symbol.Name)
 	}
 	e.sectionVirtualSize[SYMTAB] = len(e.symbols) * SYMBOL_SIZE
 }
@@ -245,11 +285,42 @@ func (e *ELFBuilder) getGreatestLocalSymbolId() uint32 {
 	return res
 }
 
+func (e *ELFBuilder) getRelocationTypeAndSymbolIdx(accessor codegen.MemoryAccessor) (RelocationType, int) {
+	switch acc := accessor.(type) {
+	case codegen.GOTMemoryAccessor:
+		return R_X86_64_REX_GOTPCRELX, e.symbolNameToIdx[acc.Symbol.Name]
+	case codegen.SectionMemoryAccessor:
+		return R_X86_64_PC32, e.symbolNameToIdx[e.getSymbolSection(e.getGlobalByName(acc.Symbol.Name))]
+	case codegen.PLTMemoryAccessor:
+		return R_X86_64_PLT32, e.symbolNameToIdx[acc.Symbol.Name]
+	default: // assembly-wise we could also tolerate labels here
+		panic("Unexpected memory accessor to relocate")
+	}
+}
+
+func (e *ELFBuilder) createRelocationEntries() []RelaEntry {
+	res := make([]RelaEntry, len(e.displacementsToFix))
+	for i, displacement := range e.displacementsToFix {
+		relocType, symbolSymtabIdx := e.getRelocationTypeAndSymbolIdx(displacement.MemoryAccessor)
+		res[i] = RelaEntry{
+			Roffset: uint64(displacement.CodeOffset),
+			Rinfo: encodeRelocationInfo(uint32(symbolSymtabIdx), relocType),
+			Raddend: int64(displacement.SizeToFix) + int64(displacement.InstructionSizeAfterDisplacement),
+		}
+	}
+	e.sectionVirtualSize[RELA_TEXT] = len(res) * RELA_ENTRY_SIZE
+	return res
+}
+
 func (e *ELFBuilder) createSectionHeaders() {
 	fileOffset := ELF_HEADER_SIZE
 	e.sectionHdrTable.CreateNullSection()
 	e.sectionHdrTable.CreateTextSectionHeader(fileOffset, len(e.code))
 	fileOffset += len(e.code)
+	if e.sectionHdrTable.HasSection(RELA_TEXT) {
+		e.sectionHdrTable.CreateRelaTextSectionHeader(fileOffset, e.sectionVirtualSize[RELA_TEXT], e.sectionAlignment[RELA_TEXT])
+		fileOffset += e.sectionVirtualSize[RELA_TEXT]
+	}
 	if e.sectionHdrTable.HasSection(DATA) {
 		e.sectionHdrTable.CreateDataSection(fileOffset, e.sectionVirtualSize[DATA], e.sectionAlignment[DATA])
 		fileOffset += e.sectionVirtualSize[DATA]
@@ -272,10 +343,12 @@ func (e *ELFBuilder) CreateRelocatableELF(sourceFileName string, resultPath stri
 	sectionsThatNeedSymbol := e.prepareSections()
 	e.createSymbols(sectionsThatNeedSymbol, sourceFileName)
 	data := e.getDataSectionMemoryImage()
+	relaEntries := e.createRelocationEntries()
 	e.createSectionHeaders()
 	return NewSerializer(resultPath).Serialize(
 		e.code,
 		data,
+		relaEntries,
 		e.sectionHdrTable,
 		e.symbols,
 		e.strtab,

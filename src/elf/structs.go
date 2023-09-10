@@ -23,6 +23,7 @@ const (
 	S_WRITE SectionFlag = 0x1
 	S_ALLOC = 0x2
 	S_EXEC = 0x4
+	S_INFO = 0x40
 )
 
 type SymbolBinding uint8 
@@ -113,5 +114,32 @@ type Symbol struct {
 func (s *Symbol) ToBytes() []byte {
 	res := make([]byte, SYMBOL_SIZE)
 	encodeUnsignedIntsToLittleEndianU2(res, 0, s.Sname, s.Sinfo, s.Sother, s.Sshndx, s.Svalue, s.Ssize)
+	return res
+}
+
+const RELA_ENTRY_SIZE = 24
+
+type RelocationType uint32
+
+const (
+	R_X86_64_PC32 RelocationType = 2
+	R_X86_64_PLT32 = 4
+	R_X86_64_REX_GOTPCRELX = 42
+)
+
+type RelaEntry struct {
+	Roffset uint64
+	Rinfo uint64
+	Raddend int64
+}
+
+func (r *RelaEntry) ToBytes() []byte {
+	res := make([]byte, RELA_ENTRY_SIZE)
+	encodeUnsignedIntsToLittleEndianU2(res, 0, r.Roffset, r.Rinfo)
+	offset := 16
+	addend := encodeIntToLittleEndianU2(r.Raddend)	
+	for i := 0; i < 8; i++ {
+		res[offset + i] = addend[i]
+	}
 	return res
 }

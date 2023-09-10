@@ -71,13 +71,17 @@ func (r *Relocator) fixLabelRipDisplacement(label string, disp *DisplacementToFi
 	}
 }
 
-func (r *Relocator) PrepareForRelocation(assembly []uint8) {
+func (r *Relocator) PrepareForRelocation(assembly []uint8) (remainingDisplacements []DisplacementToFix){
 	for _, displacement := range r.displacementsToFix {
 		switch mem := displacement.MemoryAccessor.(type) {
 		case codegen.LabeledMemoryAccessor:
 			r.fixLabelRipDisplacement(mem.Label, &displacement, assembly)
+		default:
+			remainingDisplacements = append(remainingDisplacements, displacement)
 		}
 	}
+	r.displacementsToFix = remainingDisplacements
+	return
 }
 
 func (r *Relocator) PrintDisplacementsToFix(assembly []uint8) {

@@ -21,6 +21,8 @@ type AugmentedSymbol struct {
 	StoreAfterWrite bool
 	isGlobal bool
 	GlobalInfo *GlobalSymbolInfo
+	RequiresGotUnwrapping bool
+	GotAddressHolder IntegralRegister
 	// StoreOnlyInMemory bool
 }
 
@@ -224,6 +226,7 @@ func (g *Generator) augmentSymbol(sym *irs.Symbol) *AugmentedSymbol {
 		Sym: sym,
 		Identity: fmt.Sprintf("%d_%d", int(sym.T), sym.Index),
 		isGlobal: sym.T == irs.GLOBAL,
+		RequiresGotUnwrapping: false,
 	}
 	if res.isGlobal {
 		res.GlobalInfo = g.getGlobalInfo(sym)

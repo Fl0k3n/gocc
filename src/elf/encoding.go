@@ -12,6 +12,10 @@ func getSymbolType(symbolInfo uint8) SymbolType {
 	return SymbolType(symbolInfo & 0xF)
 }
 
+func encodeRelocationInfo(symbolIdx uint32, relocationType RelocationType) uint64 {
+	return uint64(relocationType) | (uint64(symbolIdx) << 32) 
+}
+
 func encodeUnsignedIntToLittleEndianU2(val interface{}) []byte{
 	switch v := val.(type) {
 	case uint8:
@@ -26,6 +30,11 @@ func encodeUnsignedIntToLittleEndianU2(val interface{}) []byte{
 	default:
 		panic("Unexpected type")
 	}
+}
+
+func encodeIntToLittleEndianU2(v int64) []byte {
+	return []byte{uint8(v & 0xFF), uint8((v >> 8) & 0xFF), uint8((v >> 16) & 0xFF), uint8((v >> 24) & 0xFF),
+					uint8((v >> 32) & 0xFF), uint8((v >> 40) & 0xFF), uint8((v >> 48) & 0xFF), uint8((v >> 56) & 0xFF)}
 }
 
 func encodeUnsignedIntsToLittleEndianU2(res []byte, offset int, vals ...interface{}) {

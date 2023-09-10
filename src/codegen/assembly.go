@@ -147,13 +147,16 @@ type Operands struct {
 
 func (o *Operands) ToAssembly() string {
 	res := ""
-	if o.IsFirstOperandRegister() {
-		res = o.FirstOperand.Register.Name()
-	} else if o.IsFirstOperandMemory() {
-		res = stringifyMemoryAccessor(o.FirstOperand.Memory, o.UsesRipDisplacement,
-				 o.Uses32bDisplacement || o.Uses8bDisplacement, o.Displacement, o.DataTransferSize)
-	} else if o.UsesImmediate {
-		res = o.Imm.String()
+	if o.FirstOperand != nil {
+		if o.IsFirstOperandRegister() {
+			res = o.FirstOperand.Register.Name()
+		} else if o.IsFirstOperandMemory() {
+			res = stringifyMemoryAccessor(o.FirstOperand.Memory, o.UsesRipDisplacement,
+					o.Uses32bDisplacement || o.Uses8bDisplacement, o.Displacement,
+					o.DataTransferSize, o.OriginalMemoryAccessor)
+		} else if o.UsesImmediate {
+			res = o.Imm.String()
+		}
 	}
 	if o.SecondOperand != nil {
 		res += ", "
@@ -161,10 +164,15 @@ func (o *Operands) ToAssembly() string {
 			res += o.SecondOperand.Register.Name()
 		} else if o.IsSecondOperandMemory() {
 			res += stringifyMemoryAccessor(o.SecondOperand.Memory, o.UsesRipDisplacement,
-				o.Uses32bDisplacement || o.Uses8bDisplacement, o.Displacement, o.DataTransferSize)
-		} else {
-			res += o.Imm.String()
+				o.Uses32bDisplacement || o.Uses8bDisplacement, o.Displacement,
+				o.DataTransferSize, o.OriginalMemoryAccessor)
+		} 
+	}
+	if o.UsesImmediate {
+		if o.FirstOperand != nil || o.SecondOperand != nil {
+			res += ", "
 		}
+		res += o.Imm.String()
 	}
 	return res
 }

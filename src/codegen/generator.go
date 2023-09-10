@@ -35,6 +35,15 @@ func (g *Generator) generateFunctionPrologue(fun *AugmentedFunctionIr) {
 	g.asm.MovIntegralRegisterToIntegralRegister(framePtr, stackPtr)
 }
 
+func (g *Generator) checkForGotUnwrapping(asym *AugmentedSymbol) {
+	if asym.RequiresGotUnwrapping {
+		g.load(asym.GotAddressHolder, asym.MemoryAccessor)
+		asym.MemoryAccessor = RegisterMemoryAccessor{Register: asym.GotAddressHolder}
+	} else if g.memoryManager.UsesGOTAddressing(asym) {
+		panic("GOT addressing requires got unwrapping") // sanity check
+	}
+}
+
 func (g *Generator) load(destReg Register, srcMem MemoryAccessor) {
 	if integralReg, isIntegral := destReg.(IntegralRegister); isIntegral {
 		g.asm.MovMemoryToIntegralRegister(integralReg, srcMem)
@@ -42,11 +51,8 @@ func (g *Generator) load(destReg Register, srcMem MemoryAccessor) {
 }
 
 func (g *Generator) loadSymbol(asym *AugmentedSymbol) {
+	g.checkForGotUnwrapping(asym)
 	g.load(asym.Register, asym.MemoryAccessor)
-}
-
-func (g *Generator) loadAddress(asym *AugmentedSymbol) {
-	g.asm.writePlaceholder("LOAD ADDRESS!")
 }
 
 func (g *Generator) store(destMem MemoryAccessor, srcReg Register) {
@@ -55,11 +61,17 @@ func (g *Generator) store(destMem MemoryAccessor, srcReg Register) {
 	}
 }
 
+func (g *Generator) storeSymbol(asym *AugmentedSymbol) {
+	g.checkForGotUnwrapping(asym)
+	g.store(asym.MemoryAccessor, asym.Register)
+}
+
 func (g *Generator) storeInLValue(dest *AugmentedLValue, srcReg Register) {
 	if dest.IsDereferenced {
-		g.loadAddress(dest.Sym)
+		g.loadReference(dest.Sym, dest.Sym)
 		g.store(RegisterMemoryAccessor{Register: dest.Sym.Register.(IntegralRegister)}, srcReg)
 	} else {
+		g.checkForGotUnwrapping(dest.Sym)
 		g.store(dest.Sym.MemoryAccessor, srcReg)
 	}
 }
@@ -83,8 +95,11 @@ func (g *Generator) copyRegister(dest Register, src Register) {
 
 func (g *Generator) call(asym *AugmentedSymbol) {
 	if g.memoryManager.RequiresRegisterForCall(asym) {
+		g.checkForGotUnwrapping(asym)
 		reg := asym.Register.(IntegralRegister)
-		g.asm.MovMemoryToIntegralRegister(reg, asym.MemoryAccessor)
+		if asym.LoadBeforeRead {
+			g.load(reg, asym.MemoryAccessor)
+		}
 		g.asm.Call(RegisterMemoryAccessor{Register: reg})
 	} else {
 		g.asm.Call(asym.MemoryAccessor)
@@ -147,10 +162,12 @@ func (g *Generator) performUnaryOperationOnRegister(register Register, operator 
 }
 
 func (g *Generator) loadReference(lhsSym *AugmentedSymbol, rhsSym *AugmentedSymbol) {
+	g.checkForGotUnwrapping(rhsSym)
 	g.asm.Reference(lhsSym.Register.(IntegralRegister), rhsSym.MemoryAccessor)
 }
 
 func (g *Generator) dereference(lhsSym *AugmentedSymbol, rhsSym *AugmentedSymbol) {
+	g.checkForGotUnwrapping(rhsSym)
 	g.asm.MovMemoryToIntegralRegister(lhsSym.Register.(IntegralRegister), RegisterMemoryAccessor{
 		Register: rhsSym.Register.(IntegralRegister),
 	})
@@ -230,7 +247,7 @@ func (g *Generator) generateFunctionCode(fun *AugmentedFunctionIr) {
 		case *AugmentedConstantAssignmentLine:
 			g.saveConstantInRegister(ir.LhsSymbol.Register, ir.Constant)
 			if ir.LhsSymbol.StoreAfterWrite {
-				g.store(ir.LhsSymbol.MemoryAccessor, ir.LhsSymbol.Register)
+				g.storeSymbol(ir.LhsSymbol)
 			}
 		case *AugmentedStringAssignmentLine:
 		case *AugmentedBiSymbolAssignmentLine:
@@ -251,7 +268,7 @@ func (g *Generator) generateFunctionCode(fun *AugmentedFunctionIr) {
 				g.copyRegister(ir.LhsSymbol.Register, resReg)	
 			}
 			if ir.LhsSymbol.StoreAfterWrite {
-				g.store(ir.LhsSymbol.MemoryAccessor, ir.LhsSymbol.Register)
+				g.storeSymbol(ir.LhsSymbol)
 			}
 		case *AugmentedUnaryOperationLine:
 			if ir.Operand.LoadBeforeRead {
@@ -268,7 +285,7 @@ func (g *Generator) generateFunctionCode(fun *AugmentedFunctionIr) {
 				}
 			}
 			if ir.LhsSymbol.StoreAfterWrite {
-				g.store(ir.LhsSymbol.MemoryAccessor, ir.LhsSymbol.Register)
+				g.storeSymbol(ir.LhsSymbol)
 			}
 		case *AugmentedFunctionCallLine:
 			for _, arg := range ir.ViaRegisterArgs {
@@ -282,7 +299,7 @@ func (g *Generator) generateFunctionCode(fun *AugmentedFunctionIr) {
 			if ir.ReturnSymbol != nil {
 				if ir.ReturnSymbol.StoreAfterWrite {
 					// assuming simple return mode (no structs > 8B)
-					g.store(ir.ReturnSymbol.MemoryAccessor, ir.ReturnSymbol.Register)
+					g.storeSymbol(ir.ReturnSymbol)
 				}
 			}
 		case *AugmentedGotoLine:

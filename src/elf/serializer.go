@@ -65,9 +65,16 @@ func (e *ELFSerializer) writeSymtab(symtab []*Symbol) {
 	}
 }
 
+func (e *ELFSerializer) writeRelaText(relaEntries []RelaEntry) {
+	for _, entry := range relaEntries {
+		e.write(entry.ToBytes())
+	}
+}
+
 func (e *ELFSerializer) Serialize(
 	code []uint8,
 	data []uint8, // must be already aligned as required
+	relaEntries []RelaEntry,
 	sectionHdrTab *SectionHdrTable,
 	symtab []*Symbol,
 	strtab *Strtab,
@@ -84,10 +91,12 @@ func (e *ELFSerializer) Serialize(
 	sections := sectionHdrTab.GetSectionHeaders()
 	strtabData := strtab.GetNullCombinedStrings()
 	sectionStrtabData := sectionStrTab.GetNullCombinedStrings()
-	sectionsContentSize := len(code) + len(data) + len(symtab) * SYMBOL_SIZE + len(strtabData) + len(sectionStrtabData) 
+	sectionsContentSize := len(code) + len(relaEntries) * RELA_ENTRY_SIZE + len(data) +
+						   len(symtab) * SYMBOL_SIZE + len(strtabData) + len(sectionStrtabData) 
 
 	e.writeHeader(sectionsContentSize + ELF_HEADER_SIZE, len(sections), sectionHdrTab.GetSectionIdx(SECTION_STRTAB))
 	e.write(code)
+	e.writeRelaText(relaEntries)
 	e.write(data)
 	e.writeSymtab(symtab)
 	e.write(strtabData)

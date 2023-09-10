@@ -81,17 +81,29 @@ func (a *BasicRegisterAllocator) nextFreeFloatingRegister() FloatingRegisterFami
 	panic("out of floating registers") // this should never happen for this naive allocator
 }
 
-func (a *BasicRegisterAllocator) allocFunctionReturnRegister(returnSymbol *AugmentedSymbol) Register {
+func (a *BasicRegisterAllocator) allocFunctionReturnRegister(returnSymbol *AugmentedSymbol, storeMode bool) Register {
 	switch a.memoryManager.classifySymbol(returnSymbol.Sym) {
 	case INTEGER:
 		reg := GetIntegralRegisterFamily(SYS_V_RETURN_INTEGRAL_REGISTER).UseForSize(returnSymbol.Sym.Ctype.Size())
 		a.allocState.usedIntegralRegisters.Add(SYS_V_RETURN_INTEGRAL_REGISTER)
 		a.allocState.currentlyUsedIntegralRegisters.Add(SYS_V_RETURN_INTEGRAL_REGISTER)
+		if a.memoryManager.UsesGOTAddressing(returnSymbol) {
+			returnSymbol.RequiresGotUnwrapping = true
+			if storeMode {
+				returnSymbol.GotAddressHolder = a.nextFreeIntegralRegister().UseForSize(QWORD_SIZE)
+			} else {
+				returnSymbol.GotAddressHolder = reg.Family.UseForSize(QWORD_SIZE)
+			}
+		}
 		return reg
 	case SSE:
 		reg := GetFloatingRegisterFamily(SYS_V_RETURN_FLOATING_REGISTER).use()
 		a.allocState.usedFloatingRegisters.Add(SYS_V_RETURN_FLOATING_REGISTER)
 		a.allocState.currentlyUsedFloatingRegisters.Add(SYS_V_RETURN_FLOATING_REGISTER)
+		if a.memoryManager.UsesGOTAddressing(returnSymbol) {
+			returnSymbol.RequiresGotUnwrapping = true
+			returnSymbol.GotAddressHolder = a.nextFreeIntegralRegister().UseForSize(QWORD_SIZE)
+		}
 		return reg
 	default:
 		panic("TODO")
@@ -143,10 +155,26 @@ func (a *BasicRegisterAllocator) getArgToRegisterMapping(Args []*irs.Symbol) []*
 	return res
 }
 
+func (a *BasicRegisterAllocator) allocGotHoldersToFunctionArgs(call *AugmentedFunctionCallLine) {
+	// TODO in this allocator we can always spare a register for GOT loading, but in general if possible some integral register should be reused
+	var gotHolder IntegralRegister
+	gotHolderChosen := false
+	for _, arg := range call.Args {
+		if a.memoryManager.UsesGOTAddressing(arg) {
+			if !gotHolderChosen {
+				gotHolder = a.nextFreeIntegralRegister().Use(QWORD)
+				gotHolderChosen = true
+			}
+			arg.RequiresGotUnwrapping = true
+			arg.GotAddressHolder = gotHolder
+		}
+	}
+}
+
 func (a *BasicRegisterAllocator) allocFunctionArgRegisters(call *AugmentedFunctionCallLine) {
 	viaStackIntegralArgs := []*AugmentedSymbol{}
 	viaStackFloatingArgs := []*AugmentedSymbol{}
-
+	a.allocGotHoldersToFunctionArgs(call)
 	mapping := a.getArgToRegisterMapping(asSymbols(call.Args))
 	for argNum := range mapping {
 		arg := call.Args[argNum]
@@ -186,19 +214,38 @@ func (a *BasicRegisterAllocator) allocFunctionArgRegisters(call *AugmentedFuncti
 	}
 }
 
-func (a *BasicRegisterAllocator) allocAnything(symbols []*AugmentedSymbol) {
-	for _, asym := range symbols {
-		asym.LoadBeforeRead = true
-		asym.StoreAfterWrite = true	
-		switch a.memoryManager.classifySymbol(asym.Sym) {
-		case INTEGER:
-			asym.Register = a.nextFreeIntegralRegister().UseForSize(asym.Sym.Ctype.Size())
-		case SSE:
-			asym.Register = a.nextFreeFloatingRegister().use()
-		case MEMORY, SPLIT:
-			panic("TODO")
+func (a *BasicRegisterAllocator) allocAnythingForStoreMode(asym *AugmentedSymbol) {
+	if a.memoryManager.UsesGOTAddressing(asym) {
+		asym.RequiresGotUnwrapping = true
+		asym.GotAddressHolder = a.nextFreeIntegralRegister().Use(QWORD)
+	}
+	switch a.memoryManager.classifySymbol(asym.Sym) {
+	case INTEGER:
+		asym.Register = a.nextFreeIntegralRegister().UseForSize(asym.Sym.Ctype.Size())
+	case SSE:
+		asym.Register = a.nextFreeFloatingRegister().use()
+	case MEMORY, SPLIT:
+		panic("TODO")
+	}
+}
+
+func (a *BasicRegisterAllocator) allocAnythingForLoadMode(asym *AugmentedSymbol) {
+	switch a.memoryManager.classifySymbol(asym.Sym) {
+	case INTEGER:
+		asym.Register = a.nextFreeIntegralRegister().UseForSize(asym.Sym.Ctype.Size())
+		if a.memoryManager.UsesGOTAddressing(asym) {
+			asym.RequiresGotUnwrapping = true
+			asym.GotAddressHolder = asym.Register.(IntegralRegister).Family.Use(QWORD)
 		}
-	}	
+	case SSE:
+		asym.Register = a.nextFreeFloatingRegister().use()
+		if a.memoryManager.UsesGOTAddressing(asym) {
+			asym.RequiresGotUnwrapping = true
+			asym.GotAddressHolder = a.nextFreeIntegralRegister().Use(QWORD)
+		}
+	case MEMORY, SPLIT:
+		panic("TODO")
+	}
 }
 
 func (a *BasicRegisterAllocator) resetFunctionState() {
@@ -211,7 +258,7 @@ func (a *BasicRegisterAllocator) handleFunctionEnter(fun *AugmentedFunctionIr) {
 	for argNum, arg := range argsMapping {
 		asym := fun.Args[argNum]
 		if arg.PassMode == REGISTER_ONLY {
-			// alloc space for every arg in callee frame and store it, since this allocator reads from mem to reg before any usage
+			// alloc space for every arg in callee frame and store it, since this allocator requires reads from mem to reg before any usage
 			asym.Register = arg.Register
 			fun.InRegisterArgsToPlaceOnCalleeStack = append(fun.InRegisterArgsToPlaceOnCalleeStack, asym.Sym)
 			fun.InRegisterArgsToStoreAfterFunctionEnter = append(fun.InRegisterArgsToStoreAfterFunctionEnter, asym)
@@ -256,6 +303,8 @@ func (a *BasicRegisterAllocator) setRegisterAllocationOrder(fun *AugmentedFuncti
 
 func (a *BasicRegisterAllocator) allocRegistersForBinaryOperation(l *AugmentedBinaryOperationLine) {
 	// TODO floats, clean this up
+	l.LeftOperand.LoadBeforeRead = true
+	l.RightOperand.LoadBeforeRead = true
 	switch l.Operator {
 	case "/", "%":
 		a.allocState.currentlyUsedIntegralRegisters.Add(DIV_OP_DIVIDENT_HIGHER_BITS_REG)
@@ -269,16 +318,22 @@ func (a *BasicRegisterAllocator) allocRegistersForBinaryOperation(l *AugmentedBi
 		}
 		a.markRegisterAsUsedInFunction(l.LeftOperand.Register)
 		a.markRegisterAsUsedInFunction(l.LhsSymbol.Register)
-		l.LeftOperand.LoadBeforeRead = true
-		a.allocAnything([]*AugmentedSymbol{l.RightOperand})
+		a.allocAnythingForLoadMode(l.RightOperand)
 	default:
-		a.allocAnything([]*AugmentedSymbol{l.LeftOperand, l.RightOperand})
-		l.LhsSymbol.Register = l.LeftOperand.Register
+		a.allocAnythingForLoadMode(l.LeftOperand)
+		a.allocAnythingForLoadMode(l.RightOperand)
+		l.LhsSymbol.Register = l.LeftOperand.Register // TODO is this safe got-wise?
 	}
+
 	l.LhsSymbol.StoreAfterWrite = true
+	if a.memoryManager.UsesGOTAddressing(l.LhsSymbol) {
+		l.LhsSymbol.RequiresGotUnwrapping = true
+		l.LhsSymbol.Register = a.nextFreeIntegralRegister().Use(QWORD)
+	}
 }
 
 func (a *BasicRegisterAllocator) allocRegistersForUnaryOperation(l *AugmentedUnaryOperationLine) {
+	// TODO floats
 	l.Operand.LoadBeforeRead = false
 	switch l.Operator {
 	case "*":
@@ -286,16 +341,27 @@ func (a *BasicRegisterAllocator) allocRegistersForUnaryOperation(l *AugmentedUna
 		l.LhsSymbol.Register = reg.UseForSize(l.LhsSymbol.Sym.Ctype.Size())
 		l.Operand.Register = reg.UseForSize(QWORD_SIZE)
 		l.Operand.LoadBeforeRead = true
+		if a.memoryManager.UsesGOTAddressing(l.Operand) {
+			l.Operand.RequiresGotUnwrapping = true
+			l.Operand.Register = reg.Use(QWORD)
+		}
 	case "&":
 		l.LhsSymbol.Register = a.nextFreeIntegralRegister().UseForSize(l.LhsSymbol.Sym.Ctype.Size())
+		if a.memoryManager.UsesGOTAddressing(l.Operand) {
+			l.Operand.RequiresGotUnwrapping = true
+			l.Operand.GotAddressHolder = a.nextFreeIntegralRegister().Use(QWORD)
+		}
 	case "!", "-":
-		l.Operand.Register = a.nextFreeIntegralRegister().UseForSize(l.Operand.Register.Size())
-		l.Operand.LoadBeforeRead = true
+		a.allocAnythingForLoadMode(l.Operand)
 		l.LhsSymbol.Register = l.Operand.Register
 	default:
-		a.allocAnything(l.GetSymbols())
+		panic("TODO")
 	}
 	l.LhsSymbol.StoreAfterWrite = true
+	if a.memoryManager.UsesGOTAddressing(l.LhsSymbol) {
+		l.LhsSymbol.RequiresGotUnwrapping = true
+		l.LhsSymbol.GotAddressHolder = a.nextFreeIntegralRegister().Use(QWORD)
+	}
 }
 
 func (a *BasicRegisterAllocator) Alloc(fun *AugmentedFunctionIr) {
@@ -307,27 +373,45 @@ func (a *BasicRegisterAllocator) Alloc(fun *AugmentedFunctionIr) {
 		switch l := line.(type) {
 		case *AugmentedFunctionCallLine:
 			if l.ReturnSymbol != nil {
-				l.ReturnSymbol.Register = a.allocFunctionReturnRegister(l.ReturnSymbol)
+				l.ReturnSymbol.Register = a.allocFunctionReturnRegister(l.ReturnSymbol, true)
 				l.ReturnSymbol.StoreAfterWrite = true
 			}
 			a.allocFunctionArgRegisters(l)
 			if a.memoryManager.RequiresRegisterForCall(l.FunctionSymbol) {
-				l.FunctionSymbol.Register = a.nextFreeIntegralRegister().Use(QWORD)
+				reg := a.nextFreeIntegralRegister().Use(QWORD)
+				l.FunctionSymbol.Register = reg
+				if a.memoryManager.UsesGOTAddressing(l.FunctionSymbol) {
+					l.FunctionSymbol.GotAddressHolder = reg
+				}
 				l.FunctionSymbol.LoadBeforeRead = true
 			} else {
 				l.FunctionSymbol.LoadBeforeRead = false
 			}
 		case *AugmentedReturnLine:
 			if l.ReturnSymbol != nil {
-				l.ReturnSymbol.Register = a.allocFunctionReturnRegister(l.ReturnSymbol)
+				l.ReturnSymbol.Register = a.allocFunctionReturnRegister(l.ReturnSymbol, false)
 				l.ReturnSymbol.LoadBeforeRead = true
 			}
 		case *AugmentedBinaryOperationLine:
 			a.allocRegistersForBinaryOperation(l)
 		case *AugmentedUnaryOperationLine:
 			a.allocRegistersForUnaryOperation(l)
-		default:
-			a.allocAnything(l.GetSymbols())
+		case *AugmentedConstantAssignmentLine:
+			// TODO check if constant requires register (it does for float, for example)
+			l.LhsSymbol.StoreAfterWrite = true
+			a.allocAnythingForStoreMode(l.LhsSymbol)
+		case *AugmentedStringAssignmentLine:
+			// TODO register for string?
+			l.LhsSymbol.StoreAfterWrite = true
+			a.allocAnythingForStoreMode(l.LhsSymbol)
+		case *AugmentedBiSymbolAssignmentLine:
+			l.RhsSymbol.LoadBeforeRead = true
+			l.LValue.Sym.StoreAfterWrite = true
+			a.allocAnythingForLoadMode(l.RhsSymbol)
+			a.allocAnythingForStoreMode(l.LValue.Sym)
+		case *AugmentedIfGotoLine:
+			l.ConditionSymbol.LoadBeforeRead = true
+			a.allocAnythingForLoadMode(l.ConditionSymbol)
 		}
 	}
 	a.setRegistersToPersistByCallee(fun)

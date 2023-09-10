@@ -219,10 +219,8 @@ func testAll() {
 		assembler := asm.NewAssembler(relocator)
 		assembledFunctions, assembledCode := assembler.Assemble(assemblyCode)
 		assembler.PrintAssemblyAlongAssembledBytes()
-		relocator.PrintDisplacementsToFix(assembledCode)
-		relocator.PrepareForRelocation(assembledCode)
-		relocator.PrintDisplacementsToFix(assembledCode)
-		elfBuilder := elf.NewBuilder(assembledCode, assembledFunctions, globals)
+		displacementsToFix := relocator.PrepareForRelocation(assembledCode)
+		elfBuilder := elf.NewBuilder(assembledCode, assembledFunctions, globals, displacementsToFix)
 		if err := elfBuilder.CreateRelocatableELF("test.c", "/home/flok3n/develop/from_scratch/gocc/resources/csrc/elf"); err != nil {
 			fmt.Println(err)
 		} else {

@@ -1,5 +1,6 @@
 package elf
 
+const NULL_SYMBOL_STR = ""
 const NULL_SYMBOL_STR_ID = 0
 
 type Strtab struct {
@@ -10,9 +11,9 @@ type Strtab struct {
 
 func newStrtab() *Strtab {
 	return &Strtab{
-		stringTable: []string{""},
+		stringTable: []string{NULL_SYMBOL_STR},
 		stringTableSize: 1,
-		definedStrings: map[string]uint32{"": NULL_SYMBOL_STR_ID},
+		definedStrings: map[string]uint32{NULL_SYMBOL_STR: NULL_SYMBOL_STR_ID},
 	}
 }
 

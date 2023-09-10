@@ -104,7 +104,6 @@ func (a *X86_64Assembler) assembleMIInstruction(opcode uint8, modRmOpcode uint8,
 	return mrAsm
 }
 
-// assumes MR encoding so if both operands are registers first is obtained using rm bits second using reg bits
 func (a *X86_64Assembler) assembleMRInstruction(opcode []uint8, ops *codegen.Operands, modRmOpcode uint8, defaultOperationSize int, useRMencoding bool) []uint8 {
 	modrm := ModRM{}
 	rex := emptyREX()
@@ -117,9 +116,15 @@ func (a *X86_64Assembler) assembleMRInstruction(opcode []uint8, ops *codegen.Ope
 		if ops.UsesRipDisplacement {
 			modrm.mod = 0b00
 			modrm.rm = 0b101
-			if ops.SecondOperand != nil && ops.IsSecondOperandRegister() {
-				modrm.reg = getTruncatedRegisterNum(ops.SecondOperand.Register)
-				rex.updateForRegExtensionIfNeeded(ops.SecondOperand.Register)
+			var reg codegen.Register = nil
+			if ops.FirstOperand != nil && ops.IsFirstOperandRegister() {
+				reg = ops.FirstOperand.Register
+			} else if ops.SecondOperand != nil && ops.IsSecondOperandRegister() {
+				reg = ops.SecondOperand.Register
+			}
+			if reg != nil {
+				modrm.reg = getTruncatedRegisterNum(reg)
+				rex.updateForRegExtensionIfNeeded(reg)
 			}
 		} else {
 			if ops.Uses8bDisplacement {
