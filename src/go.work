@@ -8,6 +8,7 @@ use (
 	./elf
 	./grammar
 	./ir
+	./linker
 	./parser
 	./semantics
 	./symtab

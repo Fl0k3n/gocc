@@ -12,14 +12,15 @@ type ELFBuilder struct {
 	code []uint8
 	assembledFunctions []*asm.AssembledFunction
 	globals []*irs.GlobalSymbol
-	symbols []*Symbol
+	symtab *Symtab
 	definedFunctions *utils.Set[string]
 	sectionVirtualSize map[string]int
 	sectionAlignment map[string]int
 	sectionHdrTable *SectionHdrTable
-	initializedGlobalOffsets map[string]int
+	globalDataOffsets map[string]int
 	displacementsToFix []asm.DisplacementToFix
 	symbolNameToIdx map[string]int
+	initializedGlobals *utils.Set[string]
 }
 
 func NewBuilder(
@@ -37,24 +38,16 @@ func NewBuilder(
 		code: code, 
 		assembledFunctions: assembledFunctions,
 		globals: globals,
-		symbols: []*Symbol{},
+		symtab: NewSymtab(),
 		definedFunctions: definedFunctions,
 		sectionVirtualSize: map[string]int{},
 		sectionAlignment: nil,
 		sectionHdrTable: newSectionHdrTable(),
-		initializedGlobalOffsets: map[string]int{},
+		globalDataOffsets: map[string]int{},
 		displacementsToFix: displacementsToFix,
 		symbolNameToIdx: map[string]int{},
+		initializedGlobals: utils.NewSet[string](),
 	}
-}
-
-func (e *ELFBuilder) getGlobalByName(name string) *irs.GlobalSymbol {
-	for _, g := range e.globals {
-		if g.Symbol.Name == name {
-			return g
-		}
-	}
-	panic("Global " + name + " not found")
 }
 
 func (e *ELFBuilder) getSymbolSection(global *irs.GlobalSymbol) string {
@@ -103,6 +96,30 @@ func (e *ELFBuilder) checkWhatSectionsAreNeeded() (data bool, bss bool, relaText
 		}
 	}
 	return
+}
+
+func (e *ELFBuilder) createHeader(sectionsContentSize int) *Header {
+	return &Header{
+		Eident: [16]uint8{
+			0x7F, uint8('E'), uint8('L'), uint8('F'),
+			ELF_CLASS_64, ELF_DATA_LITTLE_ENDIAN_U2, ELF_CURRENT_VERSION, ELF_SYSTEM_V_ABI,
+			0, 0, 0, 0,
+			0, 0, 0, 0,
+		},
+		Etype: RELOCATABLE_FILE,
+		Emachine: E_X86_64_MACHINE,
+		Eversion: ELF_CURRENT_VERSION,
+		Eentry: 0, // no entry for relocatable file
+		Ephoff: 0, // no program headers
+		Eshoff: uint64(sectionsContentSize + ELF_HEADER_SIZE),
+		Eflags: 0, // unused
+		Eehsize: ELF_HEADER_SIZE, 
+		Ephentsize: 0, // no program headers 
+		Ephnum: 0, // no program headers
+		Eshentsize: SECTION_HEADER_SIZE,
+		Eshnum: uint16(len(e.sectionHdrTable.GetSectionHeaders())), 
+		Eshstrndx: e.sectionHdrTable.GetSectionIdx(SECTION_STRTAB),
+	}
 }
 
 func (e *ELFBuilder) prepareSections() (sectionsThatNeedSymbol []string) {
@@ -182,20 +199,20 @@ func (e *ELFBuilder) assignSymbolToSection(global *irs.GlobalSymbol, section str
 	if section == NULL_SECTION {
 		return 0
 	}
-	if section == DATA {
+	if section == DATA || section == BSS {
+		if section == DATA {
+			e.initializedGlobals.Add(global.Symbol.Name)
+		}
 		offset := e.allocSymbolSpaceInSection(global, section)
-		e.initializedGlobalOffsets[global.Symbol.Name] = offset
+		e.globalDataOffsets[global.Symbol.Name] = offset
 		return offset
-	} else if section == BSS {
-		return e.allocSymbolSpaceInSection(global, section)
 	} else {
 		return 0
 	}
 }
 
 func (e *ELFBuilder) addSymbolToSymtab(symbol *Symbol, name string) {
-	e.symbolNameToIdx[name] = len(e.symbols)
-	e.symbols = append(e.symbols, symbol)
+	e.symbolNameToIdx[name] = e.symtab.AddSymbol(symbol)
 }
 
 func (e *ELFBuilder) createSymbols(sectionsRequiringSymbol []string, sourceFileName string) {
@@ -258,7 +275,7 @@ func (e *ELFBuilder) createSymbols(sectionsRequiringSymbol []string, sourceFileN
 			Ssize: uint64(e.getSymbolSize(global, section)),
 		}, global.Symbol.Name)
 	}
-	e.sectionVirtualSize[SYMTAB] = len(e.symbols) * SYMBOL_SIZE
+	e.sectionVirtualSize[SYMTAB] = e.symtab.Size() * SYMBOL_SIZE
 }
 
 func (e *ELFBuilder) getDataSectionMemoryImage() ([]byte) {
@@ -268,31 +285,26 @@ func (e *ELFBuilder) getDataSectionMemoryImage() ([]byte) {
 	}
 	for _, global := range e.globals {
 		if e.getSymbolSection(global) == DATA {
-			offset := e.initializedGlobalOffsets[global.Symbol.Name]
+			offset := e.globalDataOffsets[global.Symbol.Name]
 			data[offset] = 0x12 // TODO
 		}
 	}
 	return data
 }
 
-func (e *ELFBuilder) getGreatestLocalSymbolId() uint32 {
-	var res uint32 = 0
-	for i, sym := range e.symbols {
-		if getSymbolBinding(sym.Sinfo) == SB_LOCAL {
-			res = uint32(i)
-		}
-	}
-	return res
-}
-
-func (e *ELFBuilder) getRelocationTypeAndSymbolIdx(accessor codegen.MemoryAccessor) (RelocationType, int) {
+func (e *ELFBuilder) getRelocationTypeAndSymbolIdx(accessor codegen.MemoryAccessor) (relocType RelocationType, symbolIdx int, offset int) {
 	switch acc := accessor.(type) {
 	case codegen.GOTMemoryAccessor:
-		return R_X86_64_REX_GOTPCRELX, e.symbolNameToIdx[acc.Symbol.Name]
+		return R_X86_64_REX_GOTPCRELX, e.symbolNameToIdx[acc.Symbol.Name], 0
 	case codegen.SectionMemoryAccessor:
-		return R_X86_64_PC32, e.symbolNameToIdx[e.getSymbolSection(e.getGlobalByName(acc.Symbol.Name))]
+		if e.initializedGlobals.Has(acc.Symbol.Name) {
+			symbolIdx = e.symbolNameToIdx[DATA]
+		} else {
+			symbolIdx = e.symbolNameToIdx[BSS]
+		}
+		return R_X86_64_PC32, symbolIdx, e.globalDataOffsets[acc.Symbol.Name]
 	case codegen.PLTMemoryAccessor:
-		return R_X86_64_PLT32, e.symbolNameToIdx[acc.Symbol.Name]
+		return R_X86_64_PLT32, e.symbolNameToIdx[acc.Symbol.Name], 0
 	default: // assembly-wise we could also tolerate labels here
 		panic("Unexpected memory accessor to relocate")
 	}
@@ -301,11 +313,11 @@ func (e *ELFBuilder) getRelocationTypeAndSymbolIdx(accessor codegen.MemoryAccess
 func (e *ELFBuilder) createRelocationEntries() []RelaEntry {
 	res := make([]RelaEntry, len(e.displacementsToFix))
 	for i, displacement := range e.displacementsToFix {
-		relocType, symbolSymtabIdx := e.getRelocationTypeAndSymbolIdx(displacement.MemoryAccessor)
+		relocType, symbolSymtabIdx, symbolOffset := e.getRelocationTypeAndSymbolIdx(displacement.MemoryAccessor)
 		res[i] = RelaEntry{
 			Roffset: uint64(displacement.CodeOffset),
 			Rinfo: encodeRelocationInfo(uint32(symbolSymtabIdx), relocType),
-			Raddend: int64(displacement.SizeToFix) + int64(displacement.InstructionSizeAfterDisplacement),
+			Raddend: int64(symbolOffset) - (int64(displacement.SizeToFix) + int64(displacement.InstructionSizeAfterDisplacement)),
 		}
 	}
 	e.sectionVirtualSize[RELA_TEXT] = len(res) * RELA_ENTRY_SIZE
@@ -328,7 +340,7 @@ func (e *ELFBuilder) createSectionHeaders() {
 	if e.sectionHdrTable.HasSection(BSS) {
 		e.sectionHdrTable.CreateBssSection(fileOffset, e.sectionVirtualSize[BSS], e.sectionAlignment[BSS])
 	}
-	e.sectionHdrTable.CreateSymtabSection(fileOffset, e.sectionVirtualSize[SYMTAB], e.getGreatestLocalSymbolId())
+	e.sectionHdrTable.CreateSymtabSection(fileOffset, e.sectionVirtualSize[SYMTAB], e.symtab.getGreatestLocalSymbolId())
 	fileOffset += e.sectionVirtualSize[SYMTAB]
 	e.sectionHdrTable.CreateStrtabSection(fileOffset, e.strtab.GetSize())
 	fileOffset += e.strtab.GetSize()
@@ -336,22 +348,23 @@ func (e *ELFBuilder) createSectionHeaders() {
 }
 
 func (e *ELFBuilder) CreateRelocatableELF(sourceFileName string, resultPath string) error {
-	// we also need relocation info from compiler
-	// for static variables add entries to rela.text for every usage, compile with 0'ed addresses but note where address should be insterted
-	// for global functions add entries to rela.text for every usage, when building shared objects we will also need to store them in dynsym section, these should be addressed via plt
-	// for global variables also use rela.text for every usage, similarly as above with .so, they should be addressed via got
 	sectionsThatNeedSymbol := e.prepareSections()
 	e.createSymbols(sectionsThatNeedSymbol, sourceFileName)
 	data := e.getDataSectionMemoryImage()
 	relaEntries := e.createRelocationEntries()
 	e.createSectionHeaders()
-	return NewSerializer(resultPath).Serialize(
-		e.code,
-		data,
-		relaEntries,
-		e.sectionHdrTable,
-		e.symbols,
-		e.strtab,
-		e.sectionHdrTable.GetSectionStrtab(),
-	)
+	sectionsContentSize := len(e.code) + len(relaEntries) * RELA_ENTRY_SIZE + len(data) +
+						   e.symtab.BinarySize() + e.strtab.GetSize() + e.sectionHdrTable.GetSectionStrtab().GetSize() 
+	elf := &ElfFile{
+		Header: e.createHeader(sectionsContentSize),
+		SectionHdrTable: e.sectionHdrTable,
+		Code: e.code,
+		Data: data,
+		Symtab: e.symtab,
+		Strtab: e.strtab,
+		SectionStrtab: e.sectionHdrTable.GetSectionStrtab(),
+		RelaEntries: relaEntries,
+	}
+	return NewSerializer().Serialize(elf, resultPath)
 }
+

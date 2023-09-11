@@ -4,28 +4,46 @@ const NULL_SYMBOL_STR = ""
 const NULL_SYMBOL_STR_ID = 0
 
 type Strtab struct {
-	stringTable []string
-	stringTableSize uint32
+	stringTable []byte
 	definedStrings map[string]uint32
 }
 
 func newStrtab() *Strtab {
 	return &Strtab{
-		stringTable: []string{NULL_SYMBOL_STR},
-		stringTableSize: 1,
+		stringTable: []byte{0},
 		definedStrings: map[string]uint32{NULL_SYMBOL_STR: NULL_SYMBOL_STR_ID},
 	}
+}
+
+func newStrtabFromBytes(bytes []byte, offset uint32, size uint32) *Strtab {
+	strtab := Strtab{
+		stringTable: bytes[offset:offset+size],
+		definedStrings: map[string]uint32{},
+	}
+	for i := offset; i < offset + size; {
+		j := i
+		for ;j < offset + size && bytes[j] != 0; j++ {}
+		strtab.definedStrings[string(bytes[i:j])] = i - offset
+		i = j + 1
+	}
+	return &strtab
 }
 
 func (s *Strtab) PutString(name string) (idx uint32) {
 	if id, ok := s.definedStrings[name]; ok {
 		return id
 	}
-	idx = s.stringTableSize
+	idx = uint32(len(s.stringTable))
 	s.definedStrings[name] = idx
-	s.stringTableSize += uint32(len(name)) + 1
-	s.stringTable = append(s.stringTable, name)
+	s.stringTable = append(s.stringTable, []byte(name)...)
+	s.stringTable = append(s.stringTable, 0)
 	return
+}
+
+func (s *Strtab) GetStringForIndex(idx uint32) string {
+	var i uint32
+	for i = idx; s.stringTable[i] != 0; i++ {}
+	return string(s.stringTable[idx:i])
 }
 
 func (s *Strtab) GetIdx(name string) uint32 {
@@ -33,20 +51,9 @@ func (s *Strtab) GetIdx(name string) uint32 {
 }
 
 func (s *Strtab) GetNullCombinedStrings() []byte {
-	const NULL byte = 0
-	res := make([]byte, s.stringTableSize)
-	idx := 0
-	for _, str := range s.stringTable {
-		for _, c := range []byte(str) {
-			res[idx] = c
-			idx++
-		}
-		res[idx] = NULL
-		idx++
-	}
-	return res
+	return s.stringTable
 }
 
 func (s *Strtab) GetSize() int {
-	return int(s.stringTableSize)
+	return len(s.stringTable)
 }

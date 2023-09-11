@@ -59,6 +59,10 @@ func (s *SectionHdrTable) HasSection(sectionName string) bool {
 	return ok
 }
 
+func (s *SectionHdrTable) GetHeader(sectionName string) *SectionHeader {
+	return &s.sectionHeaders[s.GetSectionIdx(sectionName)]
+}
+
 func (s *SectionHdrTable) CreateNullSection() {
 	s.sectionHeaders[NULL_SECTION_IDX] = SectionHeader{
 		Sname: s.sectionStrtab.GetIdx(NULL_SECTION),

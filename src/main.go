@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"grammars"
 	"irs"
+	"linkers"
 	"parsers"
 	"regexp"
 	"semantics"
@@ -326,13 +327,25 @@ func serializeTables() {
 	tb.SerializeTables("/home/flok3n/misc/acttab.gob", "/home/flok3n/misc/gototab.gob")
 }
 
+func testLinker() {
+	linker := linkers.New()
+	err := linker.CreateExecutable("/home/flok3n/develop/from_scratch/gocc/resources/csrc/elf",
+							"/home/flok3n/develop/from_scratch/gocc/resources/csrc/linkerres")
+	if err != nil {
+		fmt.Println(err)
+	} else {
+		fmt.Println("ok")
+	}
+}
+
 func main() {
 	// testParserSimple2()
-	testAll()
+	// testAll()
 	// testGrammarReader()
 	// testTokenizer()
 	// testTableBuilder()
 	// testTableBuilder2()
 	// testAssembler()
 	// serializeTables()
+	testLinker()
 }

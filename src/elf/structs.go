@@ -2,6 +2,17 @@ package elf
 
 type SectionType uint32
 
+const ELF_CLASS_64 = 2
+const ELF_DATA_LITTLE_ENDIAN_U2 = 1
+const ELF_CURRENT_VERSION = 1
+const ELF_SYSTEM_V_ABI = 0
+
+const RELOCATABLE_FILE = 1
+const EXECUTABLE_FILE = 2
+const SHARED_OBJECT_FILE = 3
+
+const E_X86_64_MACHINE = 0x3E
+
 const (
 	S_NULL SectionType = iota
 	S_PROGBITS
@@ -15,6 +26,26 @@ const (
 	S_REL 
 	S_SHLIB
 	S_DYNSYM // and some other not needed
+)
+
+type SegmentType uint32
+
+const (
+	PT_NULL SegmentType = iota
+	PT_LOAD
+	PT_DYNAMIC
+	PT_INTERP
+	PT_NOTE
+	PT_SHLIB
+	PT_PHDR
+)
+
+type SegmentFlag uint32
+
+const (
+	PF_X SegmentFlag = 0x1
+	PF_W SegmentFlag = 0x2
+	PF_R SegmentFlag = 0x4
 )
 
 type SectionFlag uint64
@@ -78,6 +109,16 @@ func (h *Header) ToBytes() []byte {
 	return res
 }
 
+func HeaderFromBytes(bytes []byte, offset int) *Header {
+	h := Header{}
+	for i := 0; i < 16; i++ {
+		h.Eident[i] = bytes[offset + i]
+	}
+	decodeUnsignedIntsFromLittleEndianU2(bytes, offset + 16, &h.Etype, &h.Emachine, &h.Eversion, &h.Eentry, 
+		&h.Ephoff, &h.Eshoff, &h.Eflags, &h.Eehsize, &h.Ephentsize, &h.Ephnum, &h.Eshentsize, &h.Eshnum, &h.Eshstrndx)
+	return &h
+}
+
 const SECTION_HEADER_SIZE = 64
 
 type SectionHeader struct {
@@ -100,6 +141,13 @@ func (h *SectionHeader) ToBytes() []byte {
 	return res
 }
 
+func SectionHeaderFromBytes(bytes []byte, offset int) *SectionHeader {
+	h := SectionHeader{}
+	decodeUnsignedIntsFromLittleEndianU2(bytes, offset, &h.Sname, &h.Stype, &h.Sflags, &h.Saddr, &h.Soffset,
+		&h.Ssize, &h.Slink, &h.Sinfo, &h.Saddralign, &h.Sentsize)
+	return &h
+}
+
 const SYMBOL_SIZE = 24
 
 type Symbol struct {
@@ -111,10 +159,24 @@ type Symbol struct {
 	Ssize uint64
 }
 
+func (s *Symbol) Binding() SymbolBinding {
+	return GetSymbolBinding(s.Sinfo)
+}
+
+func (s *Symbol) Type() SymbolType {
+	return GetSymbolType(s.Sinfo)
+}
+
 func (s *Symbol) ToBytes() []byte {
 	res := make([]byte, SYMBOL_SIZE)
 	encodeUnsignedIntsToLittleEndianU2(res, 0, s.Sname, s.Sinfo, s.Sother, s.Sshndx, s.Svalue, s.Ssize)
 	return res
+}
+
+func SymbolFromBytes(bytes []byte, offset int) *Symbol {
+	s := Symbol{}
+	decodeUnsignedIntsFromLittleEndianU2(bytes, offset, &s.Sname, &s.Sinfo, &s.Sother, &s.Sshndx, &s.Svalue, &s.Ssize)
+	return &s
 }
 
 const RELA_ENTRY_SIZE = 24
@@ -133,6 +195,14 @@ type RelaEntry struct {
 	Raddend int64
 }
 
+func (r *RelaEntry) RelocationType() RelocationType {
+	return GetRelocationType(r.Rinfo)
+}
+
+func (r *RelaEntry) SymbolIdx() uint32 {
+	return GetSymbolIdx(r.Rinfo)
+}
+
 func (r *RelaEntry) ToBytes() []byte {
 	res := make([]byte, RELA_ENTRY_SIZE)
 	encodeUnsignedIntsToLittleEndianU2(res, 0, r.Roffset, r.Rinfo)
@@ -142,4 +212,50 @@ func (r *RelaEntry) ToBytes() []byte {
 		res[offset + i] = addend[i]
 	}
 	return res
+}
+
+func RelaEntryFromBytes(bytes []byte, offset int) *RelaEntry {
+	r := RelaEntry{}
+	decodeUnsignedIntsFromLittleEndianU2(bytes, offset, &r.Roffset, &r.Rinfo)
+	decodeIntFromLittleEndianU2(bytes, offset + 16, &r.Raddend)
+	return &r
+}
+
+const PROGRAM_HEADER_SIZE = 64
+
+type ProgramHeader struct {
+	Ptype uint32
+	Pflags uint32
+	Poffset uint64
+	Pvaddr uint64
+	Ppaddr uint64
+	Pfilesz uint64
+	Pmemsz uint64
+	Palign uint64
+}
+
+func (p *ProgramHeader) ToBytes() []byte {
+	res := make([]byte, PROGRAM_HEADER_SIZE)
+	encodeUnsignedIntsToLittleEndianU2(res, 0, p.Ptype, p.Pflags, p.Poffset, p.Pvaddr,
+		p.Ppaddr, p.Pfilesz, p.Pmemsz, p.Palign)
+	return res
+}
+
+func ProgramHeaderFromBytes(bytes []byte, offset int) *ProgramHeader {
+	p := ProgramHeader{}
+	decodeUnsignedIntsFromLittleEndianU2(bytes, offset, &p.Ptype, &p.Pflags, &p.Poffset,
+		&p.Pvaddr, &p.Ppaddr, &p.Pfilesz, &p.Pmemsz, &p.Palign)
+	return &p
+}
+
+type ElfFile struct {
+	Header *Header
+	ProgramHdrTable *ProgramHdrTable
+	SectionHdrTable *SectionHdrTable
+	Code []uint8 // TODO consider not storing entire code and data in memory, use supplier functions configurable by ElfFile creator that return them in chunks
+	Data []uint8
+	Symtab *Symtab
+	Strtab *Strtab
+	SectionStrtab *Strtab
+	RelaEntries []RelaEntry
 }
