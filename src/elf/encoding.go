@@ -1,6 +1,6 @@
 package elf
 
-func encodeSymbolInfo(symbolBind SymbolBinding, symbolType SymbolType) uint8 {
+func EncodeSymbolInfo(symbolBind SymbolBinding, symbolType SymbolType) uint8 {
 	return (uint8(symbolBind) << 4) + (uint8(symbolType) & 0xF)
 }
 
@@ -91,4 +91,8 @@ func decodeUnsignedIntsFromLittleEndianU2(buff []byte, offset int, resPtrs ...in
 		size := decodeUnsignedIntFromLittleEndianU2(buff, offset, ptr)
 		offset += size
 	}
+}
+
+func EncodeRelocationValue(v int32) []byte {
+	return []byte{uint8(v & 0xFF), uint8((v >> 8) & 0xFF), uint8((v >> 16) & 0xFF), uint8((v >> 24) & 0xFF)}
 }

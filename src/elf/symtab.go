@@ -1,5 +1,7 @@
 package elf
 
+const GOT_SYMBOL_NAME = "_GLOBAL_OFFSET_TABLE_"
+
 type Symtab struct {
 	symbols []*Symbol
 	greatestLocalSymbolIdx int
@@ -46,8 +48,28 @@ func (s *Symtab) GetUndefinedSymbols() []*Symbol {
 	return res
 }
 
+func (s *Symtab) HasGlobalVariable() bool {
+	for _, sym := range s.symbols {
+		if sym.Binding() != SB_LOCAL && sym.Type() != ST_FUNC {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Symtab) GetSymbolWithIdx(idx uint32) *Symbol {
 	return s.symbols[idx]
+}
+
+// TODO cache names if this is used often
+func (s *Symtab) GetSymbol(symName string, strtab *Strtab) *Symbol {
+	for _, sym := range s.symbols {
+		name := strtab.GetStringForIndex(sym.Sname)
+		if name == symName {
+			return sym
+		}
+	}
+	panic("No symbol with name " + symName)
 }
 
 func (s *Symtab) ToBytes() []byte {
@@ -62,7 +84,7 @@ func (s *Symtab) ToBytes() []byte {
 	return res
 }
 
-func (s *Symtab) getGreatestLocalSymbolId() uint32 {
+func (s *Symtab) GetGreatestLocalSymbolId() uint32 {
 	return uint32(s.greatestLocalSymbolIdx)
 } 
 

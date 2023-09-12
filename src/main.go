@@ -186,7 +186,8 @@ func testAll() {
 		fmt.Println(err)
 		return
 	}
-	tokenizer, err := tokenizers.New("../resources/csrc/functions.c", grammar)
+	// tokenizer, err := tokenizers.New("../resources/csrc/functions.c", grammar)
+	tokenizer, err := tokenizers.New("../resources/csrc/bmain.c", grammar)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -330,7 +331,8 @@ func serializeTables() {
 func testLinker() {
 	linker := linkers.New()
 	err := linker.CreateExecutable("/home/flok3n/develop/from_scratch/gocc/resources/csrc/elf",
-							"/home/flok3n/develop/from_scratch/gocc/resources/csrc/linkerres")
+							"/home/flok3n/develop/from_scratch/gocc/resources/csrc/linkerres",
+							"main")
 	if err != nil {
 		fmt.Println(err)
 	} else {
@@ -340,12 +342,12 @@ func testLinker() {
 
 func main() {
 	// testParserSimple2()
-	// testAll()
+	testAll()
+	testLinker()
 	// testGrammarReader()
 	// testTokenizer()
 	// testTableBuilder()
 	// testTableBuilder2()
 	// testAssembler()
 	// serializeTables()
-	testLinker()
 }

@@ -58,9 +58,6 @@ func (m *MemoryManager) assignMemoryAccessorToSymbolUsages(fun *AugmentedFunctio
 
 func (m *MemoryManager) placeOnStack(curSize int, symbolsT irs.SymbolType, snapshot []*irs.Symbol) int {
 	mmap := []MemoryAccessor{}
-	if symbolsT == irs.ARG {
-		// check if is already in memory, if so skip it and set already allocated memory address
-	}
 	for _, sym := range snapshot {
 		t := sym.Ctype
 		prevPadding := 0
@@ -143,11 +140,7 @@ func (m *MemoryManager) RequiresRegisterForCall(funSymbol *AugmentedSymbol) bool
 	if !funSymbol.isGlobal {
 		return true
 	}
-	globalInfo := funSymbol.GlobalInfo
-	if globalInfo.IsFunction && globalInfo.IsStatic {
-		return false
-	}
-	return true
+	return !funSymbol.GlobalInfo.IsFunction
 }
 
 func (m *MemoryManager) UsesGOTAddressing(sym *AugmentedSymbol) bool {

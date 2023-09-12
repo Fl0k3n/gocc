@@ -10,6 +10,8 @@ const SECTION_STRTAB = ".shstrtab"
 
 const RELA_TEXT = ".rela.text"
 
+const GOT = ".got"
+
 const NULL_SECTION_IDX = 0
 
 const UNKNOWN_SECTION_ALIGNEMNT = 0
@@ -42,12 +44,31 @@ func (s *SectionHdrTable) AllocSectionHeaders(sectionIdxs map[string]uint16) {
 	s.sectionIndexes = sectionIdxs
 }
 
+// keep old sections for new indexes, leave new blank, remove ones without index
+func (s *SectionHdrTable) Reindex(sectionIdxs map[string]uint16) (reindexMap map[uint16]uint16) {
+	reindexMap = map[uint16]uint16{}
+	oldSectionHeaders := s.sectionHeaders
+	oldIndexes := s.sectionIndexes
+	s.AllocSectionHeaders(sectionIdxs)
+	for oldName, oldIdx := range oldIndexes {
+		if newIdx, ok := sectionIdxs[oldName]; ok {
+			reindexMap[oldIdx] = newIdx
+			s.sectionHeaders[newIdx] = oldSectionHeaders[oldIdx]
+		}
+	}
+	return
+}
+
 func (s *SectionHdrTable) GetSectionStrtab() *Strtab {
 	return s.sectionStrtab
 }
 
 func (s *SectionHdrTable) GetSectionHeaders() []SectionHeader {
 	return s.sectionHeaders
+}
+
+func (s *SectionHdrTable) GetSectionIndexes() map[string]uint16 {
+	return s.sectionIndexes
 }
 
 func (s *SectionHdrTable) GetSectionIdx(sectionName string) uint16 {
@@ -61,6 +82,35 @@ func (s *SectionHdrTable) HasSection(sectionName string) bool {
 
 func (s *SectionHdrTable) GetHeader(sectionName string) *SectionHeader {
 	return &s.sectionHeaders[s.GetSectionIdx(sectionName)]
+}
+
+func (s *SectionHdrTable) GetHeaderByIdx(sectionIdx uint16) *SectionHeader {
+	return &s.sectionHeaders[sectionIdx]
+}
+
+func (s *SectionHdrTable) NumberOfSections() uint16 {
+	return uint16(len(s.sectionHeaders))
+}
+
+func (s *SectionHdrTable) GetSectionName(sectionIdx uint16) string {
+	return s.sectionStrtab.GetStringForIndex(s.sectionHeaders[sectionIdx].Sname)
+}
+
+func (s *SectionHdrTable) GetSectionWithHighestFileOffset() *SectionHeader {
+	// TODO this is not guaranteed by elf spec in general
+	return &s.sectionHeaders[len(s.sectionHeaders) - 1]
+}
+
+func (s *SectionHdrTable) ChangeSectionSizeAndShiftSuccedingSections(sectionIdx uint16, sizeDelta int) {
+	if sizeDelta == 0 {
+		return
+	}
+	section := s.GetHeaderByIdx(sectionIdx)	
+	section.Ssize = uint64(int64(section.Ssize) + int64(sizeDelta))
+	for i := sectionIdx + 1; i < s.NumberOfSections(); i++ {
+		section := s.GetHeaderByIdx(i)
+		section.Soffset = uint64(int64(section.Soffset) + int64(sizeDelta))
+	}
 }
 
 func (s *SectionHdrTable) CreateNullSection() {
@@ -120,6 +170,21 @@ func (s *SectionHdrTable) CreateDataSection(fileStartOffset int, size int, align
 		Sinfo: 0,
 		Saddralign: uint64(alignment),
 		Sentsize: 0,
+	}
+}
+
+func (s *SectionHdrTable) CreateGOTSection(fileStartOffset int, size int) {
+	s.sectionHeaders[s.GetSectionIdx(GOT)] = SectionHeader{
+		Sname: s.sectionStrtab.GetIdx(GOT),  
+		Stype: uint32(S_PROGBITS),
+		Sflags: uint64(S_ALLOC) | uint64(S_WRITE), // gcc uses Write flag, not sure why, elf specifies that its processor specific
+		Saddr: 0,
+		Soffset: uint64(fileStartOffset),
+		Ssize: uint64(size),
+		Slink: 0,
+		Sinfo: 0,
+		Saddralign: 8,
+		Sentsize: 8,
 	}
 }
 

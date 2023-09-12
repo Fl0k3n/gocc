@@ -97,6 +97,7 @@ func (g *Generator) call(asym *AugmentedSymbol) {
 	if g.memoryManager.RequiresRegisterForCall(asym) {
 		g.checkForGotUnwrapping(asym)
 		reg := asym.Register.(IntegralRegister)
+		// TODO load or just call memory assessor?
 		if asym.LoadBeforeRead {
 			g.load(reg, asym.MemoryAccessor)
 		}

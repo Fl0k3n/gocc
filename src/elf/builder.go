@@ -98,7 +98,7 @@ func (e *ELFBuilder) checkWhatSectionsAreNeeded() (data bool, bss bool, relaText
 	return
 }
 
-func (e *ELFBuilder) createHeader(sectionsContentSize int) *Header {
+func (e *ELFBuilder) createHeader(sectionHeadersOffset uint64) *Header {
 	return &Header{
 		Eident: [16]uint8{
 			0x7F, uint8('E'), uint8('L'), uint8('F'),
@@ -111,7 +111,7 @@ func (e *ELFBuilder) createHeader(sectionsContentSize int) *Header {
 		Eversion: ELF_CURRENT_VERSION,
 		Eentry: 0, // no entry for relocatable file
 		Ephoff: 0, // no program headers
-		Eshoff: uint64(sectionsContentSize + ELF_HEADER_SIZE),
+		Eshoff: sectionHeadersOffset,
 		Eflags: 0, // unused
 		Eehsize: ELF_HEADER_SIZE, 
 		Ephentsize: 0, // no program headers 
@@ -183,7 +183,7 @@ func (e *ELFBuilder) getSymbolSize(global *irs.GlobalSymbol, section string) int
 }
 
 func (e *ELFBuilder) allocSymbolSpaceInSection(global *irs.GlobalSymbol, section string) (offset int) {
-	if alignment := e.sectionAlignment[section]; alignment != UNKNOWN_SECTION_ALIGNEMNT {
+	if alignment := e.sectionAlignment[section]; alignment == UNKNOWN_SECTION_ALIGNEMNT {
 		e.sectionAlignment[section] = global.Symbol.Ctype.RequiredAlignment()
 	}
 	offset = e.sectionVirtualSize[section]
@@ -218,7 +218,7 @@ func (e *ELFBuilder) addSymbolToSymtab(symbol *Symbol, name string) {
 func (e *ELFBuilder) createSymbols(sectionsRequiringSymbol []string, sourceFileName string) {
 	NULL_SYMBOL := &Symbol{
 		Sname: NULL_SYMBOL_STR_ID,
-		Sinfo: encodeSymbolInfo(SB_LOCAL, ST_NOTYPE),
+		Sinfo: EncodeSymbolInfo(SB_LOCAL, ST_NOTYPE),
 		Sother: 0, 
 		Sshndx: SHN_UNDEF, 
 		Svalue: 0, 
@@ -227,7 +227,7 @@ func (e *ELFBuilder) createSymbols(sectionsRequiringSymbol []string, sourceFileN
 	e.addSymbolToSymtab(NULL_SYMBOL, NULL_SYMBOL_STR)
 	FILE_SYMBOL := &Symbol{
 		Sname: e.strtab.PutString(sourceFileName),
-		Sinfo: encodeSymbolInfo(SB_LOCAL, ST_FILE),
+		Sinfo: EncodeSymbolInfo(SB_LOCAL, ST_FILE),
 		Sother: 0, 
 		Sshndx: SHN_ABS, 
 		Svalue: 0, 
@@ -237,7 +237,7 @@ func (e *ELFBuilder) createSymbols(sectionsRequiringSymbol []string, sourceFileN
 	for _, sectionName := range sectionsRequiringSymbol {
 		e.addSymbolToSymtab(&Symbol{
 			Sname: e.strtab.PutString(sectionName),
-			Sinfo: encodeSymbolInfo(SB_LOCAL, ST_SECTION),
+			Sinfo: EncodeSymbolInfo(SB_LOCAL, ST_SECTION),
 			Sother: RESERVED_SYMBOL_OTHER_FIELD,
 			Sshndx: e.sectionHdrTable.GetSectionIdx(sectionName),
 			Svalue: 0,
@@ -253,7 +253,7 @@ func (e *ELFBuilder) createSymbols(sectionsRequiringSymbol []string, sourceFileN
 		}
 		e.addSymbolToSymtab(&Symbol{
 			Sname: e.strtab.PutString(fun.FunctionSymbol.Symbol.Name),
-			Sinfo: encodeSymbolInfo(binding, ST_FUNC),
+			Sinfo: EncodeSymbolInfo(binding, ST_FUNC),
 			Sother: RESERVED_SYMBOL_OTHER_FIELD,
 			Sshndx: textSectionidx,
 			Svalue: uint64(fun.Offset),
@@ -268,7 +268,7 @@ func (e *ELFBuilder) createSymbols(sectionsRequiringSymbol []string, sourceFileN
 		section := e.getSymbolSection(global)
 		e.addSymbolToSymtab(&Symbol{
 			Sname: e.strtab.PutString(global.Symbol.Name),
-			Sinfo: encodeSymbolInfo(e.classifyBinding(global), e.classifyType(global)),
+			Sinfo: EncodeSymbolInfo(e.classifyBinding(global), e.classifyType(global)),
 			Sother: RESERVED_SYMBOL_OTHER_FIELD,
 			Sshndx: e.sectionHdrTable.GetSectionIdx(section),
 			Svalue: uint64(e.assignSymbolToSection(global, section)),
@@ -340,7 +340,7 @@ func (e *ELFBuilder) createSectionHeaders() {
 	if e.sectionHdrTable.HasSection(BSS) {
 		e.sectionHdrTable.CreateBssSection(fileOffset, e.sectionVirtualSize[BSS], e.sectionAlignment[BSS])
 	}
-	e.sectionHdrTable.CreateSymtabSection(fileOffset, e.sectionVirtualSize[SYMTAB], e.symtab.getGreatestLocalSymbolId())
+	e.sectionHdrTable.CreateSymtabSection(fileOffset, e.sectionVirtualSize[SYMTAB], e.symtab.GetGreatestLocalSymbolId())
 	fileOffset += e.sectionVirtualSize[SYMTAB]
 	e.sectionHdrTable.CreateStrtabSection(fileOffset, e.strtab.GetSize())
 	fileOffset += e.strtab.GetSize()
@@ -353,10 +353,15 @@ func (e *ELFBuilder) CreateRelocatableELF(sourceFileName string, resultPath stri
 	data := e.getDataSectionMemoryImage()
 	relaEntries := e.createRelocationEntries()
 	e.createSectionHeaders()
-	sectionsContentSize := len(e.code) + len(relaEntries) * RELA_ENTRY_SIZE + len(data) +
-						   e.symtab.BinarySize() + e.strtab.GetSize() + e.sectionHdrTable.GetSectionStrtab().GetSize() 
+	lastSection := e.sectionHdrTable.GetSectionWithHighestFileOffset()
+	// sectionsContentSize := len(e.code) + len(relaEntries) * RELA_ENTRY_SIZE + len(data) +
+	// 					   e.symtab.BinarySize() + e.strtab.GetSize() + e.sectionHdrTable.GetSectionStrtab().GetSize()
+	sectionHdrsOffset := lastSection.Soffset
+	if lastSection.Stype != S_NOBITS {
+		sectionHdrsOffset += lastSection.Ssize
+	}
 	elf := &ElfFile{
-		Header: e.createHeader(sectionsContentSize),
+		Header: e.createHeader(sectionHdrsOffset),
 		SectionHdrTable: e.sectionHdrTable,
 		Code: e.code,
 		Data: data,
@@ -365,6 +370,6 @@ func (e *ELFBuilder) CreateRelocatableELF(sourceFileName string, resultPath stri
 		SectionStrtab: e.sectionHdrTable.GetSectionStrtab(),
 		RelaEntries: relaEntries,
 	}
-	return NewSerializer().Serialize(elf, resultPath)
+	return NewSerializer().Serialize(elf, resultPath, 0644)
 }
 

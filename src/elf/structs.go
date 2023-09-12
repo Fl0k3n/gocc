@@ -1,6 +1,6 @@
 package elf
 
-type SectionType uint32
+type SectionType = uint32
 
 const ELF_CLASS_64 = 2
 const ELF_DATA_LITTLE_ENDIAN_U2 = 1
@@ -12,6 +12,8 @@ const EXECUTABLE_FILE = 2
 const SHARED_OBJECT_FILE = 3
 
 const E_X86_64_MACHINE = 0x3E
+
+const GOT_ENTRY_SIZE = 8
 
 const (
 	S_NULL SectionType = iota
@@ -28,7 +30,7 @@ const (
 	S_DYNSYM // and some other not needed
 )
 
-type SegmentType uint32
+type SegmentType = uint32
 
 const (
 	PT_NULL SegmentType = iota
@@ -40,15 +42,15 @@ const (
 	PT_PHDR
 )
 
-type SegmentFlag uint32
+type SegmentFlag = uint32
 
 const (
 	PF_X SegmentFlag = 0x1
-	PF_W SegmentFlag = 0x2
-	PF_R SegmentFlag = 0x4
+	PF_W = 0x2
+	PF_R = 0x4
 )
 
-type SectionFlag uint64
+type SectionFlag = uint64
 
 const (
 	S_WRITE SectionFlag = 0x1
@@ -57,7 +59,7 @@ const (
 	S_INFO = 0x40
 )
 
-type SymbolBinding uint8 
+type SymbolBinding = uint8 
 
 const (
 	SB_LOCAL SymbolBinding = 0
@@ -65,7 +67,7 @@ const (
 	SB_WEAK = 2
 )
 
-type SymbolType uint8 
+type SymbolType = uint8 
 
 const (
 	ST_NOTYPE SymbolType = 0
@@ -221,7 +223,7 @@ func RelaEntryFromBytes(bytes []byte, offset int) *RelaEntry {
 	return &r
 }
 
-const PROGRAM_HEADER_SIZE = 64
+const PROGRAM_HEADER_SIZE = 56
 
 type ProgramHeader struct {
 	Ptype uint32
@@ -258,4 +260,5 @@ type ElfFile struct {
 	Strtab *Strtab
 	SectionStrtab *Strtab
 	RelaEntries []RelaEntry
+	GOT []uint64
 }

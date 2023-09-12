@@ -65,10 +65,12 @@ func (d *Deserializer) deserializeSectionHeaderTable() error {
 
 func (d *Deserializer) deserializeCodeAndData() error {
 	textHdr := d.elfFile.SectionHdrTable.GetHeader(TEXT)
-	d.elfFile.Code = d.data[textHdr.Soffset:textHdr.Soffset+textHdr.Ssize]
+	d.elfFile.Code = make([]uint8, textHdr.Ssize)
+	copy(d.elfFile.Code, d.data[textHdr.Soffset:textHdr.Soffset+textHdr.Ssize])
 	if d.elfFile.SectionHdrTable.HasSection(DATA) {
 		dataHdr := d.elfFile.SectionHdrTable.GetHeader(DATA)
-		d.elfFile.Data = d.data[dataHdr.Soffset:dataHdr.Soffset+dataHdr.Ssize]
+		d.elfFile.Data = make([]uint8, dataHdr.Ssize)
+		copy(d.elfFile.Data, d.data[dataHdr.Soffset:dataHdr.Soffset+dataHdr.Ssize])
 	} else {
 		d.elfFile.Data = []byte{}
 	}
@@ -76,6 +78,9 @@ func (d *Deserializer) deserializeCodeAndData() error {
 }
 
 func (d *Deserializer) deserializeSymtab() error {
+	if !d.elfFile.SectionHdrTable.HasSection(SYMTAB) {
+		return nil
+	}
 	symtabHdr := d.elfFile.SectionHdrTable.GetHeader(SYMTAB)
 	symbols := make([]*Symbol, symtabHdr.Ssize / symtabHdr.Sentsize)
 	offset := symtabHdr.Soffset
@@ -88,12 +93,18 @@ func (d *Deserializer) deserializeSymtab() error {
 }
 
 func (d *Deserializer) deserializeStrtab() error {
+	if !d.elfFile.SectionHdrTable.HasSection(STRTAB) {
+		return nil
+	}
 	strtabHdr := d.elfFile.SectionHdrTable.GetHeader(STRTAB)
 	d.elfFile.Strtab = newStrtabFromBytes(d.data, uint32(strtabHdr.Soffset), uint32(strtabHdr.Ssize))
 	return nil
 }
 
 func (d *Deserializer) deserializeRelaTab() error {
+	if !d.elfFile.SectionHdrTable.HasSection(RELA_TEXT) {
+		return nil
+	}
 	relaTextHdr := d.elfFile.SectionHdrTable.GetHeader(RELA_TEXT)
 	relaEntries := make([]RelaEntry, relaTextHdr.Ssize / relaTextHdr.Sentsize)
 	offset := relaTextHdr.Soffset
@@ -123,5 +134,6 @@ func (d *Deserializer) Deserialize(inputPath string) (*ElfFile, error) {
 		Then(d.deserializeRelaTab).
 		Error()
 
+	d.data = nil // dealloc
 	return d.elfFile, err
 }

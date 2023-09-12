@@ -16,8 +16,10 @@ func newStrtab() *Strtab {
 }
 
 func newStrtabFromBytes(bytes []byte, offset uint32, size uint32) *Strtab {
+	buff := make([]byte, size)
+	copy(buff, bytes[offset:offset+size])
 	strtab := Strtab{
-		stringTable: bytes[offset:offset+size],
+		stringTable: buff,
 		definedStrings: map[string]uint32{},
 	}
 	for i := offset; i < offset + size; {
