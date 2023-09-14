@@ -556,16 +556,25 @@ func (g *IRGenerator) handleTopLevelDeclaration(dec *ast.Declaration) {
 		if globalDef.Initializer != nil {
 			if structT, isStruct := globalDef.T.(semantics.StructCtype); isStruct {
 				if globalDef.Initializer.Expression != nil {
-					initializers = append(initializers, &GlobalInitializer{Offset: 0, Expression: globalDef.Initializer.Expression})
+					initializers = append(initializers, &GlobalInitializer{
+						Offset: 0,
+						Constant: g.typeEngine.EvalConstantExpression(globalDef.Initializer.Expression),
+					})
 				} else {
 					fields, expressions := g.typeEngine.GetStructFieldInitializers(structT, globalDef.Initializer)
 					for i := range fields {
 						_, offset := structT.Field(fields[i])
-						initializers = append(initializers, &GlobalInitializer{Offset: offset, Expression: expressions[i]})
+						initializers = append(initializers, &GlobalInitializer{
+							Offset: offset,
+							Constant: g.typeEngine.EvalConstantExpression(expressions[i]),
+						})
 					}
 				}
 			} else {
-				initializers = append(initializers, &GlobalInitializer{Offset: 0, Expression: globalDef.Initializer.Expression})
+				initializers = append(initializers, &GlobalInitializer{
+					Offset: 0,
+					Constant: g.typeEngine.EvalConstantExpression(globalDef.Initializer.Expression),
+				})
 			}
 		}
 		g.scopeMgr.newGlobalVariable(globalDef.Name, globalDef.T,
@@ -573,7 +582,7 @@ func (g *IRGenerator) handleTopLevelDeclaration(dec *ast.Declaration) {
 	}
 }
 
-func (g *IRGenerator) Generate(root *ast.TranslationUnit) ([]*FunctionIR, []*GlobalSymbol, *semantics.TypeEngine) {
+func (g *IRGenerator) Generate(root *ast.TranslationUnit) *IntermediateRepresentation {
 	g.scopeMgr.EnterGlobalScope()
 	for _, ed := range root.ExternalDeclarations {
 		switch ced := ed.(type) {
@@ -583,6 +592,13 @@ func (g *IRGenerator) Generate(root *ast.TranslationUnit) ([]*FunctionIR, []*Glo
 			g.handleTopLevelDeclaration(&ced)
 		}
 	}
+	return &IntermediateRepresentation{
+		FunctionIr: g.writer.GetFunctions(),
+		Globals: g.scopeMgr.GetGlobalSymbols(),
+		BootstrappedTypeEngine: g.typeEngine,
+	}
+}
+
+func (g *IRGenerator) PrintIR() {
 	g.writer.PrintAll()
-	return g.writer.GetFunctions(), g.scopeMgr.GetGlobalSymbols(), g.typeEngine
 }

@@ -2,6 +2,7 @@ package parsers
 
 import (
 	"ast"
+	"errors"
 	"fmt"
 	"grammars"
 	"tokenizers"
@@ -40,10 +41,13 @@ func NewForGrammar(grammar *grammars.Grammar, tokenizer *tokens.Tokenizer, verbo
 }
 
 func NewFromFile(grammar *grammars.Grammar, tokenizer *tokens.Tokenizer, 
-				 actionTabFile string, gotoTabFile string, verbose bool) *Parser {
+				 actionTabFile string, gotoTabFile string, verbose bool) (*Parser, error) {
 	tb := NewTableBuilder(grammar)
-	act, got := tb.DeserializeTables(actionTabFile, gotoTabFile)
-	return New(grammar, tokenizer, act, got, verbose)
+	act, got, err := tb.DeserializeTables(actionTabFile, gotoTabFile)
+	if err != nil {
+		return nil, err
+	}
+	return New(grammar, tokenizer, act, got, verbose), nil
 }
 
 func (p *Parser) shift(action ShiftAction) {
@@ -106,8 +110,10 @@ func (p *Parser) BuildParseTree() (ast.TranslationUnit, error) {
 
 	return p.astBuilder.GetParsedTree()
 parserError:
-	fmt.Println(err)
-	fmt.Printf("syntax error in line %d\n in state %d, no lookahead for token %s\n",
-				p.tokenizer.LineIdx, p.stateStack.Peek(), token)
-	return ast.TranslationUnit{}, err
+	if p.verbose {
+		fmt.Println(err)
+		fmt.Printf("syntax error in line %d\n in state %d, no lookahead for token %s\n",
+					p.tokenizer.LineIdx, p.stateStack.Peek(), token)
+	}
+	return ast.TranslationUnit{}, errors.New(fmt.Sprintf("syntax error in line %d", p.tokenizer.LineIdx))
 }

@@ -92,6 +92,14 @@ func (s *SectionHdrTable) NumberOfSections() uint16 {
 	return uint16(len(s.sectionHeaders))
 }
 
+func (s *SectionHdrTable) AppendSectionHeader(sh SectionHeader, sectionName string) uint16 {
+	res := uint16(len(s.sectionHeaders))
+	sh.Sname = s.sectionStrtab.PutString(sectionName)	
+	s.sectionIndexes[sectionName] = res
+	s.sectionHeaders = append(s.sectionHeaders, sh)
+	return res
+}
+
 func (s *SectionHdrTable) GetSectionName(sectionIdx uint16) string {
 	return s.sectionStrtab.GetStringForIndex(s.sectionHeaders[sectionIdx].Sname)
 }

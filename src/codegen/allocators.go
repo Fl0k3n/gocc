@@ -84,7 +84,7 @@ func (a *BasicRegisterAllocator) nextFreeFloatingRegister() FloatingRegisterFami
 func (a *BasicRegisterAllocator) allocFunctionReturnRegister(returnSymbol *AugmentedSymbol, storeMode bool) Register {
 	switch a.memoryManager.classifySymbol(returnSymbol.Sym) {
 	case INTEGER:
-		reg := GetIntegralRegisterFamily(SYS_V_RETURN_INTEGRAL_REGISTER).UseForSize(returnSymbol.Sym.Ctype.Size())
+		reg := GetIntegralRegisterFamily(SYS_V_RETURN_INTEGRAL_REGISTER).UseForSize(returnSymbol.Sym.Ctype.SymbolSize())
 		a.allocState.usedIntegralRegisters.Add(SYS_V_RETURN_INTEGRAL_REGISTER)
 		a.allocState.currentlyUsedIntegralRegisters.Add(SYS_V_RETURN_INTEGRAL_REGISTER)
 		if a.memoryManager.UsesGOTAddressing(returnSymbol) {
@@ -133,7 +133,7 @@ func (a *BasicRegisterAllocator) getArgToRegisterMapping(Args []*irs.Symbol) []*
 				res = append(res, &ArgToRegisterMapping{
 					PassMode: REGISTER_ONLY,
 					StorageClass: INTEGER,
-					Register: GetIntegralRegisterFamily(regFamT).UseForSize(arg.Ctype.Size()),
+					Register: GetIntegralRegisterFamily(regFamT).UseForSize(arg.Ctype.SymbolSize()),
 				})
 			}
 		case SSE:
@@ -203,7 +203,7 @@ func (a *BasicRegisterAllocator) allocFunctionArgRegisters(call *AugmentedFuncti
 	if len(viaStackIntegralArgs) > 0 {
 		stackMoverIntegralReg := a.nextFreeIntegralRegister()
 		for _, arg := range viaStackIntegralArgs {
-			arg.Register = stackMoverIntegralReg.UseForSize(arg.Sym.Ctype.Size())
+			arg.Register = stackMoverIntegralReg.UseForSize(arg.Sym.Ctype.SymbolSize())
 		}
 	}
 	if len(viaStackFloatingArgs) > 0 {
@@ -221,7 +221,7 @@ func (a *BasicRegisterAllocator) allocAnythingForStoreMode(asym *AugmentedSymbol
 	}
 	switch a.memoryManager.classifySymbol(asym.Sym) {
 	case INTEGER:
-		asym.Register = a.nextFreeIntegralRegister().UseForSize(asym.Sym.Ctype.Size())
+		asym.Register = a.nextFreeIntegralRegister().UseForSize(asym.Sym.Ctype.SymbolSize())
 	case SSE:
 		asym.Register = a.nextFreeFloatingRegister().use()
 	case MEMORY, SPLIT:
@@ -232,7 +232,7 @@ func (a *BasicRegisterAllocator) allocAnythingForStoreMode(asym *AugmentedSymbol
 func (a *BasicRegisterAllocator) allocAnythingForLoadMode(asym *AugmentedSymbol) {
 	switch a.memoryManager.classifySymbol(asym.Sym) {
 	case INTEGER:
-		asym.Register = a.nextFreeIntegralRegister().UseForSize(asym.Sym.Ctype.Size())
+		asym.Register = a.nextFreeIntegralRegister().UseForSize(asym.Sym.Ctype.SymbolSize())
 		if a.memoryManager.UsesGOTAddressing(asym) {
 			asym.RequiresGotUnwrapping = true
 			asym.GotAddressHolder = asym.Register.(IntegralRegister).Family.Use(QWORD)
@@ -310,11 +310,11 @@ func (a *BasicRegisterAllocator) allocRegistersForBinaryOperation(l *AugmentedBi
 		a.allocState.currentlyUsedIntegralRegisters.Add(DIV_OP_DIVIDENT_HIGHER_BITS_REG)
 		a.allocState.currentlyUsedIntegralRegisters.Add(DIV_OP_DIVIDENT_LOWER_BITS_REG)
 		// this needs special handling with clearing the higher bits or zero extending lower etc
-		l.LeftOperand.Register = GetIntegralRegisterFamily(DIV_OP_DIVIDENT_LOWER_BITS_REG).UseForSize(l.LeftOperand.Sym.Ctype.Size())
+		l.LeftOperand.Register = GetIntegralRegisterFamily(DIV_OP_DIVIDENT_LOWER_BITS_REG).UseForSize(l.LeftOperand.Sym.Ctype.SymbolSize())
 		if l.Operator == "/" {
-			l.LhsSymbol.Register = GetIntegralRegisterFamily(DIV_OP_DIVIDENT_LOWER_BITS_REG).UseForSize(l.LeftOperand.Sym.Ctype.Size())
+			l.LhsSymbol.Register = GetIntegralRegisterFamily(DIV_OP_DIVIDENT_LOWER_BITS_REG).UseForSize(l.LeftOperand.Sym.Ctype.SymbolSize())
 		} else {
-			l.LhsSymbol.Register = GetIntegralRegisterFamily(DIV_OP_DIVIDENT_HIGHER_BITS_REG).UseForSize(l.LeftOperand.Sym.Ctype.Size())
+			l.LhsSymbol.Register = GetIntegralRegisterFamily(DIV_OP_DIVIDENT_HIGHER_BITS_REG).UseForSize(l.LeftOperand.Sym.Ctype.SymbolSize())
 		}
 		a.markRegisterAsUsedInFunction(l.LeftOperand.Register)
 		a.markRegisterAsUsedInFunction(l.LhsSymbol.Register)
@@ -338,7 +338,7 @@ func (a *BasicRegisterAllocator) allocRegistersForUnaryOperation(l *AugmentedUna
 	switch l.Operator {
 	case "*":
 		reg := a.nextFreeIntegralRegister()
-		l.LhsSymbol.Register = reg.UseForSize(l.LhsSymbol.Sym.Ctype.Size())
+		l.LhsSymbol.Register = reg.UseForSize(l.LhsSymbol.Sym.Ctype.SymbolSize())
 		l.Operand.Register = reg.UseForSize(QWORD_SIZE)
 		l.Operand.LoadBeforeRead = true
 		if a.memoryManager.UsesGOTAddressing(l.Operand) {
@@ -346,7 +346,7 @@ func (a *BasicRegisterAllocator) allocRegistersForUnaryOperation(l *AugmentedUna
 			l.Operand.Register = reg.Use(QWORD)
 		}
 	case "&":
-		l.LhsSymbol.Register = a.nextFreeIntegralRegister().UseForSize(l.LhsSymbol.Sym.Ctype.Size())
+		l.LhsSymbol.Register = a.nextFreeIntegralRegister().UseForSize(l.LhsSymbol.Sym.Ctype.SymbolSize())
 		if a.memoryManager.UsesGOTAddressing(l.Operand) {
 			l.Operand.RequiresGotUnwrapping = true
 			l.Operand.GotAddressHolder = a.nextFreeIntegralRegister().Use(QWORD)

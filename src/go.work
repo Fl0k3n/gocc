@@ -5,6 +5,7 @@ use (
 	./asm
 	./ast
 	./codegen
+	./compiler
 	./elf
 	./grammar
 	./ir
@@ -12,6 +13,7 @@ use (
 	./parser
 	./semantics
 	./symtab
+	./testing
 	./tokenizer
 	./utils
 )

@@ -106,10 +106,10 @@ func (d *Deserializer) deserializeRelaTab() error {
 		return nil
 	}
 	relaTextHdr := d.elfFile.SectionHdrTable.GetHeader(RELA_TEXT)
-	relaEntries := make([]RelaEntry, relaTextHdr.Ssize / relaTextHdr.Sentsize)
+	relaEntries := make([]*RelaEntry, relaTextHdr.Ssize / relaTextHdr.Sentsize)
 	offset := relaTextHdr.Soffset
 	for i := 0; i < len(relaEntries); i++ {
-		relaEntries[i] = *RelaEntryFromBytes(d.data, int(offset))
+		relaEntries[i] = RelaEntryFromBytes(d.data, int(offset))
 		offset += RELA_ENTRY_SIZE
 	}
 	d.elfFile.RelaEntries = relaEntries

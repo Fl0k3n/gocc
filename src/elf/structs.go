@@ -1,5 +1,7 @@
 package elf
 
+import "utils"
+
 type SectionType = uint32
 
 const ELF_CLASS_64 = 2
@@ -106,7 +108,7 @@ func (h *Header) ToBytes() []byte {
 	for i := 0; i < 16; i++ {
 		res[i] = h.Eident[i]
 	}
-	encodeUnsignedIntsToLittleEndianU2(res, 16, h.Etype, h.Emachine, h.Eversion, h.Eentry, 
+	utils.EncodeUnsignedIntsToLittleEndianU2(res, 16, h.Etype, h.Emachine, h.Eversion, h.Eentry, 
 		h.Ephoff, h.Eshoff, h.Eflags, h.Eehsize, h.Ephentsize, h.Ephnum, h.Eshentsize, h.Eshnum, h.Eshstrndx)
 	return res
 }
@@ -116,7 +118,7 @@ func HeaderFromBytes(bytes []byte, offset int) *Header {
 	for i := 0; i < 16; i++ {
 		h.Eident[i] = bytes[offset + i]
 	}
-	decodeUnsignedIntsFromLittleEndianU2(bytes, offset + 16, &h.Etype, &h.Emachine, &h.Eversion, &h.Eentry, 
+	utils.DecodeUnsignedIntsFromLittleEndianU2(bytes, offset + 16, &h.Etype, &h.Emachine, &h.Eversion, &h.Eentry, 
 		&h.Ephoff, &h.Eshoff, &h.Eflags, &h.Eehsize, &h.Ephentsize, &h.Ephnum, &h.Eshentsize, &h.Eshnum, &h.Eshstrndx)
 	return &h
 }
@@ -138,14 +140,14 @@ type SectionHeader struct {
 
 func (h *SectionHeader) ToBytes() []byte {
 	res := make([]byte, SECTION_HEADER_SIZE)
-	encodeUnsignedIntsToLittleEndianU2(res, 0, h.Sname, h.Stype, h.Sflags, h.Saddr, h.Soffset,
+	utils.EncodeUnsignedIntsToLittleEndianU2(res, 0, h.Sname, h.Stype, h.Sflags, h.Saddr, h.Soffset,
 		h.Ssize, h.Slink, h.Sinfo, h.Saddralign, h.Sentsize)
 	return res
 }
 
 func SectionHeaderFromBytes(bytes []byte, offset int) *SectionHeader {
 	h := SectionHeader{}
-	decodeUnsignedIntsFromLittleEndianU2(bytes, offset, &h.Sname, &h.Stype, &h.Sflags, &h.Saddr, &h.Soffset,
+	utils.DecodeUnsignedIntsFromLittleEndianU2(bytes, offset, &h.Sname, &h.Stype, &h.Sflags, &h.Saddr, &h.Soffset,
 		&h.Ssize, &h.Slink, &h.Sinfo, &h.Saddralign, &h.Sentsize)
 	return &h
 }
@@ -171,13 +173,13 @@ func (s *Symbol) Type() SymbolType {
 
 func (s *Symbol) ToBytes() []byte {
 	res := make([]byte, SYMBOL_SIZE)
-	encodeUnsignedIntsToLittleEndianU2(res, 0, s.Sname, s.Sinfo, s.Sother, s.Sshndx, s.Svalue, s.Ssize)
+	utils.EncodeUnsignedIntsToLittleEndianU2(res, 0, s.Sname, s.Sinfo, s.Sother, s.Sshndx, s.Svalue, s.Ssize)
 	return res
 }
 
 func SymbolFromBytes(bytes []byte, offset int) *Symbol {
 	s := Symbol{}
-	decodeUnsignedIntsFromLittleEndianU2(bytes, offset, &s.Sname, &s.Sinfo, &s.Sother, &s.Sshndx, &s.Svalue, &s.Ssize)
+	utils.DecodeUnsignedIntsFromLittleEndianU2(bytes, offset, &s.Sname, &s.Sinfo, &s.Sother, &s.Sshndx, &s.Svalue, &s.Ssize)
 	return &s
 }
 
@@ -207,9 +209,9 @@ func (r *RelaEntry) SymbolIdx() uint32 {
 
 func (r *RelaEntry) ToBytes() []byte {
 	res := make([]byte, RELA_ENTRY_SIZE)
-	encodeUnsignedIntsToLittleEndianU2(res, 0, r.Roffset, r.Rinfo)
+	utils.EncodeUnsignedIntsToLittleEndianU2(res, 0, r.Roffset, r.Rinfo)
 	offset := 16
-	addend := encodeIntToLittleEndianU2(r.Raddend)	
+	addend := utils.EncodeIntToLittleEndianU2(r.Raddend)	
 	for i := 0; i < 8; i++ {
 		res[offset + i] = addend[i]
 	}
@@ -218,8 +220,8 @@ func (r *RelaEntry) ToBytes() []byte {
 
 func RelaEntryFromBytes(bytes []byte, offset int) *RelaEntry {
 	r := RelaEntry{}
-	decodeUnsignedIntsFromLittleEndianU2(bytes, offset, &r.Roffset, &r.Rinfo)
-	decodeIntFromLittleEndianU2(bytes, offset + 16, &r.Raddend)
+	utils.DecodeUnsignedIntsFromLittleEndianU2(bytes, offset, &r.Roffset, &r.Rinfo)
+	utils.DecodeIntFromLittleEndianU2(bytes, offset + 16, &r.Raddend)
 	return &r
 }
 
@@ -238,14 +240,14 @@ type ProgramHeader struct {
 
 func (p *ProgramHeader) ToBytes() []byte {
 	res := make([]byte, PROGRAM_HEADER_SIZE)
-	encodeUnsignedIntsToLittleEndianU2(res, 0, p.Ptype, p.Pflags, p.Poffset, p.Pvaddr,
+	utils.EncodeUnsignedIntsToLittleEndianU2(res, 0, p.Ptype, p.Pflags, p.Poffset, p.Pvaddr,
 		p.Ppaddr, p.Pfilesz, p.Pmemsz, p.Palign)
 	return res
 }
 
 func ProgramHeaderFromBytes(bytes []byte, offset int) *ProgramHeader {
 	p := ProgramHeader{}
-	decodeUnsignedIntsFromLittleEndianU2(bytes, offset, &p.Ptype, &p.Pflags, &p.Poffset,
+	utils.DecodeUnsignedIntsFromLittleEndianU2(bytes, offset, &p.Ptype, &p.Pflags, &p.Poffset,
 		&p.Pvaddr, &p.Ppaddr, &p.Pfilesz, &p.Pmemsz, &p.Palign)
 	return &p
 }
@@ -259,6 +261,6 @@ type ElfFile struct {
 	Symtab *Symtab
 	Strtab *Strtab
 	SectionStrtab *Strtab
-	RelaEntries []RelaEntry
+	RelaEntries []*RelaEntry
 	GOT []uint64
 }

@@ -26,6 +26,12 @@ type AugmentedSymbol struct {
 	// StoreOnlyInMemory bool
 }
 
+
+type AugmentedGlobalSymbol struct {
+	Global *irs.GlobalSymbol
+	EncodedInitializerData []byte
+}
+
 type RegisterWithAccessor struct {
 	Register Register
 	MemoryAccessor MemoryAccessor
@@ -39,7 +45,7 @@ type AugmentedFunctionIr struct {
 	Args []*AugmentedSymbol
 	InRegisterArgsToPlaceOnCalleeStack []*irs.Symbol // args for which memory should be allocated
 	InRegisterArgsToStoreAfterFunctionEnter []*AugmentedSymbol // subset of the ones above that should be stored in that memory before any other code is executed
-	ArgsPlacedOnCallerStack []*AugmentedSymbol
+	ArgsPlacedOnCallerStack []*AugmentedSymbol // same order as in the function definition
 	IntegralRegistersToPersist []*RegisterWithAccessor
 	FloatingRegistersToPersist []*RegisterWithAccessor
 }
@@ -143,7 +149,7 @@ type AugmentedFunctionCallLine struct {
 	FunctionSymbol *AugmentedSymbol
 	Args []*AugmentedSymbol
 	ViaRegisterArgs []*AugmentedSymbol
-	ViaStackArgs []*AugmentedSymbol	// left to right same order as the order in which they should be pushed on stack
+	ViaStackArgs []*AugmentedSymbol	// left to right, should be pushed on stack in reverese order according to SYS V ABI
 }
 
 
@@ -212,9 +218,9 @@ func (a AugmentedTypeCastLine) GetSymbols() (res []*AugmentedSymbol) {
 func (g *Generator) getGlobalInfo(sym *irs.Symbol) *GlobalSymbolInfo {
 	global := g.globals[sym.Index]
 	return &GlobalSymbolInfo{
-		IsExtern: global.IsExtern,
-		IsStatic: global.IsStatic,
-		IsFunction: global.IsFunction,
+		IsExtern: global.Global.IsExtern,
+		IsStatic: global.Global.IsStatic,
+		IsFunction: global.Global.IsFunction,
 	}
 }
 
@@ -232,6 +238,16 @@ func (g *Generator) augmentSymbol(sym *irs.Symbol) *AugmentedSymbol {
 		res.GlobalInfo = g.getGlobalInfo(sym)
 	}
 	return res
+}
+
+func (g *Generator) augmentGlobal(sym *irs.GlobalSymbol) *AugmentedGlobalSymbol {
+	if sym == nil {
+		return nil
+	}
+	return &AugmentedGlobalSymbol{
+		Global: sym,
+		EncodedInitializerData: nil,
+	}
 }
 
 func (g *Generator) prepareAugmentedIr(fun *irs.FunctionIR) *AugmentedFunctionIr {

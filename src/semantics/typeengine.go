@@ -402,6 +402,11 @@ func (e *TypeEngine) GetSymbolsForTopLevelDeclarationAndDefineNewTypes(dec *ast.
 			} else if !partialTypeExtractionFailed {
 				e.typeCheckInitializer(t, initDec.Initializer)
 			}
+			if initDec.Initializer.Expression != nil {
+				if _, err := e.evalConstantExpression(initDec.Initializer.Expression); err != nil {
+					e.errorTracker.registerTypeError(err.Error(), initDec.LineInfo)
+				}
+			}
 		}
 	}
 	return symbols
@@ -784,6 +789,99 @@ func (e *TypeEngine) checkReturnExpression(expr ast.Expression, expectedType Cty
 	return nil
 }
 
+func (e *TypeEngine) evalConstantExpression(expr ast.Expression) (ProgramConstant, error) {
+	exprT, err := e.getTypeOfExpression(expr)
+	if err != nil {
+		return nil, err
+	}
+	if !e.typeRulesManager.canBeUsedAsProgramConstant(exprT) {
+		return nil, errors.New("Expression doesn't evaluate to constant value")
+	}
+	if valExpr, isValExpr := expr.(ast.ConstantValExpression); isValExpr {
+		if e.typeRulesManager.isFloatingType(exprT) {
+			if v, err := evalFloatVal(valExpr.Constant); err != nil {
+				return nil, err
+			} else {
+				return FloatingConstant{T: exprT, Val: v}, nil
+			}
+		} else if e.typeRulesManager.isIntegralType(exprT) {
+			if v, err := evalIntVal(valExpr.Constant); err != nil {
+				return nil, err
+			} else {
+				return IntegralConstant{T: exprT, Val: v}, nil
+			}
+		} else {
+			return nil, errors.New("Unsupported constant expression")
+		}
+	} else if arithmExpr, isArithm := expr.(ast.BinaryArithmeticExpression); isArithm {
+		var p1, p2 ProgramConstant
+		var err error
+		if p1, err = e.evalConstantExpression(arithmExpr.LhsExpression); err != nil {
+			return nil, err
+		}
+		if p2, err = e.evalConstantExpression(arithmExpr.RhsExpression); err != nil {
+			return nil, err
+		}
+		return e.typeRulesManager.applyArithmeticOperator(p1, p2, arithmExpr.Operator, exprT)
+	} else if unaryExpr, isUnary := expr.(ast.CastUnaryExpression); isUnary {
+		if unaryExpr.Operator == "-" {
+			if p, err := e.evalConstantExpression(unaryExpr.CastExpression); err != nil {
+				return nil, err
+			} else if _, isString := p.(StringConstanst); isString {
+				// grammar should block this, but just in case
+				return nil, errors.New("Can't negate string constant")
+			} else {
+				return e.typeRulesManager.negateProgramConstant(p)
+			}
+		} else {
+			return nil, errors.New("Unsupported compile time unary operator " + unaryExpr.Operator)
+		}
+	} else if stringExpr, isStringExpr := expr.(ast.StringLiteralExpression); isStringExpr {
+		return StringConstanst{
+			Val: stringExpr.StringLiteral,
+		}, nil
+	} else if typeCastExpr, isTypeCastExpr := expr.(ast.TypeCastCastExpression); isTypeCastExpr {
+		nestedConstant, err := e.evalConstantExpression(typeCastExpr.Expression)
+		if err != nil {
+			return nil, err
+		}
+		targetT, err := e.convertToCtype(typeCastExpr.Typename)
+		if err != nil {
+			return nil, err
+		}
+		switch nc := nestedConstant.(type) {
+		case IntegralConstant:
+			if !e.typeRulesManager.isExplicitlyCastable(nc.T, targetT) {
+				return nil, errors.New("Invalid type cast")
+			}
+			if e.typeRulesManager.isIntegralType(targetT) {
+				return IntegralConstant{Val: nc.Val, T: targetT}, nil
+			} else {
+				return FloatingConstant{Val: float64(nc.Val), T: targetT}, nil
+			}
+		case FloatingConstant:
+			if !e.typeRulesManager.isExplicitlyCastable(nc.T, targetT) {
+				return nil, errors.New("Invalid type cast")
+			}
+			if e.typeRulesManager.isIntegralType(targetT) {
+				return IntegralConstant{Val: int64(nc.Val), T: targetT}, nil
+			} else {
+				return FloatingConstant{Val: nc.Val, T: targetT}, nil
+			}
+		case StringConstanst:
+			if isString(targetT) {
+				return nestedConstant, nil
+			} else {
+				return nil, errors.New("Can't type cast string constat")
+			}
+		default: 
+			panic("Unexpected program constant")
+		}
+	} else {
+		return nil, errors.New("Unsupported compile time constant expression")
+	}
+}
+
 func (e *TypeEngine) GetNestedType(arrOrPtrT Ctype) Ctype {
 	if arr, isArr := arrOrPtrT.(ArrayCtype); isArr {
 		return arr.NestedType
@@ -800,11 +898,19 @@ func (e *TypeEngine) GetTypeOfExpression(expr ast.Expression) Ctype {
 	}
 }
 
-func (e *TypeEngine) ConvertToCtype(tn *ast.TypeName) Ctype {
+func (e *TypeEngine) convertToCtype(tn *ast.TypeName) (Ctype, error) {
 	if partialType, err := e.getPartialTypeFromSpecifiers(tn.SpecifierQulifierList.TypeSpecifiers); err != nil {
+		return nil, err
+	} else {
+		return e.extractType(tn.AbstractDeclarator, partialType), err
+	}
+}
+
+func (e *TypeEngine) ConvertToCtype(tn *ast.TypeName) Ctype {
+	if t, err := e.convertToCtype(tn); err != nil {
 		panic(err)
 	} else {
-		return e.extractType(tn.AbstractDeclarator, partialType)
+		return t
 	}
 }
 
@@ -937,6 +1043,14 @@ func (e *TypeEngine) GetConstantInfo(expr ast.ConstantValExpression) ProgramCons
 	}
 }
 
+func (e *TypeEngine) EvalConstantExpression(expr ast.Expression) ProgramConstant {
+	pc, err := e.evalConstantExpression(expr)
+	if err != nil {
+		panic(err)
+	}
+	return pc
+}
+
 func (e *TypeEngine) GetAssignmentCastInfo(lhs Ctype, rhs Ctype) (castTo Ctype, requiresCast bool) {
 	if e.typeRulesManager.isSame(lhs, rhs) {
 		return nil, false
@@ -950,6 +1064,10 @@ func (e *TypeEngine) ReturnsVoid(fun FunctionPtrCtype) bool {
 
 func (e *TypeEngine) IsIntegralType(t Ctype) bool {
 	return e.typeRulesManager.isIntegralType(t)
+}
+
+func (e *TypeEngine) IsUnsigned(ic IntegralConstant) bool {
+	return e.typeRulesManager.isUnsignedType(ic.T)
 }
 
 func (e *TypeEngine) IsFloatingType(t Ctype) bool {

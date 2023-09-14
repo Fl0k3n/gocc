@@ -85,6 +85,14 @@ func (f FloatingConstant) String() string {
 	return fmt.Sprintf("%f", f.Val)
 }
 
+type StringConstanst struct {
+	Val string
+}
+
+func (s StringConstanst) String() string {
+	return s.Val
+}
+
 func getTypeName(ts ast.TypeSpecifier) string {
 	switch dts := ts.(type) {
 	case ast.DirectTypeSpecifier:
@@ -133,7 +141,7 @@ func extractStructFieldInitializerIdentifierName(ae *ast.AssignmentExpression) (
 }
 
 // only +, -, *, /, %
-func applyArithmeticOperator(v1 int64, v2 int64, op string) (v int64, err error) {
+func applyArithmeticOperatorOnInts(v1 int64, v2 int64, op string) (v int64, err error) {
 	switch op {
 	case "+": v = v1 + v2
 	case "-": v = v1 - v2
@@ -149,10 +157,26 @@ func applyArithmeticOperator(v1 int64, v2 int64, op string) (v int64, err error)
 		}
 		v = v1 % v2
 	default:
-		err = errors.New("Unsupported compile time constant operator: " + op)
+		err = errors.New("Unsupported compile time constant operator for integral values: " + op)
 	}
 	return
 }
+
+func applyArithmeticOperatorOnFloats(v1 float64, v2 float64, op string) (v float64, err error) {
+	switch op {
+	case "+": v = v1 + v2
+	case "-": v = v1 - v2
+	case "*": v = v1 * v2
+	case "/":
+		if v2 == 0 {
+			return -1, errors.New("Zero division error")
+		}
+		v = v1 / v2
+	default:
+		err = errors.New("Unsupported compile time constant operator for floating values: " + op)
+	}
+	return
+} 
 
 func stripNumericTypeSuffix(val string) string {
 	for {
@@ -223,4 +247,13 @@ func isVoid(t Ctype) bool {
 
 func isBuiltinOrPointer(t Ctype) bool {
 	return isBuiltinType(t) || isPointer(t)
+}
+
+func isString(t Ctype) bool {
+	if ptr, isPtr := t.(PointerCtype); isPtr {
+		if target, targetIsBuiltin := ptr.Target.(BuiltinCtype); targetIsBuiltin {
+			return target.Builtin == CHAR
+		}
+	}
+	return false
 }

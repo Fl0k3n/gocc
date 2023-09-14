@@ -10,6 +10,7 @@ import (
 type Ctype interface {
 	Name() string
 	Size() int
+	SymbolSize() int
 	RequiredAlignment() int
 	HumanReadableName() string
 }
@@ -62,6 +63,10 @@ func (pc PointerCtype) Size() int {
 	return POINTER_SIZE 
 }
 
+func (pc PointerCtype) SymbolSize() int {
+	return POINTER_SIZE
+}
+
 func (pc PointerCtype) RequiredAlignment() int {
 	return POINTER_ALIGNMENT
 }
@@ -85,6 +90,10 @@ func (bc BuiltinCtype) Name() string {
 }
 
 func (bc BuiltinCtype) Size() int {
+	return sizeof[bc.Builtin]
+}
+
+func (bc BuiltinCtype) SymbolSize() int {
 	return sizeof[bc.Builtin]
 }
 
@@ -140,6 +149,10 @@ func (cc StructCtype) Size() int {
 	return cc.size
 }
 
+func (cc StructCtype) SymbolSize() int {
+	return POINTER_SIZE
+}
+
 func (cc StructCtype) RequiredAlignment() int {
 	return cc.NestedFieldTypes[0].RequiredAlignment()
 }
@@ -182,6 +195,10 @@ func (ac ArrayCtype) Size() int {
 		return POINTER_SIZE
 	}
 	return ac.size
+}
+
+func (ac ArrayCtype) SymbolSize() int {
+	return POINTER_SIZE
 }
 
 func (ac ArrayCtype) RequiredAlignment() int {
@@ -233,6 +250,10 @@ func (fp FunctionPtrCtype) Name() string {
 }
 
 func (fp FunctionPtrCtype) Size() int {
+	return POINTER_SIZE 
+}
+
+func (fp FunctionPtrCtype) SymbolSize() int {
 	return POINTER_SIZE 
 }
 

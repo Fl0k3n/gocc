@@ -1,7 +1,6 @@
 package irs
 
 import (
-	"ast"
 	"semantics"
 	"symtabs"
 )
@@ -26,7 +25,7 @@ type Symbol struct {
 
 type GlobalInitializer struct {
 	Offset int
-	Expression ast.Expression // TODO turn this into binary value
+	Constant semantics.ProgramConstant
 }
 
 type GlobalSymbol struct {

@@ -2,7 +2,9 @@ package linkers
 
 import (
 	"elf"
+	"errors"
 	"math"
+	"strings"
 	"utils"
 )
 
@@ -44,6 +46,8 @@ func (l *Linker) getNextSegmentPhysicalAndVirtualOffsets(
 	if remainder := virtPhyDelta % requiredRelativeAlignment; remainder != 0 {
 		nextSegmentVirtualAddrStart += remainder
 	}
+	// we can't have multiple segments mapped to the same page if they have different access permissions
+	nextSegmentVirtualAddrStart += PAGE_SIZE 
 	return
 }
 
@@ -251,9 +255,10 @@ func (l *Linker) replaceRelaTextSectionWithGOT(e *elf.ElfFile) {
 func (l *Linker) fillGOTSectionAndGetSymbolMapping(e *elf.ElfFile) map[uint32]int {
 	gotSectionHdr := e.SectionHdrTable.GetHeader(elf.GOT)
 	gotSectionIdx := e.SectionHdrTable.GetSectionIdx(elf.GOT)
+	// TODO do we need that? if so when do we need that
 	e.Symtab.AddSymbol(&elf.Symbol{
 		Sname: e.Strtab.PutString(elf.GOT_SYMBOL_NAME),
-		Sinfo: elf.EncodeSymbolInfo(elf.SB_LOCAL, elf.ST_OBJECT),
+		Sinfo: elf.EncodeSymbolInfo(elf.SB_GLOBAL, elf.ST_OBJECT),
 		Sother: elf.RESERVED_SYMBOL_OTHER_FIELD,
 		Sshndx: gotSectionIdx,
 		Svalue: gotSectionHdr.Saddr,
@@ -261,8 +266,6 @@ func (l *Linker) fillGOTSectionAndGetSymbolMapping(e *elf.ElfFile) map[uint32]in
 	})
 	e.SectionHdrTable.ChangeSectionSizeAndShiftSuccedingSections(
 		uint16(e.SectionHdrTable.GetSectionIdx(elf.SYMTAB)), elf.SYMBOL_SIZE)
-	symtab := e.SectionHdrTable.GetHeader(elf.SYMTAB)
-	symtab.Sinfo = e.Symtab.GetGreatestLocalSymbolId() + 1
 
 	symbolMapping := map[uint32]int{}
 	e.GOT = make([]uint64, gotSectionHdr.Ssize / gotSectionHdr.Sentsize)
@@ -328,10 +331,15 @@ func (l *Linker) fixProgramHeaderForStaticallyLinkedExecutable(e *elf.ElfFile, e
 	hdr.Eshstrndx = e.SectionHdrTable.GetSectionIdx(elf.SECTION_STRTAB)
 }
 
-func (l *Linker) relocateStaticallyLinkedExecutable(e *elf.ElfFile, symIdxToGotIdxMapping map[uint32]int) {
+func (l *Linker) relocateStaticallyLinkedExecutable(e *elf.ElfFile, symIdxToGotIdxMapping map[uint32]int) error {
 	// for static linking every symbol must be defined
 	if undefinedSymbols := e.Symtab.GetUndefinedSymbols(); len(undefinedSymbols) > 0 {
-		panic("undefined symbols") // TODO return err
+		symbolNames := make([]string, len(undefinedSymbols))
+		for i, sym := range undefinedSymbols {
+			symbolNames[i] = e.Strtab.GetStringForIndex(sym.Sname)
+		}
+		namesJoined := strings.Join(symbolNames, ", ")
+		return errors.New("Undefined symbols: " + namesJoined)
 	}
 	var gotStartVirtualAddr uint64 = 0
 	if e.SectionHdrTable.HasSection(elf.GOT) {
@@ -358,7 +366,8 @@ func (l *Linker) relocateStaticallyLinkedExecutable(e *elf.ElfFile, symIdxToGotI
 			e.Code[int(rela.Roffset) + i] = b
 		}
 	}
-	e.RelaEntries = []elf.RelaEntry{}
+	e.RelaEntries = []*elf.RelaEntry{}
+	return nil
 }
 
 func (l *Linker) updateSectionHeadersForChangedSections(e *elf.ElfFile) {
@@ -395,8 +404,22 @@ func (l *Linker) updateSectionHeadersForChangedSections(e *elf.ElfFile) {
 	}
 }
 
-func (l *Linker) StaticLinkRelocatablesIntoRelocatable() {
-
+func (l *Linker) StaticLinkRelocatablesIntoRelocatable(objFilePaths []string, resultPath string) error {	
+	initialElfFile, err := elf.NewDeserializer().Deserialize(objFilePaths[0])
+	if err != nil {
+		return err
+	}
+	combiner := newCombiner(initialElfFile)
+	for _, filePath := range objFilePaths[1:] {
+		e, err := elf.NewDeserializer().Deserialize(filePath)
+		if err != nil {
+			return err
+		}
+		if err := combiner.CombineWith(e); err != nil {
+			return err
+		}
+	}
+	return elf.NewSerializer().Serialize(combiner.GetCombined(), resultPath, 0644)
 }
 
 func (l *Linker) CreateExecutable(objFilePath string, resultPath string, entrySymbolName string) error {
@@ -417,7 +440,9 @@ func (l *Linker) CreateExecutable(objFilePath string, resultPath string, entrySy
 	if l.requiresGOT(e) {
 		symIdxToGotIdxMapping = l.fillGOTSectionAndGetSymbolMapping(e)
 	}
-	l.relocateStaticallyLinkedExecutable(e, symIdxToGotIdxMapping)
+	if err := l.relocateStaticallyLinkedExecutable(e, symIdxToGotIdxMapping); err != nil {
+		return err
+	}
 	l.updateSectionHeadersForChangedSections(e)
 	l.fixProgramHeaderForStaticallyLinkedExecutable(e, entrySymbolName)
 

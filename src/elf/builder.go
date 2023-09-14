@@ -11,7 +11,7 @@ type ELFBuilder struct {
 	strtab *Strtab
 	code []uint8
 	assembledFunctions []*asm.AssembledFunction
-	globals []*irs.GlobalSymbol
+	globals []*codegen.AugmentedGlobalSymbol
 	symtab *Symtab
 	definedFunctions *utils.Set[string]
 	sectionVirtualSize map[string]int
@@ -19,14 +19,14 @@ type ELFBuilder struct {
 	sectionHdrTable *SectionHdrTable
 	globalDataOffsets map[string]int
 	displacementsToFix []asm.DisplacementToFix
-	symbolNameToIdx map[string]int
+	symbolNameToIdx map[string]uint32
 	initializedGlobals *utils.Set[string]
 }
 
 func NewBuilder(
 	code []uint8,
 	assembledFunctions []*asm.AssembledFunction,
-	globals []*irs.GlobalSymbol,
+	globals []*codegen.AugmentedGlobalSymbol,
 	displacementsToFix []asm.DisplacementToFix,
 ) *ELFBuilder {
 	definedFunctions := utils.NewSet[string]()
@@ -45,7 +45,7 @@ func NewBuilder(
 		sectionHdrTable: newSectionHdrTable(),
 		globalDataOffsets: map[string]int{},
 		displacementsToFix: displacementsToFix,
-		symbolNameToIdx: map[string]int{},
+		symbolNameToIdx: map[string]uint32{},
 		initializedGlobals: utils.NewSet[string](),
 	}
 }
@@ -85,11 +85,11 @@ func (e *ELFBuilder) checkWhatSectionsAreNeeded() (data bool, bss bool, relaText
 	data = false
 	bss = false
 	relaText = len(e.displacementsToFix) > 0
-	for _, global := range e.globals {
-		if global.IsFunction {
+	for _, aglobal := range e.globals {
+		if aglobal.Global.IsFunction {
 			continue
 		}
-		if global.Initializers == nil || len(global.Initializers) == 0 {
+		if aglobal.EncodedInitializerData == nil || len(aglobal.EncodedInitializerData) == 0 {
 			bss = true
 		} else {
 			data = true	
@@ -215,6 +215,15 @@ func (e *ELFBuilder) addSymbolToSymtab(symbol *Symbol, name string) {
 	e.symbolNameToIdx[name] = e.symtab.AddSymbol(symbol)
 }
 
+func (e *ELFBuilder) reorderSymbols() {
+	reorderLUT := e.symtab.ReorderSymbolsToHaveLocalsFirst()
+	reorderedSymNameToIdx := map[string]uint32{}
+	for symName, idx := range e.symbolNameToIdx {
+		reorderedSymNameToIdx[symName] = reorderLUT[idx]	
+	}
+	e.symbolNameToIdx = reorderedSymNameToIdx
+}
+
 func (e *ELFBuilder) createSymbols(sectionsRequiringSymbol []string, sourceFileName string) {
 	NULL_SYMBOL := &Symbol{
 		Sname: NULL_SYMBOL_STR_ID,
@@ -261,7 +270,8 @@ func (e *ELFBuilder) createSymbols(sectionsRequiringSymbol []string, sourceFileN
 		}, fun.FunctionSymbol.Symbol.Name)
 	}
 
-	for _, global := range e.globals {
+	for _, aglobal := range e.globals {
+		global := aglobal.Global
 		if global.IsFunction && e.definedFunctions.Has(global.Symbol.Name) {
 			continue
 		}
@@ -276,6 +286,7 @@ func (e *ELFBuilder) createSymbols(sectionsRequiringSymbol []string, sourceFileN
 		}, global.Symbol.Name)
 	}
 	e.sectionVirtualSize[SYMTAB] = e.symtab.Size() * SYMBOL_SIZE
+	e.reorderSymbols()
 }
 
 func (e *ELFBuilder) getDataSectionMemoryImage() ([]byte) {
@@ -283,16 +294,18 @@ func (e *ELFBuilder) getDataSectionMemoryImage() ([]byte) {
 	if len(data) == 0 {
 		return data
 	}
-	for _, global := range e.globals {
-		if e.getSymbolSection(global) == DATA {
-			offset := e.globalDataOffsets[global.Symbol.Name]
-			data[offset] = 0x12 // TODO
+	for _, aglobal := range e.globals {
+		if e.getSymbolSection(aglobal.Global) == DATA {
+			offset := e.globalDataOffsets[aglobal.Global.Symbol.Name]
+			for i, b := range aglobal.EncodedInitializerData {
+				data[offset + i] = b
+			}
 		}
 	}
 	return data
 }
 
-func (e *ELFBuilder) getRelocationTypeAndSymbolIdx(accessor codegen.MemoryAccessor) (relocType RelocationType, symbolIdx int, offset int) {
+func (e *ELFBuilder) getRelocationTypeAndSymbolIdx(accessor codegen.MemoryAccessor) (relocType RelocationType, symbolIdx uint32, offset int) {
 	switch acc := accessor.(type) {
 	case codegen.GOTMemoryAccessor:
 		return R_X86_64_REX_GOTPCRELX, e.symbolNameToIdx[acc.Symbol.Name], 0
@@ -310,13 +323,13 @@ func (e *ELFBuilder) getRelocationTypeAndSymbolIdx(accessor codegen.MemoryAccess
 	}
 }
 
-func (e *ELFBuilder) createRelocationEntries() []RelaEntry {
-	res := make([]RelaEntry, len(e.displacementsToFix))
+func (e *ELFBuilder) createRelocationEntries() []*RelaEntry {
+	res := make([]*RelaEntry, len(e.displacementsToFix))
 	for i, displacement := range e.displacementsToFix {
 		relocType, symbolSymtabIdx, symbolOffset := e.getRelocationTypeAndSymbolIdx(displacement.MemoryAccessor)
-		res[i] = RelaEntry{
+		res[i] = &RelaEntry{
 			Roffset: uint64(displacement.CodeOffset),
-			Rinfo: encodeRelocationInfo(uint32(symbolSymtabIdx), relocType),
+			Rinfo: EncodeRelocationInfo(uint32(symbolSymtabIdx), relocType),
 			Raddend: int64(symbolOffset) - (int64(displacement.SizeToFix) + int64(displacement.InstructionSizeAfterDisplacement)),
 		}
 	}
@@ -354,8 +367,6 @@ func (e *ELFBuilder) CreateRelocatableELF(sourceFileName string, resultPath stri
 	relaEntries := e.createRelocationEntries()
 	e.createSectionHeaders()
 	lastSection := e.sectionHdrTable.GetSectionWithHighestFileOffset()
-	// sectionsContentSize := len(e.code) + len(relaEntries) * RELA_ENTRY_SIZE + len(data) +
-	// 					   e.symtab.BinarySize() + e.strtab.GetSize() + e.sectionHdrTable.GetSectionStrtab().GetSize()
 	sectionHdrsOffset := lastSection.Soffset
 	if lastSection.Stype != S_NOBITS {
 		sectionHdrsOffset += lastSection.Ssize

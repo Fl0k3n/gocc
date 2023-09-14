@@ -135,3 +135,9 @@ type TypeCastLine struct {
 func (c *TypeCastLine) String() string {
 	return fmt.Sprintf("%s = cast(%s) %s", c.ToSymbol.Name, c.ToSymbol.Ctype.HumanReadableName(), c.FromSymbol.Name)
 }
+
+type IntermediateRepresentation struct {
+	FunctionIr []*FunctionIR
+	Globals []*GlobalSymbol
+	BootstrappedTypeEngine *semantics.TypeEngine
+}

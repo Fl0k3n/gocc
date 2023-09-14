@@ -430,15 +430,15 @@ func (tb *TableBuilder) BuildConfigurationAutomaton() (*ActionTable, *GotoTable)
 	return tb.actionTable, tb.gotoTable
 }
 
-func (tb *TableBuilder) SerializeTables(actionsFilename string, gotosFilename string) {
+func (tb *TableBuilder) SerializeTables(actionsFilename string, gotosFilename string) error {
 	actionsFile, err := os.OpenFile(actionsFilename, os.O_WRONLY | os.O_TRUNC | os.O_CREATE, 0644); 
 	if err != nil {
-		panic(err)
+		return err
 	}
 	defer actionsFile.Close()
 	gotosFile, err := os.OpenFile(gotosFilename, os.O_WRONLY | os.O_TRUNC | os.O_CREATE, 0644); 
 	if err != nil {
-		panic(err)
+		return err
 	}
 	defer gotosFile.Close()
 	gob.Register(ShiftAction{})
@@ -447,29 +447,30 @@ func (tb *TableBuilder) SerializeTables(actionsFilename string, gotosFilename st
 	gotosBuff := new(bytes.Buffer)
 	e := gob.NewEncoder(actionsBuff)
 	if err := e.Encode(tb.actionTable.tab); err != nil {
-		panic(err)
+		return err
 	}
 	if _, err := actionsFile.Write(actionsBuff.Bytes()); err != nil {
-		panic(err)
+		return err
 	}
 	e = gob.NewEncoder(gotosBuff)
 	if err := e.Encode(tb.gotoTable.tab); err != nil {
-		panic(err)
+		return err
 	}
 	if _, err := gotosFile.Write(gotosBuff.Bytes()); err != nil {
-		panic(err)
+		return err
 	}
+	return nil
 }
 
-func (tb *TableBuilder) DeserializeTables(actionsFilename string, gotosFilename string) (*ActionTable, *GotoTable) {
+func (tb *TableBuilder) DeserializeTables(actionsFilename string, gotosFilename string) (*ActionTable, *GotoTable, error) {
 	actionsFile, err := os.Open(actionsFilename); 
 	if err != nil {
-		panic(err)
+		return nil, nil, err
 	}
 	defer actionsFile.Close()
 	gotosFile, err := os.Open(gotosFilename); 
 	if err != nil {
-		panic(err)
+		return nil, nil, err
 	}
 	defer gotosFile.Close()
 	var decodedActTab []Actions
@@ -478,13 +479,13 @@ func (tb *TableBuilder) DeserializeTables(actionsFilename string, gotosFilename 
 	gob.Register(ReduceAction{})
 	e := gob.NewDecoder(actionsFile)
 	if err := e.Decode(&decodedActTab); err != nil {
-		panic(err)
+		return nil, nil, err
 	}
 	e = gob.NewDecoder(gotosFile)
 	if err := e.Decode(&decodedGotoTab); err != nil {
-		panic(err)
+		return nil, nil, err
 	}
-	return &ActionTable{tab: decodedActTab}, &GotoTable{tab: decodedGotoTab}
+	return &ActionTable{tab: decodedActTab}, &GotoTable{tab: decodedGotoTab}, nil
 }
 
 func (tb *TableBuilder) PrintConfigurations() {

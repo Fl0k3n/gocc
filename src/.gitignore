@@ -1,0 +1,8 @@
+*.o
+*.so
+main
+.acctab.gob
+.gototab.gob
+resources/csrc/*
+!resources/csrc/*.c
+!resources/csrc/*.s

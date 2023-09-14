@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"utils"
 )
 
 type SectionSerializer = func (*ElfFile) []byte
@@ -41,7 +42,7 @@ func NewSerializer() *ELFSerializer {
 				res := make([]byte, len(e.GOT) * GOT_ENTRY_SIZE)
 				offset := 0	
 				for _, gotEntry := range e.GOT {
-					for i, b := range encodeUnsignedIntToLittleEndianU2(gotEntry) {
+					for i, b := range utils.EncodeUnsignedIntToLittleEndianU2(gotEntry) {
 						res[offset + i] = b
 					}
 					offset += GOT_ENTRY_SIZE

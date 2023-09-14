@@ -3,29 +3,38 @@ package codegen
 import (
 	"irs"
 	"semantics"
+	"utils"
 )
 
 
 type Generator struct {
 	functions []*irs.FunctionIR
-	globals []*irs.GlobalSymbol
+	globals []*AugmentedGlobalSymbol
 	asm *X86_64Writer
 	registerAllocator RegisterAllocator
 	typeEngine *semantics.TypeEngine
 	memoryManager *MemoryManager
 }
 
-func NewGenerator(functions []*irs.FunctionIR, globals []*irs.GlobalSymbol,
-				 registerAllocator RegisterAllocator, memoryManager *MemoryManager,
-				 assemblyWriter *X86_64Writer, typeEngine *semantics.TypeEngine) *Generator {
-	return &Generator{
-		functions: functions,
-		globals: globals,
+func NewGenerator(
+	ir *irs.IntermediateRepresentation,
+	registerAllocator RegisterAllocator,
+	memoryManager *MemoryManager,
+	assemblyWriter *X86_64Writer,
+) *Generator {
+	g := &Generator{
+		functions: ir.FunctionIr,
 		asm: assemblyWriter,
 		registerAllocator: registerAllocator,
-		typeEngine: typeEngine,
+		typeEngine: ir.BootstrappedTypeEngine,
 		memoryManager: memoryManager,
 	}
+	augmentedGlobals := make([]*AugmentedGlobalSymbol, len(ir.Globals))
+	for i, global := range ir.Globals {
+		augmentedGlobals[i] = g.augmentGlobal(global)
+	}
+	g.globals = augmentedGlobals
+	return g
 }
 
 func (g *Generator) generateFunctionPrologue(fun *AugmentedFunctionIr) {
@@ -201,21 +210,23 @@ func (g *Generator) storeArgsPassedInRegsOnStack(fun *AugmentedFunctionIr) {
 
 func (g *Generator) storeArgsOnStackAndGetSubtract(l *AugmentedFunctionCallLine) int {
 	subtract := 0
-	stackDiff := 0
-	for _, arg := range l.ViaStackArgs {
+	stackDiff := len(l.ViaStackArgs) * QWORD_SIZE
+	if stackDiff > 0 {
+		// we must be 16B aligned before call
+		if remainder := stackDiff % STACK_ALIGNMENT; remainder != 0 {
+			subtract = STACK_ALIGNMENT - remainder
+			g.subtractStackPointer(subtract)
+		}
+	}
+	for i := len(l.ViaStackArgs) - 1; i >= 0; i-- {
+		arg := l.ViaStackArgs[i]
 		if arg.LoadBeforeRead {
 			g.loadSymbol(arg)
 		}
+		g.subtractStackPointer(QWORD_SIZE)
 		g.store(RegisterMemoryAccessor{
 			Register: g.registerAllocator.GetStackPointer(),
 		}, arg.Register)
-		g.subtractStackPointer(QWORD_SIZE)
-		stackDiff += QWORD_SIZE
-	}
-	if stackDiff > 0 {
-		// we must be 16B aligned before that
-		subtract := g.memoryManager.GetStackPointerAlignment(stackDiff) - stackDiff
-		g.subtractStackPointer(subtract)
 	}
 	return subtract + stackDiff
 }
@@ -339,11 +350,66 @@ func (g *Generator) generateFunction(fun *irs.FunctionIR) {
 	g.returnFromFunction(augmentedFun)
 }
 
+func (g *Generator) encodeProgramConstant(pc semantics.ProgramConstant) (encoded []byte) {
+	switch c := pc.(type) {
+	case semantics.IntegralConstant:
+		if g.typeEngine.IsUnsigned(c) {
+			switch c.T.Size() {
+			case 1:
+				encoded = utils.EncodeUnsignedIntToLittleEndianU2(uint8(c.Val))
+			case 2:
+				encoded = utils.EncodeUnsignedIntToLittleEndianU2(uint16(c.Val))
+			case 4:
+				encoded = utils.EncodeUnsignedIntToLittleEndianU2(uint32(c.Val))
+			case 8:
+				encoded = utils.EncodeUnsignedIntToLittleEndianU2(uint64(c.Val))
+			}
+		} else {
+			switch c.T.Size() {
+			case 1:
+				encoded = utils.EncodeIntToLittleEndianU2(int8(c.Val))
+			case 2:
+				encoded = utils.EncodeIntToLittleEndianU2(int16(c.Val))
+			case 4:
+				encoded = utils.EncodeIntToLittleEndianU2(int32(c.Val))
+			case 8:
+				encoded = utils.EncodeIntToLittleEndianU2(int64(c.Val))
+			}
 
-func (g *Generator) Generate() []*FunctionCode {
+		}
+	case semantics.FloatingConstant:
+		// TODO
+	case semantics.StringConstanst:
+		// TODO
+	}
+	return
+}
+
+func (g *Generator) generateGlobalInitializersData() {
+	for _, aglob := range g.globals {
+		global := aglob.Global
+		if global.IsExtern || global.IsFunction || global.Initializers == nil || len(global.Initializers) == 0 {
+			continue
+		}
+		buff := make([]byte, global.Symbol.Ctype.Size())
+		for i := 0; i < len(buff); i++ {
+			buff[i] = 0
+		}
+		for _, initializer := range global.Initializers {
+			encoded := g.encodeProgramConstant(initializer.Constant)
+			for i, b := range encoded {
+				buff[initializer.Offset + i] = b
+			}
+		}
+		aglob.EncodedInitializerData = buff
+	}
+}
+
+func (g *Generator) Generate() ([]*FunctionCode, []*AugmentedGlobalSymbol) {
 	g.memoryManager.AssignMemoryToGlobals(g.globals)
 	for _, fun := range g.functions {
 		g.generateFunction(fun)
 	}
-	return g.asm.GetAssembly()
+	g.generateGlobalInitializersData()
+	return g.asm.GetAssembly(), g.globals
 }

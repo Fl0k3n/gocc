@@ -143,6 +143,13 @@ func (tm *TypeRulesManager) isIntegralType(t Ctype) bool {
 	return false
 }
 
+func (tm *TypeRulesManager) isUnsignedType(t Ctype) bool {
+	if b, isBuiltin := t.(BuiltinCtype); isBuiltin {
+		return b.Builtin == UNSIGNED || b.Builtin == UNSIGNED_INT || b.Builtin == UNSIGNED_LONG || b.Builtin == CHAR
+	}
+	return false
+}
+
 func (tm *TypeRulesManager) isFloatingType(t Ctype) bool {
 	return isBuiltinType(t) && !isVoid(t) && !tm.isIntegralType(t)
 }
@@ -462,10 +469,9 @@ func (tm *TypeRulesManager) evalConstantIntegerExpression(expr ast.Expression) (
 		if v2, err = tm.evalConstantIntegerExpression(arithmExpr.RhsExpression); err != nil {
 			goto onerr
 		}
-		return applyArithmeticOperator(v1, v2, arithmExpr.Operator)
+		return applyArithmeticOperatorOnInts(v1, v2, arithmExpr.Operator)
 	} else if unaryExpr, isUnary := expr.(ast.CastUnaryExpression); isUnary {
 		var v int64
-		// TODO should this be allowed?
 		if unaryExpr.Operator == "-" {
 			if v, err = tm.evalConstantIntegerExpression(unaryExpr.CastExpression); err != nil {
 				goto onerr
@@ -479,6 +485,87 @@ onerr:
 	return 0, err
 }
 
+func (tm *TypeRulesManager) canBeUsedAsProgramConstant(t Ctype) bool {
+	switch tt := t.(type) {
+	case BuiltinCtype:
+		return tt.Builtin != VOID
+	case PointerCtype:
+		if target, targetIsBuiltin := tt.Target.(BuiltinCtype); targetIsBuiltin {
+			return target.Builtin == CHAR
+		}
+		return false
+	}
+	return false
+}
+
+func (tm *TypeRulesManager) applyArithmeticOperator(p1 ProgramConstant, p2 ProgramConstant, op string, resultType Ctype) (v ProgramConstant, err error) {
+	stringError := errors.New("Can't apply arithemtic operator on strings")
+	if _, isString := p1.(StringConstanst); isString {
+		return nil, stringError
+	}
+	if _, isString := p2.(StringConstanst); isString {
+		return nil, stringError
+	}
+
+	if tm.isIntegralType(resultType) {
+		// both must be integral
+		p1Val := p1.(IntegralConstant).Val
+		p2Val := p2.(IntegralConstant).Val
+		if v, err := applyArithmeticOperatorOnInts(p1Val, p2Val, op); err != nil {
+			return nil, err
+		} else {
+			return IntegralConstant{
+				Val: v,
+				T: resultType,
+			}, nil
+		}
+	} else {
+		// at least 1 is float
+		var firstVal float64
+		var secondVal float64
+
+		if p1F, isP1floating := p1.(FloatingConstant); isP1floating {
+			firstVal = p1F.Val
+			if p2F, isP2Floating := p2.(FloatingConstant); isP2Floating {
+				secondVal = p2F.Val
+			} else {
+				secondVal = float64(p2.(IntegralConstant).Val)
+			}
+		} else {
+			firstVal = float64(p1.(IntegralConstant).Val)
+			secondVal = p2.(FloatingConstant).Val
+		}
+		if v, err := applyArithmeticOperatorOnFloats(firstVal, secondVal, op); err != nil {
+			return nil, err
+		} else {
+			return FloatingConstant{
+				Val: v,
+				T: resultType,
+			}, nil
+		}
+	}
+}
+
+func (tm *TypeRulesManager) negateProgramConstant(p ProgramConstant) (ProgramConstant, error) {
+	switch pc := p.(type) {
+	case IntegralConstant:
+		if tm.isUnsignedType(pc.T) {
+			return nil, errors.New("Can't negate unsigned constant")
+		}
+		return IntegralConstant{
+			Val: -1 * pc.Val,
+			T: pc.T,
+		}, nil
+	case FloatingConstant:
+		return FloatingConstant{
+			Val: -1 * pc.Val,
+			T: pc.T,
+		}, nil
+	default:
+		return nil, errors.New("Constant can't be negated")
+	}
+}
+ 
 func (tm *TypeRulesManager) hasExactlySameOverload(fdef *FunctionDefinition, overloads []*FunctionDefinition) bool {
 	for _, overload := range overloads {
 		if len(overload.ParamTypes) != len(fdef.ParamTypes) {
