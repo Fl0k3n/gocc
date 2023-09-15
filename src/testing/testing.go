@@ -331,5 +331,5 @@ func Test() {
 	// 	"/home/flok3n/develop/from_scratch/gocc/resources/csrc/b2.c",
 	// 	"/home/flok3n/develop/from_scratch/gocc/resources/csrc/b3.c",
 	// )
-	CompileAndLink("/home/flok3n/develop/from_scratch/gocc/resources/csrc/b4.c")
+	CompileAndLink("/home/flok3n/develop/from_scratch/gocc/resources/csrc/b5.c")
 }

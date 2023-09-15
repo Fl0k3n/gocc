@@ -10,9 +10,9 @@ import (
 type Ctype interface {
 	Name() string
 	Size() int
-	SymbolSize() int
 	RequiredAlignment() int
 	HumanReadableName() string
+	// Equals(Ctype) bool
 }
 
 const ANONYMOUS = ""
@@ -75,6 +75,19 @@ func (pc PointerCtype) HumanReadableName() string {
 	return fmt.Sprintf("%s*", pc.Target.HumanReadableName())
 }
 
+// func (pc PointerCtype) Equals(other Ctype) bool {
+// 	if ptr, isPtr := other.(PointerCtype); isPtr {
+// 		if ptr.Target == nil && pc.Target == nil {
+// 			return true
+// 		}
+// 		if ptr.Target == nil || pc.Target == nil {
+// 			return false
+// 		}
+// 		return pc.Target.Equals(ptr.Target)
+// 	}
+// 	return false
+// }
+
 type BuiltinCtype struct {
 	Builtin Builtin
 }
@@ -103,6 +116,13 @@ func (bc BuiltinCtype) RequiredAlignment() int {
 
 func (bc BuiltinCtype) HumanReadableName() string {
 	return bc.Name()
+}
+
+func (bc BuiltinCtype) Equals(other Ctype) bool {
+	if b, isBultin := other.(BuiltinCtype); isBultin {
+		return bc.Builtin == b.Builtin
+	}
+	return false
 }
 
 type StructCtype struct {
@@ -178,6 +198,14 @@ func (cc *StructCtype) Field(name string) (t Ctype, offset int) {
 	}
 	panic("Struct Ctype " + cc.name + " doesn't contain field named " + name)
 }
+
+// func (bc BuiltinCtype) Equals(other Ctype) bool {
+// 	if b, isBultin := other.(BuiltinCtype); isBultin {
+// 		return bc.Builtin == b.Builtin
+// 	}
+// 	return false
+// }
+
 
 type ArrayCtype struct {
 	name string

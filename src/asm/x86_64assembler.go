@@ -93,7 +93,7 @@ func (a *X86_64Assembler) assembleConditionalJump(code codegen.ConditionalJumpAs
 			opcode = []uint8{op}
 		}
 	} else {
-		if op, ok := nonNegatedJcc32bLUT[code.Condition]; !ok {
+		if op, ok := lookup[codegen.JumpCondition](nonNegatedJcc32bLUT, code.Condition); !ok {
 			panic("jcc opcode not known")
 		} else {
 			opcode = op
@@ -108,7 +108,10 @@ func (a *X86_64Assembler) assembleConditionalJump(code codegen.ConditionalJumpAs
 }
 
 func (a *X86_64Assembler) assembleSetcc(code codegen.SetccAsmLine) {
-	opcode := nonNegatedSetccLUT[code.Condition]
+	opcode, ok := lookup[codegen.JumpCondition](nonNegatedSetccLUT, code.Condition)
+	if !ok {
+		panic("setcc opcode not known")
+	}
 	if code.Negated {
 		opcode[len(opcode) - 1]++
 	}

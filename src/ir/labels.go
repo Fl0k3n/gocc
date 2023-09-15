@@ -16,14 +16,20 @@ const (
 	DEFAULT = "DEFAULT"
 	TERNARY_ENDIF = "TENDIF"
 	TERNARY_ELSE = "TELSE"
+	AND_ZERO = "ANDZERO"
+	AND_DONE = "ANDDONE"
+	OR_ONE = "ORONE"
+	OR_DONE = "ORDONE"
 )
+
+// TODO make it generic and move to utils since codegen uses it too
 
 type LabelProvider struct {
 	counters map[LabelT]int
 	curFunName string
 }
 
-func newLabelProvider() *LabelProvider {
+func NewLabelProvider() *LabelProvider {
 	return &LabelProvider{}
 }
 

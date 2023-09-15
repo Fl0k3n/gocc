@@ -82,7 +82,7 @@ func (this *Tokenizer) getNextToken() Token {
 	lastIdx := nextIndexOfNotToken(this.currentLine, startIdx)
 	tokenVal := this.currentLine[startIdx:lastIdx]
 	// ugly workaroud for tokenizing struct accessors, we must allow \s.abc to be a one token but v.z to be 3 tokens
-	if this.lastParsed.T == "IDENTIFIER" && strings.HasPrefix(tokenVal, ".") {
+	if isValidStructAccessorPrefix(this.lastParsed.T) && strings.HasPrefix(tokenVal, ".") {
 		tokenVal = "."
 		lastIdx = startIdx + 1
 	}

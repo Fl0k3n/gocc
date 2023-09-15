@@ -1,208 +1,78 @@
 
-typedef int TEST;
+// int g(int a, int b, int e1, int e2, int e3, int e4, int e5, int e6, int e7) {
+//     int c;
+//     c = a + 235 * b;
+//     return c + e1 + e2 + e3 + e4 + e5 + e6 + e7;
+// }
 
-struct A {
-    TEST x;
-    int y;
-} b;
+int A;
 
+int B = 3;
 
-int a = 1;
+static int C;
 
-struct A str = {
-    .x = 5,
-    .y = 7,
-};
+static int D = 5;
 
-// int g(int a, int b);
+// extern int E;
 
-float g(int[5][], float, double);
-
-void f() {
-    int x;
-    float y;
-    double m;
-    long v;
-    int* a;
-
-    str.y = g(a, y, y);
-    // int x;
-    // float f;
-    // int* q;
-    // float z = x;
-    // int y;
-    // for (x = 1; x < 10; x++) {
-    //     y += x;
-    //     if (x > 5 && x % 2 == 0) {
-    //         int a = 5;
-    //         while (a > 0) {
-    //             a = g(--a, x);
-    //         }
-    //     }
-    //     else {
-    //         continue;
-    //     }
-    // }
+static int F() {
+    return 1;
 }
 
-// int* a;
-// int a, * b;
+struct KNTP {
+    int x;
+};
 
-// enum TEST {
-//     FIRST,
-//     SECOND
-// };
+struct KNTP kntp;
 
-// int m;
+struct KNTP kntp2 = {
+    .x = 1
+};
 
-// struct D {
-//     int z;
-//     int v;
-// };
+// extern int c;
 
-// int func(int* v) {
-//     return *v;
-// }
+void (*kntp3)(int, int);
 
-// int a(int b) {
-//     int i = 0;
-//     struct D dd = {
-//         .z = 1,
-//     };
-//     struct D* d = &dd;
-//     d->v = 4;
-//     for (i; i < b; i++) {
-//         if ((i % 2) != 0) {
-//             return 1;
-//         }
-//     }
-//     do {
-//         d->v++;
-//     } while (1);
-//     if (func(&i)) {
-//         return 0;
-//     }
-//     else {
-//         return 1;
-//     }
-//     return 0;
-// }
+// extern int G();
 
-// struct B {
-//     int z;
-// };
+static int g(int a, int b) {
+    int c;
+    c = a + 235 * b + A + F() + D + C + B;
+    // c = a + 270 * b;
+    return c;
+}
 
-// struct A {
-//     int x;
-//     char y;
-// } Q = {
-//     .x = 1,
-//     .y = 'c'
-// };
+// int g(int a, int b, int e1, int e2, int e3, int e4, int e5, int e6, int e7);
 
-
-// struct B {
-//     int x;
-// };
-
+void f() {
+    int a;
+    int b;
+    int i;
+    for (i = 0; i < 10; i++) {
+        int m;
+        m = i / 345642;
+        if (m == 3) {
+            b = g(a, b);
+        }
+        else {
+            a++;
+        }
+    }
+}
 
 // void f() {
-//     int b = 1;
-//     struct A a = {
-//          x = 1,
-//        y = 'c',
-//     };
-
-//     sizeof(4.5 / 3);
-// }
-
-
-// int f(int a, int b) {
-//     return a + b;
-// }
-
-// int* a(int v, int q);
-
-// int x() {
-//     struct Q q;
-//     q.a[0](1, 2);
-// }
-// enum X {
-//     b
-// };
-
-// struct Q {
-//     int(*aa)[5];
-//     int (*a)(int, int);
-// };
-
-// void d() {
-//     struct Q q;
-//     int v[5];
-//     q.aa = &v;
-// }
-
-// int f0(int, int, int);
-
-// typedef int TEST;
-
-// TEST a;
-
-// struct A {
+//     char b0;
+//     char b1;
+//     char b2;
+//     short w0;
+//     short w1;
+//     short w;
 //     int x;
-//     char y;
-// };
-
-// typedef struct B {
+//     int y;
 //     int z;
-// } B;
-
-// int f1(int a, int b) {
-//     int x;
-//     int y = 1;
-//     int A[10];
-//     struct A st;
-//     struct A* ptr;
-
-//     A[0] = 1;
-//     A[y + 0 + 1 * 0] = 2;
-
-//     st.x = 1;
-//     st.y = A[y + 0 + 1 * 0];
-
-//     ptr = &st;
-//     ptr->x--;
-
-
-//     x = 5;
-//     if (x > 1) {
-//         x = 6;
-//     }
-//     else {
-//         x = 7;
-//     }
-
-//     while (x > 0) {
-//         x++;
-//     }
-
-//     for (i = 0; i < 10; i++) {
-//         f(1, 2);
-//         for (j = 1; j == 1; j *= -1) {
-//             if (j % 2) {
-//                 f(0);
-//             }
-//             else if (j * 3 % 3) {
-//                 g(1);
-//             }
-//             else if (0) {
-//                 x++;
-//             }
-//             else {
-//                 x--;
-//             }
-//         }
-//     }
-
-//     return x;
+//     long a;
+//     long b;
+//     long c;
+//     z = x + y;
+//     c = a + b;
 // }

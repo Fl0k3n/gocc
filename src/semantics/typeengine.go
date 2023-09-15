@@ -245,6 +245,9 @@ func (e *TypeEngine) extractDirectType(ddec ast.DirectAbstractDeclarator, declar
 
 func (e *TypeEngine) extractType(dec *ast.AbstractDeclarator, lhsType Ctype) (t Ctype) {
 	var ptr *PointerCtype = nil
+	if dec == nil {
+		return lhsType
+	}
 	if dec.Pointer != nil {
 		p := e.wrapInAnonymousPointers(dec.Pointer, UNKNOWN_OR_PARTIAL)	
 		ptr = &p
@@ -1066,6 +1069,10 @@ func (e *TypeEngine) IsIntegralType(t Ctype) bool {
 	return e.typeRulesManager.isIntegralType(t)
 }
 
+func (e *TypeEngine) IsUnsignedType(t Ctype) bool {
+	return e.typeRulesManager.isUnsignedType(t)
+}
+
 func (e *TypeEngine) IsUnsigned(ic IntegralConstant) bool {
 	return e.typeRulesManager.isUnsignedType(ic.T)
 }
@@ -1078,6 +1085,39 @@ func (e *TypeEngine) IsPointer(t Ctype) bool {
 	return isPointer(t) // TODO arrays without first dim
 }
 
+func (e *TypeEngine) IsArray(t Ctype) bool {
+	return isArray(t)
+}
+
+func (e *TypeEngine) InterpretAsAddressInArithmetic(t Ctype) bool {
+	return e.IsArray(t) // TODO also function, but not function ptr
+}
+
 func (e *TypeEngine) WrapInPointer(t Ctype) PointerCtype {
 	return PointerCtype{Target: t}
+}
+
+func (e *TypeEngine) GetTypeOfArrayDisplacement() Ctype {
+	return BuiltinFrom("long")
+}
+
+func (e *TypeEngine) AreTypesEqual(t1 Ctype, t2 Ctype) bool {
+	return e.typeRulesManager.isSame(t1, t2)
+}
+
+func (e *TypeEngine) GetIntConstantTypeHavingSize(size int) Ctype {
+	var builtinName string
+	switch size {
+	case 8:
+		builtinName = "long"
+	case 4:
+		builtinName = "int"
+	case 2:
+		builtinName = "short"
+	case 1:
+		builtinName = "char"
+	default:
+		panic(fmt.Sprintf("No builtin for size %d", size))
+	}
+	return BuiltinFrom(builtinName)
 }

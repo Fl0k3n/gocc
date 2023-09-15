@@ -61,10 +61,10 @@ func (m *MemoryManager) placeOnStack(curSize int, symbolsT irs.SymbolType, snaps
 	for _, sym := range snapshot {
 		t := sym.Ctype
 		prevPadding := 0
-		if remainder := curSize % t.RequiredAlignment(); remainder != 0 {
+		if remainder := abs(curSize) % t.RequiredAlignment(); remainder != 0 {
 			prevPadding = t.RequiredAlignment() - remainder
 		}
-		curSize -= t.Size() - prevPadding
+		curSize -= (t.Size() + prevPadding)
 		mmap = append(mmap, StackFrameOffsetMemoryAccessor{
 			Offset: curSize,
 		})
@@ -93,6 +93,10 @@ func (m *MemoryManager) classifySymbol(sym *irs.Symbol) ArgumentStorageClass {
 	}
 }
 
+func (m *MemoryManager) isUnsigned(sym *irs.Symbol) bool {
+	return m.typeEngine.IsUnsignedType(sym.Ctype)
+}
+
 func (m *MemoryManager) setAddressesOfArgsOnStack(fun *AugmentedFunctionIr, rbpOffset int, frameOffset int, curSubtract int) int {
 	mmap := make([]MemoryAccessor, len(fun.Snapshot.ArgsSnapshot))
 	delta := rbpOffset + frameOffset
@@ -104,8 +108,8 @@ func (m *MemoryManager) setAddressesOfArgsOnStack(fun *AugmentedFunctionIr, rbpO
 		}
 		delta += SIZEOF_STACK_ARG
 	}
-	if remainder := curSubtract % REGISTER_ARG_ALIGNMENT; remainder != 0 {
-		curSubtract -= (REGISTER_ARG_ALIGNMENT - remainder)
+	if remainder := abs(curSubtract) % REGISTER_ARG_ALIGNMENT; remainder != 0 {
+		curSubtract -= (REGISTER_ARG_ALIGNMENT + remainder)
 	}
 	for _, arg := range fun.InRegisterArgsToPlaceOnCalleeStack {
 		curSubtract -= SIZEOF_STACK_ARG
@@ -166,7 +170,7 @@ func (m *MemoryManager) AllocStackMemoryAndGetStackSubtract(fun *AugmentedFuncti
 }
 
 func (m *MemoryManager) GetStackPointerAlignment(frameOffset int) int {
-	if remainder := frameOffset % STACK_ALIGNMENT; remainder != 0 {
+	if remainder := abs(frameOffset) % STACK_ALIGNMENT; remainder != 0 {
 		frameOffset += STACK_ALIGNMENT - remainder
 	}
 	return frameOffset

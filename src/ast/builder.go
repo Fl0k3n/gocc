@@ -208,7 +208,7 @@ func (ab *Builder) buildUnaryExpression(prod *grammars.Production) (node Node, e
 		node = idue
 	case "SIZEOF":
 		if prod.To[1].Val == "(" {
-			ab.reductionStack.PopMany(3)
+			ab.tokenStack.PopMany(3)
 			typeName := ab.reductionStack.Pop().(TypeName)
 			sue := SizeofUnaryExpression{
 				TypeName: &typeName,

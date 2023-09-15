@@ -4,7 +4,7 @@
 #	compiled by GNU C version 11.4.0, GMP version 6.2.1, MPFR version 4.1.0, MPC version 1.2.1, isl version isl-0.24-GMP
 
 # GGC heuristics: --param ggc-min-expand=100 --param ggc-min-heapsize=131072
-# options passed: -masm=intel -mtune=generic -march=x86-64 -O0 -fasynchronous-unwind-tables -fstack-protector-strong -fstack-clash-protection -fcf-protection
+# options passed: -masm=intel -mtune=generic -march=x86-64 -O0 -fpic -fasynchronous-unwind-tables -fstack-protector-strong -fstack-clash-protection -fcf-protection
 	.text
 	.globl	x
 	.bss
@@ -14,7 +14,7 @@
 x:
 	.zero	4
 	.globl	m
-	.section	.data.rel.local,"aw"
+	.section	.data.rel,"aw"
 	.align 8
 	.type	m, @object
 	.size	m, 8
@@ -41,8 +41,25 @@ main:
 	.cfi_offset 6, -16
 	mov	rbp, rsp	#,
 	.cfi_def_cfa_register 6
-	mov	eax, 0	# _1,
-# fcalls.c:21: }
+# fcalls.c:31:     int a = x + 3;
+	mov	eax, DWORD PTR -8[rbp]	# tmp87, x
+	add	eax, 3	# tmp86,
+	mov	DWORD PTR -4[rbp], eax	# a, tmp86
+# fcalls.c:32:     if (a > 0) {
+	cmp	DWORD PTR -4[rbp], 0	# a,
+	jle	.L2	#,
+# fcalls.c:33:         return -1;
+	mov	eax, -1	# _1,
+	jmp	.L3	#
+.L2:
+# fcalls.c:35:     a = x + 5;
+	mov	eax, DWORD PTR -8[rbp]	# tmp91, x
+	add	eax, 5	# tmp90,
+	mov	DWORD PTR -4[rbp], eax	# a, tmp90
+# fcalls.c:36:     return 5;
+	mov	eax, 5	# _1,
+.L3:
+# fcalls.c:38: }
 	pop	rbp	#
 	.cfi_def_cfa 7, 8
 	ret	

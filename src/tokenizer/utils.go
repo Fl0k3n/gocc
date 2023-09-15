@@ -85,9 +85,13 @@ func nextIndexOfNotNumericConstant(line string, startInclusive int) int {
 	dots := 0
 	dotsAllowed := 1
 	i := startInclusive
+	isHex := false
 	// TODO scientific notation
 	if line[i] == '0' && i + 1 < len(line) {
 		// hex, binary, octal
+		if line[i + 1] == 'x' {
+			isHex = true
+		}
 		if line[i + 1] == 'x' || line[i + 1] == 'b' || isNumber(line[i+1]) {
 			dotsAllowed = 0
 			i = i + 2
@@ -99,7 +103,7 @@ func nextIndexOfNotNumericConstant(line string, startInclusive int) int {
 			if dots > dotsAllowed {
 				return i
 			}
-		} else if !isNumber(line[i]) {
+		} else if !((isHex && isHexNumber(line[i])) || (!isHex && isNumber(line[i]))) {
 			break
 		}
 	}
@@ -140,6 +144,10 @@ func nextIndexOfNotToken(line string, startInclusive int) int {
 	return startInclusive + 1
 }
 
+func isValidStructAccessorPrefix(token string) bool {
+	return token == "IDENTIFIER" || token == "]" || token == ")"
+}
+
 func isLetter(char byte) bool {
 	return (char >= 97 && char <= 122) || (char >= 65 && char <= 90)
 }
@@ -149,7 +157,11 @@ func isLetterOrUnderscore(char byte) bool {
 }
 
 func isNumber(char byte) bool {
-	return char >= 48 && char <= 57
+	return char >= '0' && char <= '9'
+}
+
+func isHexNumber(char byte) bool {
+	return (char >= '0' && char <= '9') || (char >= 'A' && char <= 'F') || (char >= 'a' && char <= 'f')
 }
 
 func isNumberOrDot(char byte) bool {

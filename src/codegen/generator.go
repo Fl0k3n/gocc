@@ -14,6 +14,7 @@ type Generator struct {
 	registerAllocator RegisterAllocator
 	typeEngine *semantics.TypeEngine
 	memoryManager *MemoryManager
+	labels *irs.LabelProvider
 }
 
 func NewGenerator(
@@ -28,6 +29,7 @@ func NewGenerator(
 		registerAllocator: registerAllocator,
 		typeEngine: ir.BootstrappedTypeEngine,
 		memoryManager: memoryManager,
+		labels: irs.NewLabelProvider(),
 	}
 	augmentedGlobals := make([]*AugmentedGlobalSymbol, len(ir.Globals))
 	for i, global := range ir.Globals {
@@ -77,7 +79,11 @@ func (g *Generator) storeSymbol(asym *AugmentedSymbol) {
 
 func (g *Generator) storeInLValue(dest *AugmentedLValue, srcReg Register) {
 	if dest.IsDereferenced {
-		g.loadReference(dest.Sym, dest.Sym)
+		// g.loadReference(dest.Sym, dest.Sym)
+		// g.store(RegisterMemoryAccessor{Register: dest.Sym.Register.(IntegralRegister)}, srcReg)
+		if dest.Sym.LoadBeforeRead {
+			g.loadSymbol(dest.Sym)
+		}
 		g.store(RegisterMemoryAccessor{Register: dest.Sym.Register.(IntegralRegister)}, srcReg)
 	} else {
 		g.checkForGotUnwrapping(dest.Sym)
@@ -128,6 +134,9 @@ func (g *Generator) saveConstantInRegister(dest Register, con semantics.ProgramC
 }
 
 func (g *Generator) performBinaryOperationOnRegisters(leftReg Register, operator string, rightReg Register) (resultReg Register) {
+	// if leftReg.Size() != rightReg.Size() {
+	// 	panic("Register size mismatch for binary operation")
+	// }
 	switch lreg := leftReg.(type) {
 	case IntegralRegister:
 		rreg := rightReg.(IntegralRegister)
@@ -141,11 +150,45 @@ func (g *Generator) performBinaryOperationOnRegisters(leftReg Register, operator
 			g.asm.SignedMultiplyIntegralRegisters(lreg, rreg)
 		case "/", "%":
 			// TODO this behaves differently for bytes (not dl:al but whole in ax)
-			// also clear rax rdx, this assumes that left represents rax or rdx depending on operator
+			// this assumes that left represents rax or rdx depending on operator
+			g.asm.ClearIntegralRegister(GetIntegralRegisterFamily(DIV_OP_DIVIDENT_HIGHER_BITS_REG).Use(DWORD))
 			g.asm.SignedDivideRaxRdxByIntegralRegister(rreg)
-		case "==", "<", "<=", ">", ">=":
+			if operator == "/"  {
+				return GetIntegralRegisterFamily(DIV_OP_DIVIDENT_LOWER_BITS_REG).UseForSize(leftReg.Size())
+			} else {
+				return GetIntegralRegisterFamily(DIV_OP_DIVIDENT_HIGHER_BITS_REG).UseForSize(leftReg.Size())
+			}
+		case "==", "<", "<=", ">", ">=", "!=":
 			g.asm.CompareIntegralRegisters(lreg, rreg)
-			g.asm.SetComparisonResult(lreg, RELATIONAL_OPERATOR_TO_CONDITION[operator], false)
+			negated := false
+			if operator == "!=" {
+				negated = true
+			}
+			g.asm.SetComparisonResult(lreg, RELATIONAL_OPERATOR_TO_CONDITION[operator], negated)
+		case "&&":
+			doneLabel := g.labels.Next(irs.AND_DONE)
+			setZeroLabel := g.labels.Next(irs.AND_ZERO)
+			g.asm.CompareToZero(lreg)
+			g.asm.JumpIfZero(setZeroLabel)
+			g.asm.CompareToZero(rreg)
+			g.asm.JumpIfZero(setZeroLabel)
+			g.asm.MovIntegralConstantToIntegralRegister(lreg, 1)
+			g.asm.JumpToLabel(doneLabel)
+			g.asm.PutLabel(setZeroLabel)
+			g.asm.MovIntegralConstantToIntegralRegister(lreg, 0)
+			g.asm.PutLabel(doneLabel)
+		case "||":
+			doneLabel := g.labels.Next(irs.OR_DONE)
+			setOneLabel := g.labels.Next(irs.OR_ONE)
+			g.asm.CompareToZero(lreg)
+			g.asm.JumpIfNotZero(setOneLabel)
+			g.asm.CompareToZero(rreg)
+			g.asm.JumpIfNotZero(setOneLabel)
+			g.asm.MovIntegralConstantToIntegralRegister(lreg, 0)
+			g.asm.JumpToLabel(doneLabel)
+			g.asm.PutLabel(setOneLabel)
+			g.asm.MovIntegralConstantToIntegralRegister(lreg, 1)
+			g.asm.PutLabel(doneLabel)
 		}
 	case FloatingRegister:
 		// rreg := rightReg.(FloatingRegister)
@@ -164,6 +207,7 @@ func (g *Generator) performUnaryOperationOnRegister(register Register, operator 
 				g.asm.SetComparisonResult(reg, EQUAL, false)
 			case "-":
 				g.asm.NegateIntegralRegister(reg)
+			// TODO ~
 			default:
 				panic("unexpected register unary operator")
 			}
@@ -253,6 +297,46 @@ func (g *Generator) returnFromFunction(fun *AugmentedFunctionIr) {
 	g.asm.Return()
 }
 
+func (g *Generator) typeCast(fromSymbol *AugmentedSymbol, toSymbol *AugmentedSymbol) {
+	srcClass := g.memoryManager.classifySymbol(fromSymbol.Sym)
+	dstClass := g.memoryManager.classifySymbol(toSymbol.Sym)
+	srcSize := fromSymbol.Sym.Ctype.Size()
+	dstSize := toSymbol.Sym.Ctype.Size()
+
+	if fromSymbol.LoadBeforeRead {
+		g.loadSymbol(fromSymbol)
+	}
+
+	if srcClass == INTEGER && dstClass == INTEGER {
+		if (srcSize == DWORD_SIZE && dstSize == QWORD_SIZE) || (srcSize == QWORD_SIZE && dstSize == DWORD_SIZE) {
+			if fromSymbol.Register.(IntegralRegister).Family != toSymbol.Register.(IntegralRegister).Family {
+				panic("should have allocated same reg")
+			}
+			// x86 arch sign extends dword registers to quad automatically so we don't have to do anything
+		} else {
+			// if fromSymbol.LoadBeforeRead {
+			// 	g.checkForGotUnwrapping(fromSymbol)
+			// 	g.asm.MovMemoryToIntegralRegister(toSymbol.Register.(IntegralRegister), fromSymbol.MemoryAccessor)
+			// } else {
+			// 	g.asm.MovIntegralRegisteraToIntegralRegister()
+			// }
+		}
+		srcUnsigned := g.typeEngine.IsUnsignedType(fromSymbol.Sym.Ctype)
+		dstUnsigned := g.typeEngine.IsUnsignedType(toSymbol.Sym.Ctype)
+		if srcUnsigned && dstUnsigned {
+			if dstSize > srcSize {
+				
+			}
+		}
+	} else {
+		panic("TODO")
+	}
+
+	if toSymbol.StoreAfterWrite {
+		g.storeSymbol(toSymbol)
+	}
+}
+
 func (g *Generator) generateFunctionCode(fun *AugmentedFunctionIr) {
 	for _, line := range fun.Code {
 		switch ir := line.(type) {
@@ -332,6 +416,8 @@ func (g *Generator) generateFunctionCode(fun *AugmentedFunctionIr) {
 				}
 			}
 			g.asm.JumpToLabel(fun.ReturnLabel)
+		case *AugmentedTypeCastLine:
+			g.typeCast(ir.FromSymbol, ir.ToSymbol)
 		default:
 			panic("unexpected ir line")
 		}
@@ -339,6 +425,7 @@ func (g *Generator) generateFunctionCode(fun *AugmentedFunctionIr) {
 }
 
 func (g *Generator) generateFunction(fun *irs.FunctionIR) {	
+	g.labels.EnterFunction(fun.FunctionSymbol.Symbol.Name)
 	g.asm.EnterFunction(fun.FunctionSymbol)
 	augmentedFun := g.prepareAugmentedIr(fun)
 	g.asm.PutLabel(createFunctionLabel(fun.FunctionSymbol.Symbol.Name))

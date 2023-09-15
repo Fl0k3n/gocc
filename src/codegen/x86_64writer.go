@@ -131,6 +131,14 @@ func (w *X86_64Writer) SignedDivideRaxRdxByIntegralRegister(divider IntegralRegi
 	})
 }
 
+func (w *X86_64Writer) ClearIntegralRegister(reg IntegralRegister) {
+	// TODO use xor reg, reg
+	w.writeLine(MovAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(reg)).
+			WithImmediate(&Immediate{Val: 0, Size: reg.Size()}).WithSizeFromRegister(),
+	})
+}
+
 func (w *X86_64Writer) SubtractConstantInteger(src IntegralRegister, val int) {
 	w.writeLine(SubAsmLine{
 		Operands: emptyOperands().WithFirstOperand(justRegister(src)).WithSizeFromRegister(). 
@@ -190,6 +198,15 @@ func (w *X86_64Writer) JumpIfZero(label string) {
 			WithPossiblyComplexMemoryFirstOperand(LabeledMemoryAccessor{Label: label}).WithExplicitSize(QWORD_SIZE),
 		Condition: EQUAL,
 		Negated: false,
+	})
+}
+
+func (w *X86_64Writer) JumpIfNotZero(label string) {
+	w.writeLine(ConditionalJumpAsmLine{
+		Target: emptyOperands().
+			WithPossiblyComplexMemoryFirstOperand(LabeledMemoryAccessor{Label: label}).WithExplicitSize(QWORD_SIZE),
+		Condition: EQUAL,
+		Negated: true,
 	})
 }
 

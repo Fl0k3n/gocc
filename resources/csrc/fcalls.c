@@ -7,6 +7,7 @@
 #include "stdio.h"
 
 int x;
+extern int KNTP;
 
 int* m = &x;
 
@@ -18,6 +19,22 @@ struct A {
 };
 
 int main() {
+    // float f;
+    // float g = 0.1f + f;
+    // double d;
+    // double m = 0.1 + d;
+    // int a = x;
+    // float y = 0.5f;
+    // int v = KNTP;
+    // float z = y + a + v;
+    int x;
+    int a = x + 3;
+    if (a > 0) {
+        return -1;
+    }
+    a = x + 5;
+    return 5;
+    // printf("%d\n", a);
 }
 
 // int f(int a) {

@@ -113,7 +113,7 @@ func (c *Compiler) parse(inputPath string) (ast.TranslationUnit, error) {
 	return parser.BuildParseTree()
 }
 
-func (c *Compiler) performSemtanticAnalysis(translationUnit *ast.TranslationUnit) (error) {
+func (c *Compiler) performSemanticAnalysis(translationUnit *ast.TranslationUnit) (error) {
 	et := semantics.NewErrorTracker()
 	analyzer := semantics.NewAnalyzer(et)
 	analyzer.Analyze(translationUnit)
@@ -173,7 +173,7 @@ func (c *Compiler) Compile(inputPath string, outputPath string) error {
 		return err
 	}
 
-	err = c.performSemtanticAnalysis(&translationUnit)
+	err = c.performSemanticAnalysis(&translationUnit)
 	if err != nil {
 		return err
 	}

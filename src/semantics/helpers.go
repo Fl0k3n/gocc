@@ -238,6 +238,11 @@ func isPointer(t Ctype) bool {
 	return ok
 }
 
+func isArray(t Ctype) bool {
+	_, ok := t.(ArrayCtype)
+	return ok
+}
+
 func isVoid(t Ctype) bool {
 	if b, ok := t.(BuiltinCtype); ok {
 		return b.Builtin == VOID
