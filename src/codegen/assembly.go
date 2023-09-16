@@ -72,7 +72,7 @@ func setSimplifiedMemoryAccessor(ops *Operands, mem MemoryAccessor, firstOp bool
 			Val: accessor.Offset,
 			Size: displacementSize,
 		}
-	case LabeledMemoryAccessor, SectionMemoryAccessor, GOTMemoryAccessor, PLTMemoryAccessor:
+	case LabeledMemoryAccessor, SectionMemoryAccessor, GOTMemoryAccessor, PLTMemoryAccessor, RoDataMemoryAccessor:
 		simplifiedAccessor = nil
 		ops.UsesRipDisplacement = true
 		ops.SetUnknownDisplacement()
@@ -133,6 +133,7 @@ func (imm Immediate) String() string {
 type Operands struct {
 	FirstOperand *RegisterOrMemoryOperand
 	SecondOperand *RegisterOrMemoryOperand
+	IsSSE bool
 	UsesExplicitSib bool
 	SIB *SIB
 	Uses8bDisplacement bool
@@ -181,6 +182,7 @@ func emptyOperands() *Operands {
 	return &Operands{
 		FirstOperand: nil,
 		SecondOperand: nil,
+		IsSSE: false,
 		UsesExplicitSib: false,	
 		SIB: nil,
 		Uses8bDisplacement: false,
@@ -265,6 +267,11 @@ func (m *Operands) WithSib(SIB *SIB) *Operands {
 	return m
 }
 
+func (m *Operands) AsSSE() *Operands {
+	m.IsSSE = true
+	return m
+}
+
 func (m *Operands) IsFirstOperandMemory() bool {
 	return m.FirstOperand.Memory != nil || (m.FirstOperand.Register == nil && m.UsesRipDisplacement)
 }
@@ -282,7 +289,6 @@ func (m *Operands) IsSecondOperandRegister() bool {
 	return m.SecondOperand.Register != nil
 }
 
-
 type LabelAsmLine struct {
 	Label string
 }
@@ -297,6 +303,18 @@ type MovAsmLine struct {
 
 func (l MovAsmLine) String() string {
 	return fmt.Sprintf("mov " + l.Operands.ToAssembly())
+}
+
+type MovFloatingAsmLine struct {
+	Operands *Operands
+}
+
+func (l MovFloatingAsmLine) String() string {
+	opname := "movss"
+	if l.Operands.DataTransferSize == QWORD_SIZE {
+		opname = "movsd"
+	}
+	return fmt.Sprintf("%s %s", opname, l.Operands.ToAssembly())
 }
 
 type JumpAsmLine struct {
@@ -411,6 +429,14 @@ func (l AddAsmLine) String() string {
 	return fmt.Sprintf("add " + l.Operands.ToAssembly())
 }
 
+type AddFloatingAsmLine struct {
+	Operands *Operands
+}
+
+func (l AddFloatingAsmLine) String() string {
+	return fmt.Sprintf("%s %s", getFlotingOpname("adds", l.Operands), l.Operands.ToAssembly())
+}
+
 type SubAsmLine struct {
 	Operands *Operands
 }
@@ -450,11 +476,7 @@ type MovWithSignExtend struct {
 }
 
 func (l MovWithSignExtend) String() string {
-	mnem := "movsx"
-	if l.Operands.FirstOperand.Register.Size() == QWORD_SIZE && l.RightOperandSize == DWORD_SIZE {
-		mnem = "movsxd"
-	}
-	return fmt.Sprintf("%s %s", mnem, l.Operands.ToAssembly())
+	return fmt.Sprintf("%s %s", getFlotingOpname("movs", l.Operands), l.Operands.ToAssembly())
 }
 
 type NegateAsmLine struct {

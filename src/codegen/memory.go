@@ -73,10 +73,6 @@ func (m *MemoryManager) placeOnStack(curSize int, symbolsT irs.SymbolType, snaps
 	return curSize
 }
 
-func (m *MemoryManager) canBePassedInRegister(sym *AugmentedSymbol) bool {
-	return true
-}
-
 func (m *MemoryManager) classifySymbol(sym *irs.Symbol) ArgumentStorageClass {
 	switch t := sym.Ctype.(type) {
 	case semantics.BuiltinCtype:

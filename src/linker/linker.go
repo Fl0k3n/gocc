@@ -68,16 +68,17 @@ func (l *Linker) createTextSegmentAndFixSectionMeta(e *elf.ElfFile) *elf.Program
 	return &hdr
 }
 
-func (l *Linker) createLoadableRWSegmentFromContiguousProgbitsOrNobitsSections(
+func (l *Linker) createLoadableSegmentFromContiguousProgbitsOrNobitsSections(
 	e *elf.ElfFile,
 	startSectionIdx uint16,
 	endSectionIdx uint16, // inclusive
 	prevSectionEndFileOffset uint64,
 	prevSectionEndVirtualAddr uint64,
+	pflags uint32,
 ) *elf.ProgramHeader {
 	hdr := elf.ProgramHeader{
 		Ptype: uint32(elf.PT_LOAD),
-		Pflags: uint32(elf.PF_R) | uint32(elf.PF_W),
+		Pflags: pflags,
 		Palign: PAGE_SIZE,
 	}
 	firstSectionHdr := e.SectionHdrTable.GetHeaderByIdx(startSectionIdx)
@@ -169,31 +170,39 @@ func (l *Linker) updateFileOffsetsOfSectionsBetween(
 	return preceedingFileSize
 }
 
-func (l *Linker) createProgramHeaders(e *elf.ElfFile) (fileOffsetOfLoadableData int) {
+func (l *Linker) createProgramHeaders(e *elf.ElfFile) {
 	programHdrTable := elf.NewProgramHdrTable()
 	textHdr := l.createTextSegmentAndFixSectionMeta(e)
 	programHdrTable.AddProgramHeader(*textHdr)
 	fileOffset := textHdr.Poffset + textHdr.Pfilesz
 	textSectionIdx := e.SectionHdrTable.GetSectionIdx(elf.TEXT)
+	prevVirtualAddrEnd := textHdr.Pvaddr + textHdr.Pmemsz
+	l.updateFileOffsetsOfSectionsBetween(e, textSectionIdx + 1, e.SectionHdrTable.NumberOfSections() - 1, fileOffset) 
 
 	nextSegmentMinSectionIdx, nextSegmentMaxSectionIdx, allMissing := l.assertAdjacentOrMissing(e, elf.GOT, elf.DATA, elf.BSS)
 	if !allMissing {
-		if nextSegmentMinSectionIdx != textSectionIdx + 1 {
-			fileOffset = l.updateFileOffsetsOfSectionsBetween(e, textSectionIdx + 1, nextSegmentMinSectionIdx - 1, fileOffset)
-		}
-		dataAlikesHdr := l.createLoadableRWSegmentFromContiguousProgbitsOrNobitsSections(
+		dataAlikesHdr := l.createLoadableSegmentFromContiguousProgbitsOrNobitsSections(
 			e, nextSegmentMinSectionIdx, nextSegmentMaxSectionIdx,
-			textHdr.Poffset + textHdr.Pfilesz, textHdr.Pvaddr + textHdr.Pmemsz,
+			fileOffset, prevVirtualAddrEnd, uint32(elf.PF_R) | uint32(elf.PF_W),
 		) 
 		programHdrTable.AddProgramHeader(*dataAlikesHdr)
 		fileOffset = dataAlikesHdr.Poffset + dataAlikesHdr.Pfilesz
-
+		prevVirtualAddrEnd = dataAlikesHdr.Pvaddr + dataAlikesHdr.Pmemsz
 		l.updateFileOffsetsOfSectionsBetween(e, nextSegmentMaxSectionIdx + 1, e.SectionHdrTable.NumberOfSections() - 1, fileOffset)
-	} else {
-		l.updateFileOffsetsOfSectionsBetween(e, textSectionIdx + 1, e.SectionHdrTable.NumberOfSections() - 1, fileOffset) 
 	}
+	
+	if e.SectionHdrTable.HasSection(elf.RO_DATA) {
+		rodataSectionIdx := e.SectionHdrTable.GetSectionIdx(elf.RO_DATA)
+		rodataHdr := l.createLoadableSegmentFromContiguousProgbitsOrNobitsSections(
+			e, rodataSectionIdx, rodataSectionIdx, fileOffset, prevVirtualAddrEnd, uint32(elf.PF_R),
+		)
+		programHdrTable.AddProgramHeader(*rodataHdr)
+		fileOffset = rodataHdr.Poffset + rodataHdr.Pfilesz
+		prevVirtualAddrEnd = rodataHdr.Pvaddr + rodataHdr.Pmemsz
+		l.updateFileOffsetsOfSectionsBetween(e, rodataSectionIdx + 1, e.SectionHdrTable.NumberOfSections() - 1, fileOffset)
+	}
+
 	e.ProgramHdrTable = programHdrTable
-	return fileOffsetOfLoadableData
 }
 
 func (l *Linker) setSymbolValues(e *elf.ElfFile) {

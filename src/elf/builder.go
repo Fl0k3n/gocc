@@ -12,6 +12,7 @@ type ELFBuilder struct {
 	code []uint8
 	assembledFunctions []*asm.AssembledFunction
 	globals []*codegen.AugmentedGlobalSymbol
+	rodata codegen.Rodata
 	symtab *Symtab
 	definedFunctions *utils.Set[string]
 	sectionVirtualSize map[string]int
@@ -27,6 +28,7 @@ func NewBuilder(
 	code []uint8,
 	assembledFunctions []*asm.AssembledFunction,
 	globals []*codegen.AugmentedGlobalSymbol,
+	rodata codegen.Rodata,
 	displacementsToFix []asm.DisplacementToFix,
 ) *ELFBuilder {
 	definedFunctions := utils.NewSet[string]()
@@ -38,6 +40,7 @@ func NewBuilder(
 		code: code, 
 		assembledFunctions: assembledFunctions,
 		globals: globals,
+		rodata: rodata,
 		symtab: NewSymtab(),
 		definedFunctions: definedFunctions,
 		sectionVirtualSize: map[string]int{},
@@ -81,10 +84,11 @@ func (e *ELFBuilder) classifyType(global *irs.GlobalSymbol) SymbolType {
 	return ST_OBJECT
 }
 
-func (e *ELFBuilder) checkWhatSectionsAreNeeded() (data bool, bss bool, relaText bool) {
+func (e *ELFBuilder) checkWhatSectionsAreNeeded() (data bool, bss bool, relaText bool, rodata bool) {
 	data = false
 	bss = false
 	relaText = len(e.displacementsToFix) > 0
+	rodata = len(e.rodata.Data) > 0
 	for _, aglobal := range e.globals {
 		if aglobal.Global.IsFunction {
 			continue
@@ -124,26 +128,30 @@ func (e *ELFBuilder) createHeader(sectionHeadersOffset uint64) *Header {
 
 func (e *ELFBuilder) prepareSections() (sectionsThatNeedSymbol []string) {
 	sectionsThatNeedSymbol = append(sectionsThatNeedSymbol, TEXT)
-	needsData, needsBss, needsRelaText := e.checkWhatSectionsAreNeeded()
-	var symtabSectionIdx uint16 = 2
-	relaTextIdx := symtabSectionIdx
+	needsData, needsBss, needsRelaText, needsRodata := e.checkWhatSectionsAreNeeded()
+	var nextSectionIdx uint16 = 2
+	relaTextIdx := nextSectionIdx
 	if needsRelaText {
-		symtabSectionIdx++
+		nextSectionIdx++
 	} 
-	dataSectionIdx := symtabSectionIdx
+	dataSectionIdx := nextSectionIdx
 	if needsData {
-		symtabSectionIdx++
+		nextSectionIdx++
 	}
-	bssSectionIdx := symtabSectionIdx
+	bssSectionIdx := nextSectionIdx
 	if needsBss {
-		symtabSectionIdx ++
+		nextSectionIdx++
+	}
+	rodataSectionIdx := nextSectionIdx
+	if needsRodata {
+		nextSectionIdx++
 	}
 	sectionIdxs := map[string]uint16{
 		NULL_SECTION: NULL_SECTION_IDX,
 		TEXT: 1,
-		SYMTAB: symtabSectionIdx,
-		STRTAB: symtabSectionIdx + 1,
-		SECTION_STRTAB: symtabSectionIdx + 2,
+		SYMTAB: nextSectionIdx,
+		STRTAB: nextSectionIdx + 1,
+		SECTION_STRTAB: nextSectionIdx + 2,
 	}
 	e.sectionAlignment = map[string]int{
 		NULL_SECTION: UNKNOWN_SECTION_ALIGNEMNT,
@@ -166,6 +174,11 @@ func (e *ELFBuilder) prepareSections() (sectionsThatNeedSymbol []string) {
 		sectionIdxs[BSS] = bssSectionIdx
 		e.sectionAlignment[BSS] = UNKNOWN_SECTION_ALIGNEMNT
 		sectionsThatNeedSymbol = append(sectionsThatNeedSymbol, BSS)
+	}
+	if needsRodata {
+		sectionIdxs[RO_DATA] = rodataSectionIdx
+		e.sectionAlignment[RO_DATA] = int(e.rodata.Alignment)
+		sectionsThatNeedSymbol = append(sectionsThatNeedSymbol, RO_DATA)
 	}
 	for sectionName := range sectionIdxs {
 		e.sectionVirtualSize[sectionName] = 0
@@ -318,6 +331,8 @@ func (e *ELFBuilder) getRelocationTypeAndSymbolIdx(accessor codegen.MemoryAccess
 		return R_X86_64_PC32, symbolIdx, e.globalDataOffsets[acc.Symbol.Name]
 	case codegen.PLTMemoryAccessor:
 		return R_X86_64_PLT32, e.symbolNameToIdx[acc.Symbol.Name], 0
+	case codegen.RoDataMemoryAccessor:
+		return R_X86_64_PC32, e.symbolNameToIdx[RO_DATA], int(acc.Offset)
 	default: // assembly-wise we could also tolerate labels here
 		panic("Unexpected memory accessor to relocate")
 	}
@@ -353,6 +368,10 @@ func (e *ELFBuilder) createSectionHeaders() {
 	if e.sectionHdrTable.HasSection(BSS) {
 		e.sectionHdrTable.CreateBssSection(fileOffset, e.sectionVirtualSize[BSS], e.sectionAlignment[BSS])
 	}
+	if e.sectionHdrTable.HasSection(RO_DATA) {
+		e.sectionHdrTable.CreateRodataSection(fileOffset, len(e.rodata.Data), int(e.rodata.Alignment))
+		fileOffset += len(e.rodata.Data)
+	}
 	e.sectionHdrTable.CreateSymtabSection(fileOffset, e.sectionVirtualSize[SYMTAB], e.symtab.GetGreatestLocalSymbolId())
 	fileOffset += e.sectionVirtualSize[SYMTAB]
 	e.sectionHdrTable.CreateStrtabSection(fileOffset, e.strtab.GetSize())
@@ -380,6 +399,7 @@ func (e *ELFBuilder) CreateRelocatableELF(sourceFileName string, resultPath stri
 		Strtab: e.strtab,
 		SectionStrtab: e.sectionHdrTable.GetSectionStrtab(),
 		RelaEntries: relaEntries,
+		Rodata: e.rodata,
 	}
 	return NewSerializer().Serialize(elf, resultPath, 0644)
 }

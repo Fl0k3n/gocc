@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"irs"
+	"semantics"
 	"utils"
 )
 
@@ -97,7 +98,7 @@ func (a *BasicRegisterAllocator) allocFunctionReturnRegister(returnSymbol *Augme
 		}
 		return reg
 	case SSE:
-		reg := GetFloatingRegisterFamily(SYS_V_RETURN_FLOATING_REGISTER).use()
+		reg := GetFloatingRegisterFamily(SYS_V_RETURN_FLOATING_REGISTER).UseForSize(returnSymbol.Sym.Ctype.Size())
 		a.allocState.usedFloatingRegisters.Add(SYS_V_RETURN_FLOATING_REGISTER)
 		a.allocState.currentlyUsedFloatingRegisters.Add(SYS_V_RETURN_FLOATING_REGISTER)
 		if a.memoryManager.UsesGOTAddressing(returnSymbol) {
@@ -145,7 +146,7 @@ func (a *BasicRegisterAllocator) getArgToRegisterMapping(Args []*irs.Symbol) []*
 				res = append(res, &ArgToRegisterMapping{
 					PassMode: REGISTER_ONLY,
 					StorageClass: SSE,
-					Register: GetFloatingRegisterFamily(regFamT).use(),
+					Register: GetFloatingRegisterFamily(regFamT).UseForSize(arg.Ctype.Size()),
 				})
 			}
 		default:
@@ -156,7 +157,7 @@ func (a *BasicRegisterAllocator) getArgToRegisterMapping(Args []*irs.Symbol) []*
 }
 
 func (a *BasicRegisterAllocator) allocGotHoldersToFunctionArgs(call *AugmentedFunctionCallLine) {
-	// TODO in this allocator we can always spare a register for GOT loading, but in general if possible some integral register should be reused
+	// in this allocator we can always spare a register for GOT loading, but in general if possible some integral register should be reused
 	var gotHolder IntegralRegister
 	gotHolderChosen := false
 	for _, arg := range call.Args {
@@ -209,7 +210,7 @@ func (a *BasicRegisterAllocator) allocFunctionArgRegisters(call *AugmentedFuncti
 	if len(viaStackFloatingArgs) > 0 {
 		stackMoverFloatingReg := a.nextFreeFloatingRegister()
 		for _, arg := range viaStackFloatingArgs {
-			arg.Register = stackMoverFloatingReg.use()
+			arg.Register = stackMoverFloatingReg.UseForSize(arg.Sym.Ctype.Size())
 		}
 	}
 }
@@ -223,7 +224,7 @@ func (a *BasicRegisterAllocator) allocAnythingForStoreMode(asym *AugmentedSymbol
 	case INTEGER:
 		asym.Register = a.nextFreeIntegralRegister().UseForSize(asym.Sym.Ctype.Size())
 	case SSE:
-		asym.Register = a.nextFreeFloatingRegister().use()
+		asym.Register = a.nextFreeFloatingRegister().UseForSize(asym.Sym.Ctype.Size())
 	case MEMORY, SPLIT:
 		panic("TODO")
 	}
@@ -251,7 +252,7 @@ func (a *BasicRegisterAllocator) allocAnythingForLoadMode(asym *AugmentedSymbol)
 			asym.GotAddressHolder = asym.Register.(IntegralRegister).Family.Use(QWORD)
 		}
 	case SSE:
-		asym.Register = a.nextFreeFloatingRegister().use()
+		asym.Register = a.nextFreeFloatingRegister().UseForSize(asym.Sym.Ctype.Size())
 		if a.memoryManager.UsesGOTAddressing(asym) {
 			asym.RequiresGotUnwrapping = true
 			asym.GotAddressHolder = a.nextFreeIntegralRegister().Use(QWORD)
@@ -298,7 +299,7 @@ func (a *BasicRegisterAllocator) setRegistersToPersistByCallee(fun *AugmentedFun
 	for _, csr := range SYSV_CALLEE_SAVE_FLOATING_REGISTERS {
 		if a.allocState.usedFloatingRegisters.Has(csr) {
 			fun.FloatingRegistersToPersist = append(fun.FloatingRegistersToPersist, 
-				&RegisterWithAccessor{Register: GetFloatingRegisterFamily(csr).use()},
+				&RegisterWithAccessor{Register: GetFloatingRegisterFamily(csr).UseForSize(QWORD_SIZE)},
 			)
 		}
 	}
@@ -346,12 +347,16 @@ func (a *BasicRegisterAllocator) allocRegistersForBinaryOperation(l *AugmentedBi
 }
 
 func (a *BasicRegisterAllocator) allocRegistersForUnaryOperation(l *AugmentedUnaryOperationLine) {
-	// TODO floats
+	resultCls := a.memoryManager.classifySymbol(l.LhsSymbol.Sym)
 	l.Operand.LoadBeforeRead = false
 	switch l.Operator {
 	case "*":
 		reg := a.nextFreeIntegralRegister()
-		l.LhsSymbol.Register = reg.UseForSize(l.LhsSymbol.Sym.Ctype.Size())
+		if resultCls == INTEGER {
+			l.LhsSymbol.Register = reg.UseForSize(l.LhsSymbol.Sym.Ctype.Size())
+		} else if resultCls == SSE {
+			a.allocAnythingForStoreMode(l.LhsSymbol)
+		}
 		l.Operand.Register = reg.UseForSize(QWORD_SIZE)
 		l.Operand.LoadBeforeRead = true
 		if a.memoryManager.UsesGOTAddressing(l.Operand) {
@@ -396,6 +401,14 @@ func (a *BasicRegisterAllocator) allocRegistersForTypeCastOperation(l *Augmented
 	}
 }
 
+func (a *BasicRegisterAllocator) allocRegisterForProgramConstantAccessIfNeeded(pc *AugmentedProgramConstant) {
+	switch pc.Constant.(type) {
+	case semantics.FloatingConstant, semantics.StringConstant:
+		reg := a.nextFreeIntegralRegister().Use(QWORD)
+		pc.LoaderRegister = &reg
+	}
+}
+
 func (a *BasicRegisterAllocator) Alloc(fun *AugmentedFunctionIr) {
 	a.resetFunctionState()
 	a.handleFunctionEnter(fun)
@@ -429,13 +442,14 @@ func (a *BasicRegisterAllocator) Alloc(fun *AugmentedFunctionIr) {
 		case *AugmentedUnaryOperationLine:
 			a.allocRegistersForUnaryOperation(l)
 		case *AugmentedConstantAssignmentLine:
-			// TODO check if constant requires register (it does for float, for example)
+			a.allocRegisterForProgramConstantAccessIfNeeded(l.AugmentedConstant)
 			l.LhsSymbol.StoreAfterWrite = true
 			a.allocAnythingForStoreMode(l.LhsSymbol)
 		case *AugmentedStringAssignmentLine:
-			// TODO register for string?
 			l.LhsSymbol.StoreAfterWrite = true
 			a.allocAnythingForStoreMode(l.LhsSymbol)
+			reg := l.LhsSymbol.Register.(IntegralRegister)
+			l.LoaderRegister = &reg
 		case *AugmentedBiSymbolAssignmentLine:
 			l.RhsSymbol.LoadBeforeRead = true
 			l.LValue.Sym.StoreAfterWrite = true

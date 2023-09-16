@@ -6,6 +6,12 @@ import (
 	"semantics"
 )
 
+type CodeRepresentation struct {
+	Code []*FunctionCode
+	Globals []*AugmentedGlobalSymbol
+	Rodata Rodata
+}
+
 type GlobalSymbolInfo struct {
 	IsExtern bool
 	IsStatic bool
@@ -25,7 +31,6 @@ type AugmentedSymbol struct {
 	GotAddressHolder IntegralRegister
 	// StoreOnlyInMemory bool
 }
-
 
 type AugmentedGlobalSymbol struct {
 	Global *irs.GlobalSymbol
@@ -59,9 +64,15 @@ type AugmentedIRLine interface {
 	GetSymbols() []*AugmentedSymbol
 }
 
+type AugmentedProgramConstant struct {
+	Constant semantics.ProgramConstant
+	ConstantMemoryAccessor MemoryAccessor
+	LoaderRegister *IntegralRegister
+}
+
 type AugmentedConstantAssignmentLine struct {
 	LhsSymbol *AugmentedSymbol
-	Constant semantics.ProgramConstant
+	AugmentedConstant *AugmentedProgramConstant
 }
 
 func (a AugmentedConstantAssignmentLine) GetSymbols() (res []*AugmentedSymbol) {
@@ -71,6 +82,8 @@ func (a AugmentedConstantAssignmentLine) GetSymbols() (res []*AugmentedSymbol) {
 type AugmentedStringAssignmentLine struct {
 	LhsSymbol *AugmentedSymbol
 	Val string
+	StringMemoryAccessor MemoryAccessor
+	LoaderRegister *IntegralRegister
 }
 
 func (a AugmentedStringAssignmentLine) GetSymbols() (res []*AugmentedSymbol) {
@@ -205,6 +218,14 @@ func (g *Generator) augmentGlobal(sym *irs.GlobalSymbol) *AugmentedGlobalSymbol 
 	}
 }
 
+func (g *Generator) augmentProgramConstant(pc semantics.ProgramConstant) *AugmentedProgramConstant {
+	return &AugmentedProgramConstant{
+		Constant: pc,
+		ConstantMemoryAccessor: nil,
+		LoaderRegister: nil,
+	}
+}
+
 func (g *Generator) prepareAugmentedIr(fun *irs.FunctionIR) *AugmentedFunctionIr {
 	res := []AugmentedIRLine{}
 	for _, line := range fun.Code {
@@ -225,7 +246,7 @@ func (g *Generator) prepareAugmentedIr(fun *irs.FunctionIR) *AugmentedFunctionIr
 		case *irs.ConstantAssignmentLine:
 			aline = &AugmentedConstantAssignmentLine{
 				LhsSymbol: g.augmentSymbol(ir.LhsSymbol),
-				Constant: ir.Constant,
+				AugmentedConstant: g.augmentProgramConstant(ir.Constant),
 			}
 		case *irs.FunctionCallLine:
 			args := []*AugmentedSymbol{}
@@ -260,6 +281,8 @@ func (g *Generator) prepareAugmentedIr(fun *irs.FunctionIR) *AugmentedFunctionIr
 			aline = &AugmentedStringAssignmentLine{
 				LhsSymbol: g.augmentSymbol(ir.LhsSymbol),
 				Val: ir.Val,
+				StringMemoryAccessor: nil,
+				LoaderRegister: nil,
 			}
 		case *irs.TypeCastLine:
 			aline = &AugmentedTypeCastLine{

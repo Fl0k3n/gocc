@@ -830,7 +830,7 @@ func (e *TypeEngine) evalConstantExpression(expr ast.Expression) (ProgramConstan
 		if unaryExpr.Operator == "-" {
 			if p, err := e.evalConstantExpression(unaryExpr.CastExpression); err != nil {
 				return nil, err
-			} else if _, isString := p.(StringConstanst); isString {
+			} else if _, isString := p.(StringConstant); isString {
 				// grammar should block this, but just in case
 				return nil, errors.New("Can't negate string constant")
 			} else {
@@ -840,7 +840,7 @@ func (e *TypeEngine) evalConstantExpression(expr ast.Expression) (ProgramConstan
 			return nil, errors.New("Unsupported compile time unary operator " + unaryExpr.Operator)
 		}
 	} else if stringExpr, isStringExpr := expr.(ast.StringLiteralExpression); isStringExpr {
-		return StringConstanst{
+		return StringConstant{
 			Val: stringExpr.StringLiteral,
 		}, nil
 	} else if typeCastExpr, isTypeCastExpr := expr.(ast.TypeCastCastExpression); isTypeCastExpr {
@@ -871,7 +871,7 @@ func (e *TypeEngine) evalConstantExpression(expr ast.Expression) (ProgramConstan
 			} else {
 				return FloatingConstant{Val: nc.Val, T: targetT}, nil
 			}
-		case StringConstanst:
+		case StringConstant:
 			if isString(targetT) {
 				return nestedConstant, nil
 			} else {

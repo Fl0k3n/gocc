@@ -76,6 +76,13 @@ func (w *X86_64Writer) MovIntegralRegisterToIntegralRegister(dest IntegralRegist
 	})
 }
 
+func (w *X86_64Writer) MovFloatingRegisterToFloatingRegister(dest FloatingRegister, src FloatingRegister) {
+	w.writeLine(MovFloatingAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(dest)).AsSSE().
+					WithSecondOperand(justRegister(src)).WithSizeFromRegister(),
+	})
+}
+
 func (w *X86_64Writer) MovIntegralConstantToIntegralRegister(dest IntegralRegister, val int) {
 	w.writeLine(MovAsmLine{
 		Operands: emptyOperands().WithFirstOperand(justRegister(dest)).WithSizeFromRegister().
@@ -90,10 +97,24 @@ func (w *X86_64Writer) MovMemoryToIntegralRegister(dest IntegralRegister, mem Me
 	})
 }
 
+func (w *X86_64Writer) MovMemoryToFloatingRegister(dest FloatingRegister, mem MemoryAccessor) {
+	w.writeLine(MovFloatingAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(dest)).AsSSE().
+			WithPossiblyComplexMemorySecondOperand(mem).WithSizeFromRegister(),
+	})
+}
+
 func (w *X86_64Writer) MovIntegralRegisterToMemory(dest MemoryAccessor, src IntegralRegister) {
 	w.writeLine(MovAsmLine{
 		Operands: emptyOperands().WithPossiblyComplexMemoryFirstOperand(dest).
 			WithSecondOperand(justRegister(src)).WithSizeFromRegister(),
+	})
+}
+
+func (w *X86_64Writer) MovFloatingRegisterToMemory(dest MemoryAccessor, src FloatingRegister) {
+	w.writeLine(MovFloatingAsmLine{
+		Operands: emptyOperands().WithPossiblyComplexMemoryFirstOperand(dest).
+			WithSecondOperand(justRegister(src)).AsSSE().WithSizeFromRegister(),
 	})
 }
 
@@ -108,6 +129,13 @@ func (w *X86_64Writer) AddIntegralRegisters(left IntegralRegister, right Integra
 	w.writeLine(AddAsmLine{
 		Operands: emptyOperands().WithFirstOperand(justRegister(left)).
 			WithSecondOperand(justRegister(right)).WithSizeFromRegister(),
+	})
+}
+
+func (w *X86_64Writer) AddFloatingRegisters(left FloatingRegister, right FloatingRegister) {
+	w.writeLine(AddFloatingAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(left)).
+			WithSecondOperand(justRegister(right)).AsSSE().WithSizeFromRegister(),
 	})
 }
 

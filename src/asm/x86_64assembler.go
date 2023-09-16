@@ -63,6 +63,16 @@ func (a *X86_64Assembler) assembleMov(m codegen.MovAsmLine) {
 	}
 }
 
+func (a *X86_64Assembler) assembleMovss(m codegen.MovFloatingAsmLine) {
+	opcode := []uint8{0x0F, 0}
+	if m.Operands.IsFirstOperandMemory() {
+		opcode[1] = 0x11
+	} else {
+		opcode[1] = 0x10
+	}	
+	a.write(a.assembleMRInstruction(opcode, m.Operands, NOT_OPCODE, m.Operands.DataTransferSize, true)...)
+}
+
 func (a *X86_64Assembler) assembleUnconditionalJump(code codegen.JumpAsmLine) {
 	if code.Target.UsesRipDisplacement {
 		var opcode uint8
@@ -239,6 +249,11 @@ func (a *X86_64Assembler) assembleAdd(c codegen.AddAsmLine) {
 	}	
 }
 
+func (a *X86_64Assembler) assembleAdds(c codegen.AddFloatingAsmLine) {
+	opcode := []uint8{0x0F, 0x58}
+	a.write(a.assembleMRInstruction(opcode, c.Operands, NOT_OPCODE, c.Operands.DataTransferSize, true)...)
+}
+
 func (a *X86_64Assembler) assembleSub(c codegen.SubAsmLine) {
 	var opcode uint8
 	if c.Operands.UsesImmediate {
@@ -329,6 +344,8 @@ func (a *X86_64Assembler) assembleLine(code codegen.AsmLine) {
 	switch c := code.(type) {
 	case codegen.MovAsmLine:
 		a.assembleMov(c)
+	case codegen.MovFloatingAsmLine:
+		a.assembleMovss(c)
 	case codegen.LabelAsmLine:
 		a.relocator.PutLabel(c.Label, len(a.assembledCode))
 	case codegen.JumpAsmLine:
@@ -349,6 +366,8 @@ func (a *X86_64Assembler) assembleLine(code codegen.AsmLine) {
 		a.assembleRet(c)		
 	case codegen.AddAsmLine:
 		a.assembleAdd(c)
+	case codegen.AddFloatingAsmLine:
+		a.assembleAdds(c)
 	case codegen.SubAsmLine:
 		a.assembleSub(c)
 	case codegen.SignedMulAsmLine:

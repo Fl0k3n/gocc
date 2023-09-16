@@ -85,11 +85,11 @@ func (f FloatingConstant) String() string {
 	return fmt.Sprintf("%f", f.Val)
 }
 
-type StringConstanst struct {
+type StringConstant struct {
 	Val string
 }
 
-func (s StringConstanst) String() string {
+func (s StringConstant) String() string {
 	return s.Val
 }
 

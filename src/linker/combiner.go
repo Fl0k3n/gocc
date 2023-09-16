@@ -59,13 +59,36 @@ func (c *Combiner) combineDataSection(e *elf.ElfFile) {
 		dataSectionIdx := e.SectionHdrTable.GetSectionIdx(elf.DATA)
 		c.shiftOffsetsForSymbolsInSection(e, dataSectionIdx, int(curDataHdr.Ssize))
 		dataSymbolIdx := e.Symtab.GetSymbolIdx(elf.DATA, e.Strtab)
-		c.shiftSectionRelativeRelaEntries(e, dataSymbolIdx,  int(curDataHdr.Ssize))
+		c.shiftSectionRelativeRelaEntries(e, dataSymbolIdx, int(curDataHdr.Ssize))
 		curDataHdr.Ssize += newDataHdr.Ssize
 	} else {
 		c.elfBuff.SectionHdrTable.AppendSectionHeader(*newDataHdr, elf.DATA)
 		c.elfBuff.Data = e.Data
 	}
 }
+
+func (c *Combiner) combineRodataSection(e *elf.ElfFile) {
+	newRodataHdr := e.SectionHdrTable.GetHeader(elf.RO_DATA)
+	if c.elfBuff.SectionHdrTable.HasSection(elf.RO_DATA) {
+		curRodataHdr := c.elfBuff.SectionHdrTable.GetHeader(elf.RO_DATA)
+		if remainder := curRodataHdr.Ssize % newRodataHdr.Saddralign; remainder != 0 {
+			paddingSize := newRodataHdr.Saddralign - remainder
+			curRodataHdr.Ssize += paddingSize
+			c.elfBuff.Rodata.Data = append(c.elfBuff.Rodata.Data, make([]byte, paddingSize)...)
+		}
+		c.elfBuff.Rodata.Data = append(c.elfBuff.Rodata.Data, e.Rodata.Data...)
+		rodataSectionIdx := e.SectionHdrTable.GetSectionIdx(elf.RO_DATA)
+		// consts probably go there too, for now this shouldn't do anything
+		c.shiftOffsetsForSymbolsInSection(e, rodataSectionIdx, int(curRodataHdr.Ssize))
+		rodataSymbolIdx := e.Symtab.GetSymbolIdx(elf.RO_DATA, e.Strtab)
+		c.shiftSectionRelativeRelaEntries(e, rodataSymbolIdx, int(curRodataHdr.Ssize))
+		curRodataHdr.Ssize += newRodataHdr.Ssize
+	} else {
+		c.elfBuff.SectionHdrTable.AppendSectionHeader(*newRodataHdr, elf.RO_DATA)
+		c.elfBuff.Rodata = e.Rodata
+	}
+}
+
 
 func (c *Combiner) combineBssSection(e *elf.ElfFile) {
 	newBssHdr := e.SectionHdrTable.GetHeader(elf.BSS)
@@ -110,14 +133,12 @@ func (c *Combiner) defineMissingSectionHeaders(e *elf.ElfFile) {
 	}
 }
 
-func (c *Combiner) changeSymbolIdxOfRelaEntries(targetElf *elf.ElfFile, fromIdx uint32, toIdx uint32) {
+func (c *Combiner) changeSymbolIdxOfRelaEntries(targetElf *elf.ElfFile, remapLUT []uint32) {
 	if targetElf.RelaEntries == nil {
 		return
 	}
 	for _, rela := range targetElf.RelaEntries {
-		if rela.SymbolIdx() == fromIdx {
-			rela.Rinfo = elf.EncodeRelocationInfo(toIdx, rela.RelocationType())
-		}
+		rela.Rinfo = elf.EncodeRelocationInfo(remapLUT[rela.SymbolIdx()], rela.RelocationType())
 	}
 }
 
@@ -153,7 +174,7 @@ func (c *Combiner) handleMultipleSameSymbols(
 	sameSymbolIdxs []uint32,
 ) (uint32, error) {
 	if sym.Type() == elf.ST_SECTION {
-		sectionName := e.SectionHdrTable.GetSectionName(sym.Sshndx)
+		sectionName := c.elfBuff.SectionHdrTable.GetSectionName(sym.Sshndx)
 		return c.elfBuff.Symtab.GetSymbolIdx(sectionName, c.elfBuff.Strtab), nil
 	}
 	if sym.Binding() == elf.SB_LOCAL || sym.Sshndx == elf.SHN_ABS {
@@ -184,6 +205,7 @@ func (c *Combiner) handleMultipleSameSymbols(
 
 func (c *Combiner) combineSymtabSection(e *elf.ElfFile) error {
 	curSymtabHdr := e.SectionHdrTable.GetHeader(elf.SYMTAB)
+	relaRemapLUT := make([]uint32, e.Symtab.Size())
 	for symIdx, sym := range e.Symtab.GetAll() {
 		if symIdx == 0 {
 			if sym.Type() != elf.ST_NOTYPE {
@@ -208,8 +230,9 @@ func (c *Combiner) combineSymtabSection(e *elf.ElfFile) error {
 			newSymbolIdx = c.elfBuff.Symtab.AddSymbol(sym)
 			c.symbolMap[symName] = []uint32{newSymbolIdx}
 		}
-		c.changeSymbolIdxOfRelaEntries(e, uint32(symIdx), newSymbolIdx)
+		relaRemapLUT[symIdx] = newSymbolIdx
 	}
+	c.changeSymbolIdxOfRelaEntries(e, relaRemapLUT)
 	curSymtabHdr.Ssize = uint64(c.elfBuff.Symtab.BinarySize())
 	return nil
 }
@@ -278,7 +301,7 @@ func (c *Combiner) fixHeaders() {
 	
 	newSectionIdxs := map[string]uint16{}
 	fixedSectionNames := []string{elf.NULL_SECTION, elf.TEXT, elf.RELA_TEXT, elf.DATA, elf.BSS,
-		elf.SYMTAB, elf.STRTAB, elf.SECTION_STRTAB}
+		elf.RO_DATA, elf.SYMTAB, elf.STRTAB, elf.SECTION_STRTAB}
 	nextIdx := c.assignIndexesToSectionHeadersInOrder(0, newSectionIdxs, fixedSectionNames...)
 	for sectionName := range curSectionIdxs {
 		if _, alreadyAssigned := newSectionIdxs[sectionName]; !alreadyAssigned {
@@ -311,6 +334,9 @@ func (c *Combiner) CombineWith(e *elf.ElfFile) error {
 	}
 	if e.SectionHdrTable.HasSection(elf.BSS) {
 		c.combineBssSection(e)
+	}
+	if e.SectionHdrTable.HasSection(elf.RO_DATA) {
+		c.combineRodataSection(e)
 	}
 	hadSymtab := e.SectionHdrTable.HasSection(elf.SYMTAB)
 	hadRelaText := e.SectionHdrTable.HasSection(elf.RELA_TEXT)

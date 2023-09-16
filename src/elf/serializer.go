@@ -24,6 +24,7 @@ func NewSerializer() *ELFSerializer {
 			TEXT:   		func(e *ElfFile) []byte {return e.Code; },
 			DATA:   		func(e *ElfFile) []byte {return e.Data; },
 			BSS:    		func(e *ElfFile) []byte {return []byte{}; },
+			RO_DATA:   		func(e *ElfFile) []byte {return e.Rodata.Data; },
 			SYMTAB: 		func(e *ElfFile) []byte {return e.Symtab.ToBytes(); },
 			STRTAB: 		func(e *ElfFile) []byte {return e.Strtab.GetNullCombinedStrings(); },
 			SECTION_STRTAB: func(e *ElfFile) []byte {return e.SectionHdrTable.GetSectionStrtab().GetNullCombinedStrings() },

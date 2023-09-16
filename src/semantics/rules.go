@@ -500,10 +500,10 @@ func (tm *TypeRulesManager) canBeUsedAsProgramConstant(t Ctype) bool {
 
 func (tm *TypeRulesManager) applyArithmeticOperator(p1 ProgramConstant, p2 ProgramConstant, op string, resultType Ctype) (v ProgramConstant, err error) {
 	stringError := errors.New("Can't apply arithemtic operator on strings")
-	if _, isString := p1.(StringConstanst); isString {
+	if _, isString := p1.(StringConstant); isString {
 		return nil, stringError
 	}
-	if _, isString := p2.(StringConstanst); isString {
+	if _, isString := p2.(StringConstant); isString {
 		return nil, stringError
 	}
 

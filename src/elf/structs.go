@@ -1,6 +1,9 @@
 package elf
 
-import "utils"
+import (
+	"codegen"
+	"utils"
+)
 
 type SectionType = uint32
 
@@ -263,4 +266,5 @@ type ElfFile struct {
 	SectionStrtab *Strtab
 	RelaEntries []*RelaEntry
 	GOT []uint64
+	Rodata codegen.Rodata
 }

@@ -8,6 +8,8 @@ import (
 const NOT_OPCODE uint8 = 0
 const ADDR_OVERLOAD uint8 = 0x67
 const OP_OVERLOAD uint8 = 0x66
+const FLOAT_OVERLOAD uint8 = 0xF3
+const DOUBLE_OVERLOAD uint8 = 0xF2
 
 type AssembledFunction struct {
 	FunctionSymbol *irs.GlobalSymbol
@@ -17,7 +19,6 @@ type AssembledFunction struct {
 
 func (a *X86_64Assembler) getSizeOverridePrefixes(ops *codegen.Operands, rex *REX, defaultOperationSize int) []uint8 {
 	res := []uint8{}
-
 	if defaultOperationSize == codegen.DWORD_SIZE && ops.DataTransferSize == codegen.WORD_SIZE {
 		res = append(res, OP_OVERLOAD)
 	}
@@ -33,6 +34,13 @@ func (a *X86_64Assembler) getSizeOverridePrefixes(ops *codegen.Operands, rex *RE
 		}
 		if memop.(codegen.RegisterMemoryAccessor).Register.Size() != codegen.QWORD_SIZE {
 			res = append(res, ADDR_OVERLOAD)
+		}
+	}
+	if ops.IsSSE {
+		if ops.DataTransferSize == codegen.DWORD_SIZE {
+			res = append(res, FLOAT_OVERLOAD)
+	 	} else {
+			res = append(res, DOUBLE_OVERLOAD)
 		}
 	}
 	return res

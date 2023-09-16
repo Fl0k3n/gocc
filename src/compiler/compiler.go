@@ -134,13 +134,12 @@ func (c *Compiler) generateIntermediateRepresentation(translationUnit *ast.Trans
 	return ir
 }
 
-func (c *Compiler) generateCode(ir *irs.IntermediateRepresentation) ([]*codegen.FunctionCode, []*codegen.AugmentedGlobalSymbol) {
+func (c *Compiler) generateCode(ir *irs.IntermediateRepresentation) *codegen.CodeRepresentation{
 	memoryManager := codegen.NewMemoryManager(ir.BootstrappedTypeEngine)
 	registerAllocator := codegen.NewBasicAllocator(memoryManager)
 	asmWriter := codegen.NewWriter()
 	codeGen := codegen.NewGenerator(ir, registerAllocator, memoryManager, asmWriter)
-	assemblyCode, augmentedGlobals := codeGen.Generate()
-	return assemblyCode, augmentedGlobals
+	return codeGen.Generate()
 }
 
 func (c *Compiler) assemble(assemblyCode []*codegen.FunctionCode) ([]*asm.AssembledFunction, []uint8, []asm.DisplacementToFix){
@@ -155,15 +154,15 @@ func (c *Compiler) assemble(assemblyCode []*codegen.FunctionCode) ([]*asm.Assemb
 }
 
 func (c *Compiler) writeRelocatableFile(
+	codeRepr *codegen.CodeRepresentation,
 	assembledFunctions []*asm.AssembledFunction,
-	globals []*codegen.AugmentedGlobalSymbol,
 	assembledCode []uint8,
 	displacementsToFix []asm.DisplacementToFix,
 	inputPath string,
 	outputPath string,
 ) error {
 	inputFileName := filepath.Base(inputPath)
-	elfBuilder := elf.NewBuilder(assembledCode, assembledFunctions, globals, displacementsToFix)
+	elfBuilder := elf.NewBuilder(assembledCode, assembledFunctions, codeRepr.Globals, codeRepr.Rodata, displacementsToFix)
 	return elfBuilder.CreateRelocatableELF(inputFileName, outputPath)
 }
 
@@ -180,10 +179,9 @@ func (c *Compiler) Compile(inputPath string, outputPath string) error {
 
 	ir := c.generateIntermediateRepresentation(&translationUnit)
 
-	assemblyCode, augmentedGlobals := c.generateCode(ir)
+	codeRepr := c.generateCode(ir)
 
-	assembledFunctions, assembledCode, displacementsToFix := c.assemble(assemblyCode)
+	assembledFunctions, assembledCode, displacementsToFix := c.assemble(codeRepr.Code)
 
-	return c.writeRelocatableFile(assembledFunctions, augmentedGlobals, assembledCode, displacementsToFix,
-				inputPath, outputPath)
+	return c.writeRelocatableFile(codeRepr, assembledFunctions, assembledCode, displacementsToFix, inputPath, outputPath)
 }

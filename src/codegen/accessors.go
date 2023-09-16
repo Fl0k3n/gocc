@@ -56,3 +56,12 @@ type SectionMemoryAccessor struct {
 func (p SectionMemoryAccessor) String() string {
 	return fmt.Sprintf("%s@KnownSection", p.Symbol.Name)
 }
+
+type RoDataMemoryAccessor struct {
+	Offset uint32
+}
+
+func (r RoDataMemoryAccessor) String() string {
+	return fmt.Sprintf("%d[.rodata]", r.Offset)
+}
+

@@ -3,7 +3,6 @@ package codegen
 import (
 	"irs"
 	"semantics"
-	"utils"
 )
 
 
@@ -15,6 +14,7 @@ type Generator struct {
 	typeEngine *semantics.TypeEngine
 	memoryManager *MemoryManager
 	labels *irs.LabelProvider
+	rodataManager *ReadonlyDataManager
 }
 
 func NewGenerator(
@@ -30,12 +30,14 @@ func NewGenerator(
 		typeEngine: ir.BootstrappedTypeEngine,
 		memoryManager: memoryManager,
 		labels: irs.NewLabelProvider(),
+		rodataManager: newReadonlyDataManager(),
 	}
 	augmentedGlobals := make([]*AugmentedGlobalSymbol, len(ir.Globals))
 	for i, global := range ir.Globals {
 		augmentedGlobals[i] = g.augmentGlobal(global)
 	}
 	g.globals = augmentedGlobals
+	g.rodataManager.RegisterReadonlyData(ir)
 	return g
 }
 
@@ -58,6 +60,8 @@ func (g *Generator) checkForGotUnwrapping(asym *AugmentedSymbol) {
 func (g *Generator) load(destReg Register, srcMem MemoryAccessor) {
 	if integralReg, isIntegral := destReg.(IntegralRegister); isIntegral {
 		g.asm.MovMemoryToIntegralRegister(integralReg, srcMem)
+	} else {
+		g.asm.MovMemoryToFloatingRegister(destReg.(FloatingRegister), srcMem)
 	}
 }
 
@@ -69,6 +73,8 @@ func (g *Generator) loadSymbol(asym *AugmentedSymbol) {
 func (g *Generator) store(destMem MemoryAccessor, srcReg Register) {
 	if integralReg, isIntegral := srcReg.(IntegralRegister); isIntegral {
 		g.asm.MovIntegralRegisterToMemory(destMem, integralReg)
+	} else {
+		g.asm.MovFloatingRegisterToMemory(destMem, srcReg.(FloatingRegister))
 	}
 }
 
@@ -104,8 +110,11 @@ func (g *Generator) increaseStackPointer(by int) {
 }
 
 func (g *Generator) copyRegister(dest Register, src Register) {
-	// TODO
-	g.asm.MovIntegralRegisterToIntegralRegister(dest.(IntegralRegister), src.(IntegralRegister))
+	if _, isIntegral := dest.(IntegralRegister); isIntegral {
+		g.asm.MovIntegralRegisterToIntegralRegister(dest.(IntegralRegister), src.(IntegralRegister))
+	} else {
+		g.asm.MovFloatingRegisterToFloatingRegister(dest.(FloatingRegister), src.(FloatingRegister))
+	}
 }
 
 func (g *Generator) call(asym *AugmentedSymbol) {
@@ -122,80 +131,118 @@ func (g *Generator) call(asym *AugmentedSymbol) {
 	}
 }
 
-func (g *Generator) saveConstantInRegister(dest Register, con semantics.ProgramConstant) {
-	c := con.(semantics.IntegralConstant)
-	if g.typeEngine.IsIntegralType(c.T) {
-		// TODO check if its integral (should always be?)
-		g.asm.MovIntegralConstantToIntegralRegister(dest.(IntegralRegister), int(c.Val))
-		// g.asm.MovIntegralConstantToMemory(.LhsSymbol.MemoryAccessor, int(c.Val))
-	} else {
-		// TODO
+func (g *Generator) saveConstantInRegister(dest Register, con *AugmentedProgramConstant) {
+	switch c := con.Constant.(type) {
+	case semantics.IntegralConstant:
+		if integralReg, isIntegral := dest.(IntegralRegister); isIntegral {
+			g.asm.MovIntegralConstantToIntegralRegister(integralReg, int(c.Val))
+		} else {
+			panic("Expected integral register")
+		}
+	case semantics.FloatingConstant:
+		if floatingReg, isFloating := dest.(FloatingRegister); isFloating {
+			g.asm.Reference(*con.LoaderRegister, con.ConstantMemoryAccessor)
+			g.asm.MovMemoryToFloatingRegister(floatingReg, RegisterMemoryAccessor{Register: *con.LoaderRegister})	
+		} else {
+			panic("Expected floating register")
+		}
+	default:
+		panic("Unexpected program constant type")
 	}
 }
 
+func (g *Generator) performBinaryOperationOnIntegralRegisters(
+	leftReg IntegralRegister,
+	operator string,
+	rightReg IntegralRegister,
+) (resultReg Register) {
+	switch operator {
+	case "+":
+		g.asm.AddIntegralRegisters(leftReg, rightReg)
+	case "-":
+		g.asm.SubIntegralRegisters(leftReg, rightReg)
+	case "*":
+		// TODO unsigned and sign extend both regs to word if they are byte
+		g.asm.SignedMultiplyIntegralRegisters(leftReg, rightReg)
+	case "/", "%":
+		// TODO this behaves differently for bytes (not dl:al but whole in ax)
+		// this assumes that left represents rax or rdx depending on operator
+		g.asm.ClearIntegralRegister(GetIntegralRegisterFamily(DIV_OP_DIVIDENT_HIGHER_BITS_REG).Use(DWORD))
+		g.asm.SignedDivideRaxRdxByIntegralRegister(rightReg)
+		if operator == "/"  {
+			return GetIntegralRegisterFamily(DIV_OP_DIVIDENT_LOWER_BITS_REG).UseForSize(leftReg.Size())
+		} else {
+			return GetIntegralRegisterFamily(DIV_OP_DIVIDENT_HIGHER_BITS_REG).UseForSize(leftReg.Size())
+		}
+	case "==", "<", "<=", ">", ">=", "!=":
+		g.asm.CompareIntegralRegisters(leftReg, rightReg)
+		negated := false
+		if operator == "!=" {
+			negated = true
+		}
+		g.asm.SetComparisonResult(leftReg, RELATIONAL_OPERATOR_TO_CONDITION[operator], negated)
+	case "&&":
+		doneLabel := g.labels.Next(irs.AND_DONE)
+		setZeroLabel := g.labels.Next(irs.AND_ZERO)
+		g.asm.CompareToZero(leftReg)
+		g.asm.JumpIfZero(setZeroLabel)
+		g.asm.CompareToZero(rightReg)
+		g.asm.JumpIfZero(setZeroLabel)
+		g.asm.MovIntegralConstantToIntegralRegister(leftReg, 1)
+		g.asm.JumpToLabel(doneLabel)
+		g.asm.PutLabel(setZeroLabel)
+		g.asm.MovIntegralConstantToIntegralRegister(leftReg, 0)
+		g.asm.PutLabel(doneLabel)
+	case "||":
+		doneLabel := g.labels.Next(irs.OR_DONE)
+		setOneLabel := g.labels.Next(irs.OR_ONE)
+		g.asm.CompareToZero(leftReg)
+		g.asm.JumpIfNotZero(setOneLabel)
+		g.asm.CompareToZero(rightReg)
+		g.asm.JumpIfNotZero(setOneLabel)
+		g.asm.MovIntegralConstantToIntegralRegister(leftReg, 0)
+		g.asm.JumpToLabel(doneLabel)
+		g.asm.PutLabel(setOneLabel)
+		g.asm.MovIntegralConstantToIntegralRegister(leftReg, 1)
+		g.asm.PutLabel(doneLabel)
+	default:
+		panic("Unsupported integral binary operation: " + operator)
+	}
+	return leftReg
+}
+
+func (g *Generator) performBinaryOperationOnFloatinRegisters(
+	leftReg FloatingRegister,
+	operator string,
+	rightReg FloatingRegister,
+) (resultReg Register) {
+	switch operator {
+	case "+":
+		g.asm.AddFloatingRegisters(leftReg, rightReg)
+	// case "-":
+	// case "*":
+	// case "/":
+	// case "==", "<", "<=", ">", ">=", "!=":
+	default:
+		panic("Unsupported floating binary operation: " + operator)
+	}
+	return leftReg
+}
+
 func (g *Generator) performBinaryOperationOnRegisters(leftReg Register, operator string, rightReg Register) (resultReg Register) {
-	// if leftReg.Size() != rightReg.Size() {
-	// 	panic("Register size mismatch for binary operation")
-	// }
+	if leftReg.Size() != rightReg.Size() {
+		panic("Register size mismatch for binary operation")
+	}
 	switch lreg := leftReg.(type) {
 	case IntegralRegister:
 		rreg := rightReg.(IntegralRegister)
-		switch operator {
-		case "+":
-			g.asm.AddIntegralRegisters(lreg, rreg)
-		case "-":
-			g.asm.SubIntegralRegisters(lreg, rreg)
-		case "*":
-			// TODO unsigned and sign extend both regs to word if they are byte
-			g.asm.SignedMultiplyIntegralRegisters(lreg, rreg)
-		case "/", "%":
-			// TODO this behaves differently for bytes (not dl:al but whole in ax)
-			// this assumes that left represents rax or rdx depending on operator
-			g.asm.ClearIntegralRegister(GetIntegralRegisterFamily(DIV_OP_DIVIDENT_HIGHER_BITS_REG).Use(DWORD))
-			g.asm.SignedDivideRaxRdxByIntegralRegister(rreg)
-			if operator == "/"  {
-				return GetIntegralRegisterFamily(DIV_OP_DIVIDENT_LOWER_BITS_REG).UseForSize(leftReg.Size())
-			} else {
-				return GetIntegralRegisterFamily(DIV_OP_DIVIDENT_HIGHER_BITS_REG).UseForSize(leftReg.Size())
-			}
-		case "==", "<", "<=", ">", ">=", "!=":
-			g.asm.CompareIntegralRegisters(lreg, rreg)
-			negated := false
-			if operator == "!=" {
-				negated = true
-			}
-			g.asm.SetComparisonResult(lreg, RELATIONAL_OPERATOR_TO_CONDITION[operator], negated)
-		case "&&":
-			doneLabel := g.labels.Next(irs.AND_DONE)
-			setZeroLabel := g.labels.Next(irs.AND_ZERO)
-			g.asm.CompareToZero(lreg)
-			g.asm.JumpIfZero(setZeroLabel)
-			g.asm.CompareToZero(rreg)
-			g.asm.JumpIfZero(setZeroLabel)
-			g.asm.MovIntegralConstantToIntegralRegister(lreg, 1)
-			g.asm.JumpToLabel(doneLabel)
-			g.asm.PutLabel(setZeroLabel)
-			g.asm.MovIntegralConstantToIntegralRegister(lreg, 0)
-			g.asm.PutLabel(doneLabel)
-		case "||":
-			doneLabel := g.labels.Next(irs.OR_DONE)
-			setOneLabel := g.labels.Next(irs.OR_ONE)
-			g.asm.CompareToZero(lreg)
-			g.asm.JumpIfNotZero(setOneLabel)
-			g.asm.CompareToZero(rreg)
-			g.asm.JumpIfNotZero(setOneLabel)
-			g.asm.MovIntegralConstantToIntegralRegister(lreg, 0)
-			g.asm.JumpToLabel(doneLabel)
-			g.asm.PutLabel(setOneLabel)
-			g.asm.MovIntegralConstantToIntegralRegister(lreg, 1)
-			g.asm.PutLabel(doneLabel)
-		}
+		return g.performBinaryOperationOnIntegralRegisters(lreg, operator, rreg)
 	case FloatingRegister:
-		// rreg := rightReg.(FloatingRegister)
+		rreg := rightReg.(FloatingRegister)
+		return g.performBinaryOperationOnFloatinRegisters(lreg, operator, rreg)
 	default:
 		panic("unexpected register")
 	} 
-	return leftReg
 }
 
 func (g *Generator) performUnaryOperationOnRegister(register Register, operator string) Register {
@@ -341,11 +388,18 @@ func (g *Generator) generateFunctionCode(fun *AugmentedFunctionIr) {
 	for _, line := range fun.Code {
 		switch ir := line.(type) {
 		case *AugmentedConstantAssignmentLine:
-			g.saveConstantInRegister(ir.LhsSymbol.Register, ir.Constant)
+			g.saveConstantInRegister(ir.LhsSymbol.Register, ir.AugmentedConstant)
 			if ir.LhsSymbol.StoreAfterWrite {
 				g.storeSymbol(ir.LhsSymbol)
 			}
 		case *AugmentedStringAssignmentLine:
+			g.asm.Reference(*ir.LoaderRegister, ir.StringMemoryAccessor)
+			if !ir.LhsSymbol.Register.Equals(*ir.LoaderRegister) {
+				g.copyRegister(ir.LhsSymbol.Register, *ir.LoaderRegister)
+			}
+			if ir.LhsSymbol.StoreAfterWrite {
+				g.storeSymbol(ir.LhsSymbol)
+			}
 		case *AugmentedBiSymbolAssignmentLine:
 			if ir.RhsSymbol.LoadBeforeRead {
 				g.loadSymbol(ir.RhsSymbol)
@@ -430,46 +484,12 @@ func (g *Generator) generateFunction(fun *irs.FunctionIR) {
 	augmentedFun := g.prepareAugmentedIr(fun)
 	g.asm.PutLabel(createFunctionLabel(fun.FunctionSymbol.Symbol.Name))
 
+	g.rodataManager.AssignMemoryAccessorsToProgramConstantUsages(augmentedFun)
 	g.registerAllocator.Alloc(augmentedFun)
 	g.prepareStackForCodeGeneration(augmentedFun)
 
 	g.generateFunctionCode(augmentedFun)
 	g.returnFromFunction(augmentedFun)
-}
-
-func (g *Generator) encodeProgramConstant(pc semantics.ProgramConstant) (encoded []byte) {
-	switch c := pc.(type) {
-	case semantics.IntegralConstant:
-		if g.typeEngine.IsUnsigned(c) {
-			switch c.T.Size() {
-			case 1:
-				encoded = utils.EncodeUnsignedIntToLittleEndianU2(uint8(c.Val))
-			case 2:
-				encoded = utils.EncodeUnsignedIntToLittleEndianU2(uint16(c.Val))
-			case 4:
-				encoded = utils.EncodeUnsignedIntToLittleEndianU2(uint32(c.Val))
-			case 8:
-				encoded = utils.EncodeUnsignedIntToLittleEndianU2(uint64(c.Val))
-			}
-		} else {
-			switch c.T.Size() {
-			case 1:
-				encoded = utils.EncodeIntToLittleEndianU2(int8(c.Val))
-			case 2:
-				encoded = utils.EncodeIntToLittleEndianU2(int16(c.Val))
-			case 4:
-				encoded = utils.EncodeIntToLittleEndianU2(int32(c.Val))
-			case 8:
-				encoded = utils.EncodeIntToLittleEndianU2(int64(c.Val))
-			}
-
-		}
-	case semantics.FloatingConstant:
-		// TODO
-	case semantics.StringConstanst:
-		// TODO
-	}
-	return
 }
 
 func (g *Generator) generateGlobalInitializersData() {
@@ -483,7 +503,10 @@ func (g *Generator) generateGlobalInitializersData() {
 			buff[i] = 0
 		}
 		for _, initializer := range global.Initializers {
-			encoded := g.encodeProgramConstant(initializer.Constant)
+			if g.typeEngine.AreTypesEqual(semantics.STRING_LITERAL_TYPE, global.Symbol.Ctype) {
+				panic("Global string constants are unsupported for now")
+			}
+			encoded := encodeNumericProgramConstant(initializer.Constant, g.typeEngine)
 			for i, b := range encoded {
 				buff[initializer.Offset + i] = b
 			}
@@ -492,11 +515,15 @@ func (g *Generator) generateGlobalInitializersData() {
 	}
 }
 
-func (g *Generator) Generate() ([]*FunctionCode, []*AugmentedGlobalSymbol) {
+func (g *Generator) Generate() *CodeRepresentation {
 	g.memoryManager.AssignMemoryToGlobals(g.globals)
 	for _, fun := range g.functions {
 		g.generateFunction(fun)
 	}
 	g.generateGlobalInitializersData()
-	return g.asm.GetAssembly(), g.globals
+	return &CodeRepresentation{
+		Code: g.asm.GetAssembly(),
+		Globals: g.globals,
+		Rodata: g.rodataManager.GetSerialized(),
+	}
 }

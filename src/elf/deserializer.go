@@ -1,6 +1,7 @@
 package elf
 
 import (
+	"codegen"
 	"errors"
 	"os"
 	"utils"
@@ -77,6 +78,19 @@ func (d *Deserializer) deserializeCodeAndData() error {
 	return nil
 }
 
+func (d *Deserializer) deserializeRodata() error {
+	if d.elfFile.SectionHdrTable.HasSection(RO_DATA) {
+		rodataHdr := d.elfFile.SectionHdrTable.GetHeader(RO_DATA)
+		buff := make([]uint8, rodataHdr.Ssize)
+		copy(buff, d.data[rodataHdr.Soffset:rodataHdr.Soffset+rodataHdr.Ssize])
+		d.elfFile.Rodata = codegen.Rodata{
+			Data: buff,
+			Alignment: uint32(rodataHdr.Saddralign),
+		}
+	}
+	return nil
+}
+
 func (d *Deserializer) deserializeSymtab() error {
 	if !d.elfFile.SectionHdrTable.HasSection(SYMTAB) {
 		return nil
@@ -129,6 +143,7 @@ func (d *Deserializer) Deserialize(inputPath string) (*ElfFile, error) {
 		Then(d.deserializeHeader).
 		Then(d.deserializeSectionHeaderTable).
 		Then(d.deserializeCodeAndData).
+		Then(d.deserializeRodata).
 		Then(d.deserializeSymtab).
 		Then(d.deserializeStrtab). 
 		Then(d.deserializeRelaTab).

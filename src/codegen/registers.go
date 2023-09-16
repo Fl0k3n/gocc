@@ -119,8 +119,8 @@ type FloatingRegisterFamily struct {
 	T FloatingRegisterFamilyT
 }
 
-func (f FloatingRegisterFamily) use() FloatingRegister {
-	return FloatingRegister{Family: f}
+func (f FloatingRegisterFamily) UseForSize(size int) FloatingRegister {
+	return FloatingRegister{Family: f, EffectiveSize: size}
 }
 
 type FloatingRegisterFamilyT int 
@@ -136,10 +136,11 @@ const FLOATING_REGISTER_SIZE = 8
 
 type FloatingRegister struct {
 	Family FloatingRegisterFamily
+	EffectiveSize int
 }
 
 func (f FloatingRegister) Size() int {
-	return FLOATING_REGISTER_SIZE
+	return f.EffectiveSize
 }
 
 func (f FloatingRegister) Name() string {
@@ -181,7 +182,7 @@ var SYSV_CALLEE_SAVE_INTEGRAL_REGISTERS = []IntegralRegisterFamilyT{
 	RBP, RBX, R12, R13, R14, R15, // also rsp but thats implicit
 }
 var SYSV_CALLEE_SAVE_FLOATING_REGISTERS = []FloatingRegisterFamilyT{
-
+	// none
 }
 const SYS_V_RETURN_INTEGRAL_REGISTER = RAX
 const SYS_V_RETURN_FLOATING_REGISTER = XMM0

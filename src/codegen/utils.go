@@ -3,6 +3,8 @@ package codegen
 import (
 	"fmt"
 	"irs"
+	"semantics"
+	"utils"
 )
 
 func asSymbols(asyms []*AugmentedSymbol) []*irs.Symbol {
@@ -83,4 +85,54 @@ func abs(v int) int {
 		return -v
 	}
 	return v
+}
+
+func encodeNumericProgramConstant(pc semantics.ProgramConstant, typeEngine *semantics.TypeEngine) (encoded []byte) {
+	switch c := pc.(type) {
+	case semantics.IntegralConstant:
+		if typeEngine.IsUnsigned(c) {
+			switch c.T.Size() {
+			case 1:
+				encoded = utils.EncodeUnsignedIntToLittleEndianU2(uint8(c.Val))
+			case 2:
+				encoded = utils.EncodeUnsignedIntToLittleEndianU2(uint16(c.Val))
+			case 4:
+				encoded = utils.EncodeUnsignedIntToLittleEndianU2(uint32(c.Val))
+			case 8:
+				encoded = utils.EncodeUnsignedIntToLittleEndianU2(uint64(c.Val))
+			default:
+				panic("Unexpected unsigned constant")
+			}
+		} else {
+			switch c.T.Size() {
+			case 1:
+				encoded = utils.EncodeIntToLittleEndianU2(int8(c.Val))
+			case 2:
+				encoded = utils.EncodeIntToLittleEndianU2(int16(c.Val))
+			case 4:
+				encoded = utils.EncodeIntToLittleEndianU2(int32(c.Val))
+			case 8:
+				encoded = utils.EncodeIntToLittleEndianU2(int64(c.Val))
+			default:
+				panic("Unexpected signed constant")
+			}
+
+		}
+	case semantics.FloatingConstant:
+		if c.T.Size() == QWORD_SIZE {
+			encoded = utils.EncodeDoubleToLittleEndian(c.Val)
+		} else {
+			encoded = utils.EncodeFloatToLittleEndian(float32(c.Val))
+		}
+	case semantics.StringConstant:
+		panic("Expected numeric constant")
+	}
+	return
+}
+
+func getFlotingOpname(baseName string, operands *Operands) string {
+	if operands.DataTransferSize == QWORD_SIZE {
+		return baseName + "d"
+	}
+	return baseName + "s"
 }

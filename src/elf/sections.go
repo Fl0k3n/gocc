@@ -3,6 +3,7 @@ package elf
 const NULL_SECTION = ""
 const TEXT = ".text"
 const DATA = ".data"
+const RO_DATA = ".rodata"
 const BSS = ".bss"
 const SYMTAB = ".symtab"
 const STRTAB = ".strtab"
@@ -209,6 +210,21 @@ func (s *SectionHdrTable) CreateBssSection(fileStartOffset int, size int, alignm
 		Saddralign: uint64(alignment),
 		Sentsize: 0,
 	}
+}
+
+func (s *SectionHdrTable) CreateRodataSection(fileStartOffset int, size int, alignment int) {
+	s.sectionHeaders[s.GetSectionIdx(RO_DATA)] = SectionHeader{
+		Sname: s.sectionStrtab.GetIdx(RO_DATA),  
+		Stype: uint32(S_PROGBITS),
+		Sflags: uint64(S_ALLOC),
+		Saddr: 0,
+		Soffset: uint64(fileStartOffset),
+		Ssize: uint64(size),
+		Slink: 0,
+		Sinfo: 0,
+		Saddralign: uint64(alignment),
+		Sentsize: 0,
+	}	
 }
 
 func (s *SectionHdrTable) CreateSymtabSection(fileStartOffset int, size int, greatestLocalSymbolId uint32) {

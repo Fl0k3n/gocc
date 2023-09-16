@@ -1,5 +1,7 @@
 package utils
 
+import "math"
+
 func EncodeUnsignedIntToLittleEndianU2(val interface{}) []byte{
 	switch v := val.(type) {
 	case uint8:
@@ -78,4 +80,12 @@ func DecodeUnsignedIntsFromLittleEndianU2(buff []byte, offset int, resPtrs ...in
 		size := DecodeUnsignedIntFromLittleEndianU2(buff, offset, ptr)
 		offset += size
 	}
+}
+
+func EncodeFloatToLittleEndian(f float32) []byte {
+	return EncodeUnsignedIntToLittleEndianU2(math.Float32bits(f))
+}
+
+func EncodeDoubleToLittleEndian(d float64) []byte {
+	return EncodeUnsignedIntToLittleEndianU2(math.Float64bits(d))
 }
