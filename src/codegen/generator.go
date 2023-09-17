@@ -151,11 +151,22 @@ func (g *Generator) saveConstantInRegister(dest Register, con *AugmentedProgramC
 	}
 }
 
+func (g *Generator) compareToZero(reg Register) {
+	if ireg, isIntegral := reg.(IntegralRegister); isIntegral {
+		g.asm.CompareIntegralRegisterToZero(ireg)
+	} else {
+		panic("unimplemented")
+	}
+}
+
 func (g *Generator) performBinaryOperationOnIntegralRegisters(
 	leftReg IntegralRegister,
 	operator string,
 	rightReg IntegralRegister,
-) (resultReg Register) {
+	resultReg IntegralRegister,
+	isUnsigned bool,
+) {
+	resultInLeft := true
 	switch operator {
 	case "+":
 		g.asm.AddIntegralRegisters(leftReg, rightReg)
@@ -169,80 +180,132 @@ func (g *Generator) performBinaryOperationOnIntegralRegisters(
 		// this assumes that left represents rax or rdx depending on operator
 		g.asm.ClearIntegralRegister(GetIntegralRegisterFamily(DIV_OP_DIVIDENT_HIGHER_BITS_REG).Use(DWORD))
 		g.asm.SignedDivideRaxRdxByIntegralRegister(rightReg)
+		resultInLeft = false
 		if operator == "/"  {
-			return GetIntegralRegisterFamily(DIV_OP_DIVIDENT_LOWER_BITS_REG).UseForSize(leftReg.Size())
+			if resultReg.Family.T != DIV_OP_DIVIDENT_LOWER_BITS_REG {
+				panic("invalid result register for div op")
+			}
 		} else {
-			return GetIntegralRegisterFamily(DIV_OP_DIVIDENT_HIGHER_BITS_REG).UseForSize(leftReg.Size())
+			if resultReg.Family.T != DIV_OP_DIVIDENT_HIGHER_BITS_REG {
+				panic("invalid result register for modulo op")
+			}
 		}
 	case "==", "<", "<=", ">", ">=", "!=":
+		resultInLeft = false
 		g.asm.CompareIntegralRegisters(leftReg, rightReg)
 		negated := false
 		if operator == "!=" {
 			negated = true
+			operator = "=="
 		}
-		g.asm.SetComparisonResult(leftReg, RELATIONAL_OPERATOR_TO_CONDITION[operator], negated)
+		var condition JumpCondition
+		if isUnsigned {
+			condition = RELATIONAL_OPERATOR_TO_UNSIGNED_OR_FLOATING_CONDITION[operator]
+		} else {
+			condition = RELATIONAL_OPERATOR_TO_SIGNED_CONDITION[operator]
+		}
+		g.asm.SetComparisonResult(resultReg, condition, negated)
 	case "&&":
+		resultInLeft = false
 		doneLabel := g.labels.Next(irs.AND_DONE)
 		setZeroLabel := g.labels.Next(irs.AND_ZERO)
-		g.asm.CompareToZero(leftReg)
+		g.asm.CompareIntegralRegisterToZero(leftReg)
 		g.asm.JumpIfZero(setZeroLabel)
-		g.asm.CompareToZero(rightReg)
+		g.asm.CompareIntegralRegisterToZero(rightReg)
 		g.asm.JumpIfZero(setZeroLabel)
-		g.asm.MovIntegralConstantToIntegralRegister(leftReg, 1)
+		g.asm.MovIntegralConstantToIntegralRegister(resultReg, 1)
 		g.asm.JumpToLabel(doneLabel)
 		g.asm.PutLabel(setZeroLabel)
-		g.asm.MovIntegralConstantToIntegralRegister(leftReg, 0)
+		g.asm.MovIntegralConstantToIntegralRegister(resultReg, 0)
 		g.asm.PutLabel(doneLabel)
 	case "||":
+		resultInLeft = false
 		doneLabel := g.labels.Next(irs.OR_DONE)
 		setOneLabel := g.labels.Next(irs.OR_ONE)
-		g.asm.CompareToZero(leftReg)
+		g.asm.CompareIntegralRegisterToZero(leftReg)
 		g.asm.JumpIfNotZero(setOneLabel)
-		g.asm.CompareToZero(rightReg)
+		g.asm.CompareIntegralRegisterToZero(rightReg)
 		g.asm.JumpIfNotZero(setOneLabel)
-		g.asm.MovIntegralConstantToIntegralRegister(leftReg, 0)
+		g.asm.MovIntegralConstantToIntegralRegister(resultReg, 0)
 		g.asm.JumpToLabel(doneLabel)
 		g.asm.PutLabel(setOneLabel)
-		g.asm.MovIntegralConstantToIntegralRegister(leftReg, 1)
+		g.asm.MovIntegralConstantToIntegralRegister(resultReg, 1)
 		g.asm.PutLabel(doneLabel)
 	default:
 		panic("Unsupported integral binary operation: " + operator)
 	}
-	return leftReg
+	if resultInLeft && !leftReg.Equals(resultReg){
+		g.copyRegister(resultReg, leftReg)
+	}
 }
 
 func (g *Generator) performBinaryOperationOnFloatinRegisters(
 	leftReg FloatingRegister,
 	operator string,
 	rightReg FloatingRegister,
-) (resultReg Register) {
+	resultReg Register,
+) {
+	resultInLeft := true
 	switch operator {
 	case "+":
 		g.asm.AddFloatingRegisters(leftReg, rightReg)
-	// case "-":
-	// case "*":
-	// case "/":
-	// case "==", "<", "<=", ">", ">=", "!=":
+	case "-":
+		g.asm.SubFloatingRegisters(leftReg, rightReg)
+	case "*":
+		g.asm.MultiplyFloatingRegisters(leftReg, rightReg)
+	case "/":
+		g.asm.DivideFloatingRegisters(leftReg, rightReg)
+	case "==", "<", "<=", ">", ">=", "!=":
+		resultInLeft = false
+		g.asm.CompareFloatingRegisters(leftReg, rightReg)
+		negated := false
+		if operator == "!=" {
+			negated = true
+			operator = "=="
+		}
+		g.asm.SetComparisonResult(
+			resultReg.(IntegralRegister),
+			RELATIONAL_OPERATOR_TO_UNSIGNED_OR_FLOATING_CONDITION[operator],
+			negated)
 	default:
 		panic("Unsupported floating binary operation: " + operator)
 	}
-	return leftReg
+	if resultInLeft && !leftReg.Equals(resultReg) {
+		g.copyRegister(resultReg, leftReg)
+	}
 }
 
-func (g *Generator) performBinaryOperationOnRegisters(leftReg Register, operator string, rightReg Register) (resultReg Register) {
-	if leftReg.Size() != rightReg.Size() {
+func (g *Generator) performBinaryOperation(
+	leftOperand *AugmentedSymbol,
+	operator string,
+	rightOperand *AugmentedSymbol,
+	resultSymbol *AugmentedSymbol,
+) {
+	if leftOperand.Register.Size() != rightOperand.Register.Size() {
 		panic("Register size mismatch for binary operation")
 	}
-	switch lreg := leftReg.(type) {
+	if leftOperand.LoadBeforeRead {
+		g.loadSymbol(leftOperand)
+	}
+	if rightOperand.LoadBeforeRead {
+		// TODO don't load it, use reg, mem operation if possible
+		// also dont load left if this is loaded and operation is commutative
+		g.loadSymbol(rightOperand)
+	}
+	switch lreg := leftOperand.Register.(type) {
 	case IntegralRegister:
-		rreg := rightReg.(IntegralRegister)
-		return g.performBinaryOperationOnIntegralRegisters(lreg, operator, rreg)
+		rreg := rightOperand.Register.(IntegralRegister)
+		resReg := resultSymbol.Register.(IntegralRegister)
+		g.performBinaryOperationOnIntegralRegisters(lreg, operator, rreg, resReg, g.typeEngine.IsUnsignedType(leftOperand.Sym.Ctype))
 	case FloatingRegister:
-		rreg := rightReg.(FloatingRegister)
-		return g.performBinaryOperationOnFloatinRegisters(lreg, operator, rreg)
+		rreg := rightOperand.Register.(FloatingRegister)
+		g.performBinaryOperationOnFloatinRegisters(lreg, operator, rreg, resultSymbol.Register)
 	default:
 		panic("unexpected register")
 	} 
+	if resultSymbol.StoreAfterWrite {
+		g.storeSymbol(resultSymbol)
+	}
 }
 
 func (g *Generator) performUnaryOperationOnRegister(register Register, operator string) Register {
@@ -250,7 +313,7 @@ func (g *Generator) performUnaryOperationOnRegister(register Register, operator 
 		case IntegralRegister:
 			switch operator {
 			case "!":
-				g.asm.CompareToZero(reg)
+				g.asm.CompareIntegralRegisterToZero(reg)
 				g.asm.SetComparisonResult(reg, EQUAL, false)
 			case "-":
 				g.asm.NegateIntegralRegister(reg)
@@ -269,9 +332,17 @@ func (g *Generator) loadReference(lhsSym *AugmentedSymbol, rhsSym *AugmentedSymb
 
 func (g *Generator) dereference(lhsSym *AugmentedSymbol, rhsSym *AugmentedSymbol) {
 	g.checkForGotUnwrapping(rhsSym)
-	g.asm.MovMemoryToIntegralRegister(lhsSym.Register.(IntegralRegister), RegisterMemoryAccessor{
+	accessor := RegisterMemoryAccessor{
 		Register: rhsSym.Register.(IntegralRegister),
-	})
+	} 
+	switch resultReg := lhsSym.Register.(type) {
+	case IntegralRegister:
+		g.asm.MovMemoryToIntegralRegister(resultReg, accessor)
+	case FloatingRegister:
+		g.asm.MovMemoryToFloatingRegister(resultReg, accessor)
+	default:
+		panic("Unexpected register")
+	}
 }
 
 func (g *Generator) storeCalleeSaveRegisters(fun *AugmentedFunctionIr) {
@@ -355,28 +426,42 @@ func (g *Generator) typeCast(fromSymbol *AugmentedSymbol, toSymbol *AugmentedSym
 	}
 
 	if srcClass == INTEGER && dstClass == INTEGER {
-		if (srcSize == DWORD_SIZE && dstSize == QWORD_SIZE) || (srcSize == QWORD_SIZE && dstSize == DWORD_SIZE) {
+		if dstSize < srcSize {
 			if fromSymbol.Register.(IntegralRegister).Family != toSymbol.Register.(IntegralRegister).Family {
 				panic("should have allocated same reg")
 			}
-			// x86 arch sign extends dword registers to quad automatically so we don't have to do anything
 		} else {
-			// if fromSymbol.LoadBeforeRead {
-			// 	g.checkForGotUnwrapping(fromSymbol)
-			// 	g.asm.MovMemoryToIntegralRegister(toSymbol.Register.(IntegralRegister), fromSymbol.MemoryAccessor)
-			// } else {
-			// 	g.asm.MovIntegralRegisteraToIntegralRegister()
-			// }
+			g.asm.SignExtend(toSymbol.Register.(IntegralRegister), fromSymbol.Register.(IntegralRegister))
 		}
-		srcUnsigned := g.typeEngine.IsUnsignedType(fromSymbol.Sym.Ctype)
-		dstUnsigned := g.typeEngine.IsUnsignedType(toSymbol.Sym.Ctype)
-		if srcUnsigned && dstUnsigned {
-			if dstSize > srcSize {
-				
-			}
+	} else if srcClass == SSE && dstClass == SSE {
+		g.asm.ConvertFloatingRegisterToFloatingRegister(
+			toSymbol.Register.(FloatingRegister),
+			fromSymbol.Register.(FloatingRegister),
+		)
+	} else if srcClass == INTEGER && dstClass == SSE {
+		if g.typeEngine.IsUnsignedType(fromSymbol.Sym.Ctype) {
+			panic("Unsigned to float conversion currently unsupported") // TODO
 		}
+		if fromSymbol.Register.Size() < DWORD_SIZE {
+			panic("Can convert only dwords or qwords to floating") // TODO
+		}
+		g.asm.ConvertIntegralRegisterToFloatingRegister(
+			toSymbol.Register.(FloatingRegister),
+			fromSymbol.Register.(IntegralRegister),
+		)
+	} else if srcClass == SSE && dstClass == INTEGER {
+		if g.typeEngine.IsUnsignedType(toSymbol.Sym.Ctype) {
+			panic("Float to unsigned conversion currently unsupported") // TODO
+		}
+		if toSymbol.Register.Size() < DWORD_SIZE {
+			panic("Can convert floating only to dwords or qwords") // TODO
+		}
+		g.asm.ConvertFloatingRegisterToIntegralRegister(
+			toSymbol.Register.(IntegralRegister),
+			fromSymbol.Register.(FloatingRegister),
+		)
 	} else {
-		panic("TODO")
+		panic("Unsupported conversion")
 	}
 
 	if toSymbol.StoreAfterWrite {
@@ -406,20 +491,7 @@ func (g *Generator) generateFunctionCode(fun *AugmentedFunctionIr) {
 			}
 			g.storeInLValue(ir.LValue, ir.RhsSymbol.Register)
 		case *AugmentedBinaryOperationLine:
-			if ir.LeftOperand.LoadBeforeRead {
-				g.loadSymbol(ir.LeftOperand)
-			}
-			if ir.RightOperand.LoadBeforeRead {
-				g.loadSymbol(ir.RightOperand)
-			}
-			// TODO some (most) operations allow one operand to be memory, use that
-			resReg := g.performBinaryOperationOnRegisters(ir.LeftOperand.Register, ir.Operator, ir.RightOperand.Register)
-			if !resReg.Equals(ir.LhsSymbol.Register) {
-				g.copyRegister(ir.LhsSymbol.Register, resReg)	
-			}
-			if ir.LhsSymbol.StoreAfterWrite {
-				g.storeSymbol(ir.LhsSymbol)
-			}
+			g.performBinaryOperation(ir.LeftOperand, ir.Operator, ir.RightOperand, ir.LhsSymbol)
 		case *AugmentedUnaryOperationLine:
 			if ir.Operand.LoadBeforeRead {
 				g.loadSymbol(ir.Operand)
@@ -461,7 +533,7 @@ func (g *Generator) generateFunctionCode(fun *AugmentedFunctionIr) {
 				g.loadSymbol(ir.ConditionSymbol)
 			}
 			// TODO maybe try to optimize it even at this point
-			g.asm.CompareToZero(ir.ConditionSymbol.Register)
+			g.compareToZero(ir.ConditionSymbol.Register)
 			g.asm.JumpIfZero(ir.TargetLabel)
 		case *AugmentedReturnLine:
 			if ir.ReturnSymbol != nil {

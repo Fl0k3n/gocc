@@ -159,6 +159,35 @@ func (a *X86_64Assembler) assembleCmp(c codegen.CompareAsmLine) {
 	}
 }
 
+func (a *X86_64Assembler) assembleUcomis(c codegen.CompareFloatingAsmLine) {
+	if c.Operands.IsSSE {
+		// this instruction uses NP encoding which forbids the use of F2/F3 prefixes
+		// which are insterted if SSE is set to true, we disable it explicitly here
+		c.Operands.IsSSE = false
+	}
+	defaultOpSize := c.Operands.DataTransferSize
+	if c.Operands.DataTransferSize == codegen.QWORD_SIZE {
+		a.write(OP_OVERLOAD)
+	}
+	a.write(a.assembleMRInstruction([]uint8{0x0F, 0x2E}, c.Operands, NOT_OPCODE, defaultOpSize, true)...)
+}
+
+func (a *X86_64Assembler) assembleCvtss2ss(c codegen.ConvertFloatToFloatAsmLine) {
+	opcode := []uint8{OPCODE_SECOND_BYTE_PFX, 0x5A}
+	c.Operands.DataTransferSize = c.SourceSize
+	a.write(a.assembleMRInstruction(opcode, c.Operands, NOT_OPCODE, c.Operands.DataTransferSize, true)...)
+}
+
+func (a *X86_64Assembler) assembleCvtss2si(c codegen.ConvertFloatToIntAsmLine) {
+	opcode := []uint8{OPCODE_SECOND_BYTE_PFX, 0x2D}
+	a.write(a.assembleMRInstruction(opcode, c.Operands, NOT_OPCODE, codegen.DWORD_SIZE, true)...)
+}
+
+func (a *X86_64Assembler) assembleCvtsi2ss(c codegen.ConvertIntToFloatAsmLine) {
+	opcode := []uint8{OPCODE_SECOND_BYTE_PFX, 0x2A}
+	a.write(a.assembleMRInstruction(opcode, c.Operands, NOT_OPCODE, codegen.DWORD_SIZE, true)...)
+}
+
 func (a *X86_64Assembler) assemblePush(p codegen.PushAsmLine) {
 	var opcode uint8
 	if p.Operand.UsesImmediate {
@@ -285,9 +314,19 @@ func (a *X86_64Assembler) assembleSub(c codegen.SubAsmLine) {
 	}	
 }
 
+func (a *X86_64Assembler) assembleSubs(c codegen.SubFloatingAsmLine) {
+	opcode := []uint8{0x0F, 0x5C}
+	a.write(a.assembleMRInstruction(opcode, c.Operands, NOT_OPCODE, c.Operands.DataTransferSize, true)...)
+}
+
 func (a *X86_64Assembler) assembleImul(m codegen.SignedMulAsmLine) {
 	// TODO handle immediate
 	a.write(a.assembleMRInstruction([]uint8{0x0F, 0xAF}, m.Operands, NOT_OPCODE, codegen.DWORD_SIZE, true)...)
+}
+
+func (a *X86_64Assembler) assembleMuls(c codegen.MulFloatingAsmLine) {
+	opcode := []uint8{0x0F, 0x59}
+	a.write(a.assembleMRInstruction(opcode, c.Operands, NOT_OPCODE, c.Operands.DataTransferSize, true)...)
 }
 
 func (a *X86_64Assembler) assembleIdiv(d codegen.SignedDivAsmLine) {
@@ -299,6 +338,11 @@ func (a *X86_64Assembler) assembleIdiv(d codegen.SignedDivAsmLine) {
 		opcode = 0xF7
 	}
 	a.write(a.assembleMRInstruction([]uint8{opcode}, d.Divider, 7, codegen.DWORD_SIZE, false)...)
+}
+
+func (a *X86_64Assembler) assembleDivs(c codegen.DivFloatingAsmLine) {
+	opcode := []uint8{0x0F, 0x5E}
+	a.write(a.assembleMRInstruction(opcode, c.Operands, NOT_OPCODE, c.Operands.DataTransferSize, true)...)
 }
 
 func (a *X86_64Assembler) assembleMovzx(m codegen.MovWithZeroExtend) {
@@ -356,6 +400,8 @@ func (a *X86_64Assembler) assembleLine(code codegen.AsmLine) {
 		a.assembleSetcc(c)
 	case codegen.CompareAsmLine:
 		a.assembleCmp(c)
+	case codegen.CompareFloatingAsmLine:
+		a.assembleUcomis(c)
 	case codegen.PushAsmLine:
 		a.assemblePush(c)
 	case codegen.PopAsmLine:
@@ -370,10 +416,16 @@ func (a *X86_64Assembler) assembleLine(code codegen.AsmLine) {
 		a.assembleAdds(c)
 	case codegen.SubAsmLine:
 		a.assembleSub(c)
+	case codegen.SubFloatingAsmLine:
+		a.assembleSubs(c)
 	case codegen.SignedMulAsmLine:
 		a.assembleImul(c)
+	case codegen.MulFloatingAsmLine:
+		a.assembleMuls(c)
 	case codegen.SignedDivAsmLine:
 		a.assembleIdiv(c)
+	case codegen.DivFloatingAsmLine:
+		a.assembleDivs(c)
 	case codegen.MovWithZeroExtend:
 		a.assembleMovzx(c)
 	case codegen.MovWithSignExtend:
@@ -382,6 +434,12 @@ func (a *X86_64Assembler) assembleLine(code codegen.AsmLine) {
 		a.assembleNeg(c)
 	case codegen.LeaAsmLine:
 		a.assembleLea(c)
+	case codegen.ConvertFloatToFloatAsmLine:
+		a.assembleCvtss2ss(c)
+	case codegen.ConvertFloatToIntAsmLine:
+		a.assembleCvtss2si(c)
+	case codegen.ConvertIntToFloatAsmLine:
+		a.assembleCvtsi2ss(c)
 	default:  
 		panic("Unsupported")
 	}

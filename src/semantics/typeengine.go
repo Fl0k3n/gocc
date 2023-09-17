@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"utils"
 )
 
@@ -302,9 +303,10 @@ func (e *TypeEngine) getCombinedBuiltin(tss []ast.TypeSpecifier) (Ctype, error) 
 			e.errorTracker.registerTypeError("Illegal declaration", directTs.LineInfo)
 			return VOID_POINTER, errors.New("Invalid combined builtin")
 		} else {
-			strRepr += " " + directTs.TypeName
+			strRepr = directTs.TypeName + " " + strRepr
 		}
 	}
+	strRepr = strings.TrimSpace(strRepr)
 	if !IsBuiltin(strRepr) {
 		e.errorTracker.registerTypeError("Undefined type", tss[0].(ast.DirectTypeSpecifier).LineInfo)
 		return VOID_POINTER, errors.New("Invalid combined builtin")

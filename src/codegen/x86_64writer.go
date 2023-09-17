@@ -146,6 +146,13 @@ func (w *X86_64Writer) SubIntegralRegisters(left IntegralRegister, right Integra
 	})
 }
 
+func (w *X86_64Writer) SubFloatingRegisters(left FloatingRegister, right FloatingRegister) {
+	w.writeLine(SubFloatingAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(left)).
+			WithSecondOperand(justRegister(right)).AsSSE().WithSizeFromRegister(),
+	})
+}
+
 func (w *X86_64Writer) SignedMultiplyIntegralRegisters(left IntegralRegister, right IntegralRegister) {
 	w.writeLine(SignedMulAsmLine{
 		Operands: emptyOperands().WithFirstOperand(justRegister(left)). 
@@ -153,9 +160,23 @@ func (w *X86_64Writer) SignedMultiplyIntegralRegisters(left IntegralRegister, ri
 	})	
 }
 
+func (w *X86_64Writer) MultiplyFloatingRegisters(left FloatingRegister, right FloatingRegister) {
+	w.writeLine(MulFloatingAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(left)).
+			WithSecondOperand(justRegister(right)).AsSSE().WithSizeFromRegister(),
+	})
+}
+
 func (w *X86_64Writer) SignedDivideRaxRdxByIntegralRegister(divider IntegralRegister) {
 	w.writeLine(SignedDivAsmLine{
 		Divider: emptyOperands().WithFirstOperand(justRegister(divider)).WithSizeFromRegister(),
+	})
+}
+
+func (w *X86_64Writer) DivideFloatingRegisters(left FloatingRegister, right FloatingRegister) {
+	w.writeLine(DivFloatingAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(left)).
+			WithSecondOperand(justRegister(right)).AsSSE().WithSizeFromRegister(),
 	})
 }
 
@@ -194,7 +215,7 @@ func (w *X86_64Writer) JumpToLabel(label string) {
 	})
 }
 
-func (w *X86_64Writer) CompareToZero(reg Register) {
+func (w *X86_64Writer) CompareIntegralRegisterToZero(reg IntegralRegister) {
 	w.writeLine(CompareAsmLine{
 		Operands: emptyOperands().WithFirstOperand(justRegister(reg)).WithSizeFromRegister().
 			WithAutoSizedImmediate(&Immediate{Val: int64(0)}),
@@ -205,6 +226,13 @@ func (w *X86_64Writer) CompareIntegralRegisters(left IntegralRegister, right Int
 	w.writeLine(CompareAsmLine{
 		Operands: emptyOperands().WithFirstOperand(justRegister(left)).
 			WithSecondOperand(justRegister(right)).WithSizeFromRegister(),
+	})
+}
+
+func (w *X86_64Writer) CompareFloatingRegisters(left FloatingRegister, right FloatingRegister) {
+	w.writeLine(CompareFloatingAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(left)).
+			WithSecondOperand(justRegister(right)).AsSSE().WithSizeFromRegister(),
 	})
 }
 
@@ -280,3 +308,31 @@ func (w *X86_64Writer) Reference(destReg IntegralRegister, mem MemoryAccessor) {
 	})
 }
 
+func (w *X86_64Writer) ConvertFloatingRegisterToFloatingRegister(dstReg FloatingRegister, srcReg FloatingRegister) {
+	if srcReg.Size() == dstReg.Size() {
+		if !srcReg.Equals(dstReg) {
+			w.MovFloatingRegisterToFloatingRegister(dstReg, srcReg)
+		} 
+	} else {
+		w.writeLine(ConvertFloatToFloatAsmLine{
+			Operands: emptyOperands().WithFirstOperand(justRegister(dstReg)).
+				WithSecondOperand(justRegister(srcReg)).AsSSE().WithExplicitSize(dstReg.Size()),
+			TargetSize: dstReg.Size(),
+			SourceSize: srcReg.Size(),
+		})
+	}
+}
+
+func (w *X86_64Writer) ConvertIntegralRegisterToFloatingRegister(dstReg FloatingRegister, srcReg IntegralRegister) {
+	w.writeLine(ConvertIntToFloatAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(dstReg)).
+			WithSecondOperand(justRegister(srcReg)).AsSSE().WithExplicitSize(srcReg.Size()),
+	})
+}
+
+func (w *X86_64Writer) ConvertFloatingRegisterToIntegralRegister(dstReg IntegralRegister, srcReg FloatingRegister) {
+	w.writeLine(ConvertFloatToIntAsmLine{
+		Operands: emptyOperands().WithFirstOperand(justRegister(dstReg)).
+			WithSecondOperand(justRegister(srcReg)).AsSSE().WithExplicitSize(dstReg.Size()),
+	})
+}

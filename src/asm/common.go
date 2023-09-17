@@ -11,6 +11,8 @@ const OP_OVERLOAD uint8 = 0x66
 const FLOAT_OVERLOAD uint8 = 0xF3
 const DOUBLE_OVERLOAD uint8 = 0xF2
 
+const OPCODE_SECOND_BYTE_PFX = 0x0F
+
 type AssembledFunction struct {
 	FunctionSymbol *irs.GlobalSymbol
 	Size int
@@ -112,7 +114,12 @@ func (a *X86_64Assembler) assembleMIInstruction(opcode uint8, modRmOpcode uint8,
 	return mrAsm
 }
 
-func (a *X86_64Assembler) assembleMRInstruction(opcode []uint8, ops *codegen.Operands, modRmOpcode uint8, defaultOperationSize int, useRMencoding bool) []uint8 {
+func (a *X86_64Assembler) assembleModrmRexAndSib(
+	ops *codegen.Operands,
+	modRmOpcode uint8,
+	defaultOperationSize int,
+	useRMencoding bool,
+) (ModRM, REX, SIB) {
 	modrm := ModRM{}
 	rex := emptyREX()
 	sib := emptySIB()
@@ -184,7 +191,11 @@ func (a *X86_64Assembler) assembleMRInstruction(opcode []uint8, ops *codegen.Ope
 			rex.updateForRmExtensionIfNeeded(ops.FirstOperand.Register)
 		}
 	}
-	
+	return modrm, rex, sib
+}
+
+func (a *X86_64Assembler) assembleMRInstruction(opcode []uint8, ops *codegen.Operands, modRmOpcode uint8, defaultOperationSize int, useRMencoding bool) []uint8 {
+	modrm, rex, sib := a.assembleModrmRexAndSib(ops, modRmOpcode, defaultOperationSize, useRMencoding)
 	res := a.getSizeOverridePrefixes(ops, &rex, defaultOperationSize)
 	if rex.IsNeeded {
 		res = append(res, rex.encode())

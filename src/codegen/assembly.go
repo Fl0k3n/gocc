@@ -333,6 +333,10 @@ const (
 	GREATER_THAN
 	LESS_OR_EQUAL
 	GREATER_OR_EQUAL
+	BELOW
+	ABOVE
+	BELOW_OR_EQUAL
+	ABOVE_OR_EQUAL
 )
 
 var JUMP_CONDITION_STRING_ENCODING = map[JumpCondition]string {
@@ -341,6 +345,10 @@ var JUMP_CONDITION_STRING_ENCODING = map[JumpCondition]string {
 	GREATER_THAN: "G",
 	LESS_OR_EQUAL: "LE",
 	GREATER_OR_EQUAL: "GE",
+	BELOW: "B",
+	ABOVE: "A",
+	BELOW_OR_EQUAL: "BE",
+	ABOVE_OR_EQUAL: "AE",
 }
 
 type ConditionalJumpAsmLine struct {
@@ -357,12 +365,20 @@ func (l ConditionalJumpAsmLine) String() string {
 	return fmt.Sprintf("j%s%s %s", negationPfx, JUMP_CONDITION_STRING_ENCODING[l.Condition], l.Target.ToAssembly())
 }
 
-var RELATIONAL_OPERATOR_TO_CONDITION = map[string]JumpCondition {
+var RELATIONAL_OPERATOR_TO_SIGNED_CONDITION = map[string]JumpCondition {
 	"==": EQUAL,
 	"<": LESS_THAN,
 	">": GREATER_THAN,
 	"<=": LESS_OR_EQUAL,
 	">=": GREATER_OR_EQUAL,
+}
+
+var RELATIONAL_OPERATOR_TO_UNSIGNED_OR_FLOATING_CONDITION = map[string]JumpCondition {
+	"==": EQUAL,
+	"<": BELOW,
+	">": ABOVE,
+	"<=": BELOW_OR_EQUAL,
+	">=": ABOVE_OR_EQUAL,
 }
 
 type SetccAsmLine struct {
@@ -385,6 +401,17 @@ type CompareAsmLine struct {
 
 func (l CompareAsmLine) String() string {
 	return fmt.Sprintf("cmp " + l.Operands.ToAssembly())
+}
+
+type CompareFloatingAsmLine struct {
+	Operands *Operands
+}
+
+func (l CompareFloatingAsmLine) String() string {
+	// there is also comisx which differ in handling NaNs
+	// see https://stackoverflow.com/questions/18118408/what-is-the-difference-between-quiet-nan-and-signaling-nan
+	// TODO check when C standard mandates exteption raising on qnans, for now we do that only on snans
+	return fmt.Sprintf("%s %s", getFlotingOpname("ucomis", l.Operands), l.Operands.ToAssembly())
 }
 
 type PushAsmLine struct {
@@ -445,6 +472,14 @@ func (l SubAsmLine) String() string {
 	return fmt.Sprintf("sub " + l.Operands.ToAssembly())
 }
 
+type SubFloatingAsmLine struct {
+	Operands *Operands
+}
+
+func (l SubFloatingAsmLine) String() string {
+	return fmt.Sprintf("%s %s", getFlotingOpname("subs", l.Operands), l.Operands.ToAssembly())
+}
+
 type SignedMulAsmLine struct {
 	Operands *Operands
 }
@@ -453,12 +488,28 @@ func (l SignedMulAsmLine) String() string {
 	return fmt.Sprintf("imul %s",l.Operands.ToAssembly())
 }
 
+type MulFloatingAsmLine struct {
+	Operands *Operands
+}
+
+func (l MulFloatingAsmLine) String() string {
+	return fmt.Sprintf("%s %s", getFlotingOpname("muls", l.Operands), l.Operands.ToAssembly())
+}
+
 type SignedDivAsmLine struct {
 	Divider *Operands
 }
 
 func (l SignedDivAsmLine) String() string {
 	return fmt.Sprintf("idiv %s",l.Divider.ToAssembly())
+}
+
+type DivFloatingAsmLine struct {
+	Operands *Operands
+}
+
+func (l DivFloatingAsmLine) String() string {
+	return fmt.Sprintf("%s %s", getFlotingOpname("divs", l.Operands), l.Operands.ToAssembly())
 }
 
 type MovWithZeroExtend struct {
@@ -476,7 +527,7 @@ type MovWithSignExtend struct {
 }
 
 func (l MovWithSignExtend) String() string {
-	return fmt.Sprintf("%s %s", getFlotingOpname("movs", l.Operands), l.Operands.ToAssembly())
+	return fmt.Sprintf("movsx %s", l.Operands.ToAssembly())
 }
 
 type NegateAsmLine struct {
@@ -493,4 +544,31 @@ type LeaAsmLine struct {
 
 func (l LeaAsmLine) String() string {
 	return fmt.Sprintf("lea %s", l.Operands.ToAssembly())
+}
+
+type ConvertIntToFloatAsmLine struct {
+	Operands *Operands
+}
+
+func (l ConvertIntToFloatAsmLine) String() string {
+	return fmt.Sprintf("cvtsi2s%s %s", getFloatingTypeSign(l.Operands.DataTransferSize), l.Operands.ToAssembly())
+}
+
+type ConvertFloatToIntAsmLine struct {
+	Operands *Operands
+}
+
+func (l ConvertFloatToIntAsmLine) String() string {
+	return fmt.Sprintf("cvts%s2si %s", getFloatingTypeSign(l.Operands.DataTransferSize), l.Operands.ToAssembly())
+}
+
+type ConvertFloatToFloatAsmLine struct {
+	Operands *Operands
+	TargetSize int
+	SourceSize int
+}
+
+func (l ConvertFloatToFloatAsmLine) String() string {
+	return fmt.Sprintf("cvts%s2s%s %s", 
+		getFloatingTypeSign(l.SourceSize), getFloatingTypeSign(l.TargetSize), l.Operands.ToAssembly())
 }

@@ -321,22 +321,37 @@ func (a *BasicRegisterAllocator) allocRegistersForBinaryOperation(l *AugmentedBi
 	l.RightOperand.LoadBeforeRead = true
 	switch l.Operator {
 	case "/", "%":
-		a.allocState.currentlyUsedIntegralRegisters.Add(DIV_OP_DIVIDENT_HIGHER_BITS_REG)
-		a.allocState.currentlyUsedIntegralRegisters.Add(DIV_OP_DIVIDENT_LOWER_BITS_REG)
-		// this needs special handling with clearing the higher bits or zero extending lower etc
-		l.LeftOperand.Register = GetIntegralRegisterFamily(DIV_OP_DIVIDENT_LOWER_BITS_REG).UseForSize(l.LeftOperand.Sym.Ctype.Size())
-		if l.Operator == "/" {
-			l.LhsSymbol.Register = GetIntegralRegisterFamily(DIV_OP_DIVIDENT_LOWER_BITS_REG).UseForSize(l.LeftOperand.Sym.Ctype.Size())
+		if a.memoryManager.classifySymbol(l.LeftOperand.Sym) == INTEGER {
+			a.allocState.currentlyUsedIntegralRegisters.Add(DIV_OP_DIVIDENT_HIGHER_BITS_REG)
+			a.allocState.currentlyUsedIntegralRegisters.Add(DIV_OP_DIVIDENT_LOWER_BITS_REG)
+			// this needs special handling with clearing the higher bits or zero extending lower etc
+			l.LeftOperand.Register = GetIntegralRegisterFamily(DIV_OP_DIVIDENT_LOWER_BITS_REG).UseForSize(l.LeftOperand.Sym.Ctype.Size())
+			if l.Operator == "/" {
+				l.LhsSymbol.Register = GetIntegralRegisterFamily(DIV_OP_DIVIDENT_LOWER_BITS_REG).UseForSize(l.LeftOperand.Sym.Ctype.Size())
+			} else {
+				l.LhsSymbol.Register = GetIntegralRegisterFamily(DIV_OP_DIVIDENT_HIGHER_BITS_REG).UseForSize(l.LeftOperand.Sym.Ctype.Size())
+			}
+			a.markRegisterAsUsedInFunction(l.LeftOperand.Register)
+			a.markRegisterAsUsedInFunction(l.LhsSymbol.Register)
+			a.allocAnythingForLoadMode(l.RightOperand)
 		} else {
-			l.LhsSymbol.Register = GetIntegralRegisterFamily(DIV_OP_DIVIDENT_HIGHER_BITS_REG).UseForSize(l.LeftOperand.Sym.Ctype.Size())
+			// only /, guaranteed by the type system
+			a.allocAnythingForLoadMode(l.LeftOperand)
+			a.allocAnythingForLoadMode(l.RightOperand)
+			l.LhsSymbol.Register = l.LeftOperand.Register
 		}
-		a.markRegisterAsUsedInFunction(l.LeftOperand.Register)
-		a.markRegisterAsUsedInFunction(l.LhsSymbol.Register)
+	case "==", "<", "<=", ">", ">=", "!=":
+		a.allocAnythingForLoadMode(l.LeftOperand)
 		a.allocAnythingForLoadMode(l.RightOperand)
+		if a.memoryManager.classifySymbol(l.LeftOperand.Sym) == SSE {
+			a.allocAnythingForStoreMode(l.LhsSymbol)
+		} else {
+			l.LhsSymbol.Register = l.LeftOperand.Register
+		}
 	default:
 		a.allocAnythingForLoadMode(l.LeftOperand)
 		a.allocAnythingForLoadMode(l.RightOperand)
-		l.LhsSymbol.Register = l.LeftOperand.Register // TODO is this safe got-wise?
+		l.LhsSymbol.Register = l.LeftOperand.Register
 	}
 
 	l.LhsSymbol.StoreAfterWrite = true
@@ -385,19 +400,23 @@ func (a *BasicRegisterAllocator) allocRegistersForUnaryOperation(l *AugmentedUna
 func (a *BasicRegisterAllocator) allocRegistersForTypeCastOperation(l *AugmentedTypeCastLine) {
 	srcClass := a.memoryManager.classifySymbol(l.FromSymbol.Sym)
 	dstClass := a.memoryManager.classifySymbol(l.ToSymbol.Sym)
-	// srcSize := l.FromSymbol.Sym.Ctype.Size()
-	// dstSize := l.ToSymbol.Sym.Ctype.Size()
+	srcSize := l.FromSymbol.Sym.Ctype.Size()
+	dstSize := l.ToSymbol.Sym.Ctype.Size()
 
 	l.ToSymbol.StoreAfterWrite = true
 	l.FromSymbol.LoadBeforeRead = true
 
 	if srcClass == INTEGER && dstClass == INTEGER {
 		a.allocAnythingForStoreMode(l.ToSymbol)
-		l.FromSymbol.Register = l.ToSymbol.Register.(IntegralRegister).Family.
-									UseForSize(l.FromSymbol.Sym.Ctype.Size())
-		// a.allocAnythingForLoadMode()
+		if dstSize < srcSize {
+			targetRegFam := l.ToSymbol.Register.(IntegralRegister).Family
+			l.FromSymbol.Register = targetRegFam.UseForSize(l.FromSymbol.Sym.Ctype.Size())
+		} else {
+			a.allocAnythingForLoadMode(l.FromSymbol)
+		}
 	} else {
-		panic("TODO")
+		a.allocAnythingForLoadMode(l.FromSymbol)
+		a.allocAnythingForStoreMode(l.ToSymbol)
 	}
 }
 

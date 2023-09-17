@@ -133,7 +133,7 @@ func (c *Combiner) defineMissingSectionHeaders(e *elf.ElfFile) {
 	}
 }
 
-func (c *Combiner) changeSymbolIdxOfRelaEntries(targetElf *elf.ElfFile, remapLUT []uint32) {
+func (c *Combiner) changeSymbolIdxsOfRelaEntries(targetElf *elf.ElfFile, remapLUT []uint32) {
 	if targetElf.RelaEntries == nil {
 		return
 	}
@@ -205,7 +205,7 @@ func (c *Combiner) handleMultipleSameSymbols(
 
 func (c *Combiner) combineSymtabSection(e *elf.ElfFile) error {
 	curSymtabHdr := e.SectionHdrTable.GetHeader(elf.SYMTAB)
-	relaRemapLUT := make([]uint32, e.Symtab.Size())
+	symbolRemapLUT := make([]uint32, e.Symtab.Size())
 	for symIdx, sym := range e.Symtab.GetAll() {
 		if symIdx == 0 {
 			if sym.Type() != elf.ST_NOTYPE {
@@ -230,9 +230,9 @@ func (c *Combiner) combineSymtabSection(e *elf.ElfFile) error {
 			newSymbolIdx = c.elfBuff.Symtab.AddSymbol(sym)
 			c.symbolMap[symName] = []uint32{newSymbolIdx}
 		}
-		relaRemapLUT[symIdx] = newSymbolIdx
+		symbolRemapLUT[symIdx] = newSymbolIdx
 	}
-	c.changeSymbolIdxOfRelaEntries(e, relaRemapLUT)
+	c.changeSymbolIdxsOfRelaEntries(e, symbolRemapLUT)
 	curSymtabHdr.Ssize = uint64(c.elfBuff.Symtab.BinarySize())
 	return nil
 }

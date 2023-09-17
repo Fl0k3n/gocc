@@ -130,9 +130,13 @@ func encodeNumericProgramConstant(pc semantics.ProgramConstant, typeEngine *sema
 	return
 }
 
-func getFlotingOpname(baseName string, operands *Operands) string {
-	if operands.DataTransferSize == QWORD_SIZE {
-		return baseName + "d"
+func getFloatingTypeSign(size int) string {
+	if size == QWORD_SIZE {
+		return "d"
 	}
-	return baseName + "s"
+	return "s"
+}
+
+func getFlotingOpname(baseName string, operands *Operands) string {
+	return getFloatingTypeSign(operands.DataTransferSize)
 }

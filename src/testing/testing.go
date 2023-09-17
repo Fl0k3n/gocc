@@ -243,9 +243,9 @@ func Test() {
 	// testAssembler()
 	// serializeTables()
 	// testStaticLinking()
-	CompileAndLink(
-		"/home/flok3n/develop/from_scratch/gocc/resources/csrc/f1.c",
-		"/home/flok3n/develop/from_scratch/gocc/resources/csrc/f2.c",
-	)
-	// CompileAndLink("/home/flok3n/develop/from_scratch/gocc/resources/csrc/f1.c")
+	// CompileAndLink(
+	// 	"/home/flok3n/develop/from_scratch/gocc/resources/csrc/f1.c",
+	// 	"/home/flok3n/develop/from_scratch/gocc/resources/csrc/f2.c",
+	// )
+	CompileAndLink("/home/flok3n/develop/from_scratch/gocc/resources/csrc/f3.c")
 }
