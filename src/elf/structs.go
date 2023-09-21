@@ -274,7 +274,7 @@ type ElfFile struct {
 	SectionStrtab *Strtab
 	RelaTextEntries []*RelaEntry
 	GOT []uint64
-	GotPltOffset uint64 // GOT[GotPltOffset] contains first PLT entry within GOT
+	GOT_PLT []uint64
 	PLT []PLTEntry
 	Rodata codegen.Rodata
 	Dynamic *DynamicTab

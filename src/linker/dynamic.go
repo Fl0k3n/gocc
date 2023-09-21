@@ -5,15 +5,14 @@ import (
 	"codegen"
 	"elf"
 	"errors"
-	"fmt"
-	"strings"
 	"utils"
 )
 
-const DYNAMIC_LINKER_GOT_ENTRIES = 3
+const DYNAMIC_LINKER_GOT_PLT_ENTRIES = 3
 const DYNAMIC_LINKER_PLT_ENTIRES = 1
 const UNKNOWN_DYNAMIC_VALUE = 0
 const DYNAMIC_SEGMENT_ALIGNMENT = 0x8
+const RELA_IDX_SIZE = 4
 
 type AddressesAssignedCallback = func()
 
@@ -23,7 +22,6 @@ type DynamicLinker struct {
 	targetElf *elf.ElfFile
 	soname string
 	addressesAssignedCallbacks []AddressesAssignedCallback
-	dependencyNames []string
 }
 
 func NewDynamicLinker(assembler *asm.X86_64Assembler) *DynamicLinker {
@@ -164,7 +162,8 @@ func (l *DynamicLinker) createSharedLibDynsymSection() (symIdxToDynsymIdx map[ui
 
 	l.targetElf.DynSymtab = dynSymtab
 	l.targetElf.DynStrtab = dynStrtab
-	nbuckets := uint64(dynSymtab.Size() + 1 / 2)
+	// nbuckets := uint64((dynSymtab.Size() + 1) / 2)
+	nbuckets := uint64(1)
 	l.targetElf.SymbolHashTab = elf.BuildSymbolHashTab(nbuckets, dynSymtab, dynStrtab)
 	return
 }
@@ -173,8 +172,8 @@ func (l *DynamicLinker) createSharedLibRelocationSections() (symIdxToRelaDynIdx 
 	symbolsToPlaceInPlt := l.helper.GetIdxsOfFunctionSymbolsToBePlacedInPlt(l.targetElf)
 	symbolsToPlaceInGot := l.helper.GetIdxsOfSymbolsToBePlacedInGot(l.targetElf)
 	// uniqueSymbols := utils.SetOf[uint32](symbolsToPlaceInGot...).With(symbolsToPlaceInPlt...)
-	l.targetElf.GotPltOffset = uint64(DYNAMIC_LINKER_GOT_ENTRIES + len(symbolsToPlaceInGot))
-	l.targetElf.GOT = make([]uint64, DYNAMIC_LINKER_GOT_ENTRIES + len(symbolsToPlaceInGot) + len(symbolsToPlaceInPlt))
+	l.targetElf.GOT = make([]uint64, len(symbolsToPlaceInGot))
+	l.targetElf.GOT_PLT = make([]uint64, DYNAMIC_LINKER_GOT_PLT_ENTRIES + len(symbolsToPlaceInPlt))
 	l.targetElf.PLT = make([]elf.PLTEntry, DYNAMIC_LINKER_PLT_ENTIRES + len(symbolsToPlaceInPlt))
 	relaDynEntries := 0
 	relaPltEntries := 0
@@ -212,17 +211,17 @@ func (l *DynamicLinker) addSectionAddrDynamicEntry(tag uint64, sectionName strin
 	})
 }
 
-func (l *DynamicLinker) createSharedLibDynamicSection() {
+func (l *DynamicLinker) createSharedLibDynamicSection(depHelper *DependencyHelper) {
 	l.targetElf.Dynamic = elf.NewDynamicTab()
 	dynamicTab := l.targetElf.Dynamic
 	sonameStrIdx := l.targetElf.DynStrtab.PutString(l.soname)
 
-	for _, depName := range l.dependencyNames {
+	for _, depName := range depHelper.GetNamesForDynamicNeededEntries() {
 		depNameIdx := l.targetElf.DynStrtab.PutString(depName)
 		dynamicTab.AddDynamicEntry(elf.DT_NEEDED, uint64(depNameIdx))
 	}
 	if l.targetElf.SectionHdrTable.HasSection(elf.RELA_PLT) {
-		dynamicTab.AddDynamicEntry(elf.DT_PLTRELSZ, uint64(len(l.targetElf.PLT) * elf.PLT_ENTRY_SIZE))
+		dynamicTab.AddDynamicEntry(elf.DT_PLTRELSZ, uint64(len(l.targetElf.RelaPltEntries) * elf.RELA_ENTRY_SIZE))
 		dynamicTab.AddDynamicEntry(elf.DT_PLTREL, elf.DT_RELA)
 	}
 	if l.targetElf.SectionHdrTable.HasSection(elf.GOT_PLT) {
@@ -241,18 +240,20 @@ func (l *DynamicLinker) createSharedLibDynamicSection() {
 	dynamicTab.AddDynamicEntry(elf.DT_STRSZ, uint64(l.targetElf.DynStrtab.GetSize()))
 	dynamicTab.AddDynamicEntry(elf.DT_SYMENT, elf.SYMBOL_SIZE)
 	dynamicTab.AddDynamicEntry(elf.DT_SONAME, uint64(sonameStrIdx))
-	dynamicTab.AddDynamicEntry(elf.DT_NULL, 0)
 
 	if l.targetElf.SectionHdrTable.HasSection(elf.RELA_PLT) {
 		l.addSectionAddrDynamicEntry(elf.DT_JMPREL, elf.RELA_PLT)
 	}
+
+	// must be the last entry
+	dynamicTab.AddDynamicEntry(elf.DT_NULL, 0)
 }
 
 func (l *DynamicLinker) addSharedLibNeededSymbols() {
 	if l.targetElf.SectionHdrTable.HasSection(elf.GOT) || l.targetElf.SectionHdrTable.HasSection(elf.GOT_PLT) {
-		sectionName := elf.GOT
-		if !l.targetElf.SectionHdrTable.HasSection(elf.GOT) {
-			sectionName = elf.GOT_PLT
+		sectionName := elf.GOT_PLT
+		if l.targetElf.SectionHdrTable.HasSection(elf.GOT) {
+			sectionName = elf.GOT
 		}
 		idx := l.targetElf.SectionHdrTable.GetSectionIdx(sectionName)
 		l.helper.AddGOTReservedSymbol(l.targetElf, idx, UNKNOWN_DYNAMIC_VALUE, elf.SB_LOCAL)
@@ -279,18 +280,18 @@ func (l *DynamicLinker) CreateDynamicProgramHeader() *elf.ProgramHeader {
 
 func (l *DynamicLinker) createSharedLibProgramHeaders() {
 	const PROGRAM_HEADERS_COUNT = 4
-	fileOffset := uint64(elf.ELF_HEADER_SIZE) + uint64(PROGRAM_HEADERS_COUNT * elf.PROGRAM_HEADER_SIZE)
-	virtualAddr := uint64(0)
+	dynamicReadableSegment := l.helper.createSegmentContainingElfHeaderAndProgramHeaders(PROGRAM_HEADERS_COUNT)
 	firstSectionIdx := uint16(1) // skip NULL section
 	lastSectionIdx := l.helper.HighestExistingSectionIdx(l.targetElf, elf.DYNSTR, elf.RELA_DYN, elf.RELA_PLT)
-	dynamicReadableSegment := l.helper.createLoadableSegmentFromContiguousSections(
-		l.targetElf, firstSectionIdx, lastSectionIdx, fileOffset, virtualAddr, elf.PF_R,
-	)
+	l.helper.joinSectionsToSegment(l.targetElf, dynamicReadableSegment, firstSectionIdx, lastSectionIdx)
 
 	firstSectionIdx = lastSectionIdx + 1
 	lastSectionIdx = l.helper.HighestExistingSectionIdx(l.targetElf, elf.PLT, elf.TEXT) 
-	fileOffset = dynamicReadableSegment.Poffset + dynamicReadableSegment.Pfilesz
-	virtualAddr = dynamicReadableSegment.Pvaddr + dynamicReadableSegment.Pmemsz
+	// fileOffset := dynamicReadableSegment.Poffset + dynamicReadableSegment.Pfilesz
+	// virtualAddr := dynamicReadableSegment.Pvaddr + dynamicReadableSegment.Pmemsz
+	// TODO why ld.so does it this way?
+	fileOffset := uint64(PAGE_SIZE)
+	virtualAddr := uint64(PAGE_SIZE)
 	codeSegment := l.helper.createLoadableSegmentFromContiguousSections(
 		l.targetElf, firstSectionIdx, lastSectionIdx, fileOffset,  virtualAddr, elf.PF_R | elf.PF_X,
 	)
@@ -342,7 +343,7 @@ func (l *DynamicLinker) fillGOTSectionAndGetSymbolMapping() map[uint32]int {
 	for i, symIdx := range l.helper.GetIdxsOfSymbolsToBePlacedInGot(l.targetElf) {
 		sym := l.targetElf.Symtab.GetSymbolWithIdx(symIdx)
 		symbolMapping[symIdx] = i
-		l.targetElf.GOT[DYNAMIC_LINKER_GOT_ENTRIES + i] = sym.Svalue
+		l.targetElf.GOT[i] = sym.Svalue
 	}
 
 	return symbolMapping
@@ -354,7 +355,7 @@ func (l *DynamicLinker) getPltSymbolMapping() map[uint32]GotPltIdxs {
 	for i, symIdx := range l.helper.GetIdxsOfFunctionSymbolsToBePlacedInPlt(l.targetElf) {
 		symbolMapping[symIdx] = GotPltIdxs{
 			PltOffset: DYNAMIC_LINKER_PLT_ENTIRES + i,
-			GotOffset: i + int(l.targetElf.GotPltOffset),
+			GotOffset: DYNAMIC_LINKER_GOT_PLT_ENTRIES + i,
 		}
 	}
 
@@ -372,63 +373,79 @@ func (l *DynamicLinker) fixDisplacement(
 	copy(code[displacementToFix.CodeOffset:], utils.EncodeUnsignedIntToLittleEndianU2(displacement))
 }
 
+func (l DynamicLinker) fillWithNoops(code []uint8, fromInclusive int, toExclusive int) {
+	for i := fromInclusive; i < toExclusive; i++ {
+		code[i] = asm.NOP_OPCODE
+	}
+}
+
 func (l *DynamicLinker) createDynamicLinkerPltEntry() {
-	// push GOT[1] ; dynamic linker info
-	// jmp GOT[2]  ; address of dynamic linker
+	// push GOT.PLT[1]   ; dynamic linker info
+	// jmp [GOT.PLT[2]]  ; address of dynamic linker
 	code, displacementsToFix := l.assembler.AssembleStandalone(
 		codegen.PushAsmLine{Operand: codegen.EmptyOperands().
 			UsingRIP().WithUnknownDisplacement().WithExplicitSize(codegen.QWORD_SIZE),
 		},
 		codegen.JumpAsmLine{Target: codegen.EmptyOperands().
 			UsingRIP().WithUnknownDisplacement().WithExplicitSize(codegen.QWORD_SIZE),
+			IsDirectlyRipRelative: false,
 		},
 	)
 	if len(code) > elf.PLT_ENTRY_SIZE {
 		panic("PLT code too large")
 	}
 	pltVMA := l.targetElf.SectionHdrTable.GetHeader(elf.PLT).Saddr
-	gotVMA := l.targetElf.SectionHdrTable.GetHeader(elf.GOT).Saddr
+	gotPltVMA := l.targetElf.SectionHdrTable.GetHeader(elf.GOT_PLT).Saddr
 	initialRIP := pltVMA
 
-	// push GOT[1]
-	l.fixDisplacement(code, gotVMA + elf.GOT_ENTRY_SIZE, initialRIP, displacementsToFix[0])
-	// jmp GOT[2]
-	l.fixDisplacement(code, gotVMA + 2 * elf.GOT_ENTRY_SIZE, initialRIP, displacementsToFix[1])
+	// push GOT.PLT[1]
+	l.fixDisplacement(code, gotPltVMA + elf.GOT_ENTRY_SIZE, initialRIP, displacementsToFix[0])
+	// jmp GOT.PLT[2]
+	l.fixDisplacement(code, gotPltVMA + 2 * elf.GOT_ENTRY_SIZE, initialRIP, displacementsToFix[1])
 
 	copy(l.targetElf.PLT[0].Code[:], code)
+	l.fillWithNoops(l.targetElf.PLT[0].Code[:], len(code), elf.PLT_ENTRY_SIZE)
 }
 
 func (l *DynamicLinker) createFunctionPltEntry(pltIdx int, relaPltIdx int, pltGotIdx int) {
-	// jmp GOT.PLT[pltGotIdx]
+	// jmp [GOT.PLT[pltGotIdx]]
 	// push relaPltIdx
 	// jmp PLT[0]
 	code, displacementsToFix := l.assembler.AssembleStandalone(
 		codegen.JumpAsmLine{Target: codegen.EmptyOperands().
 			UsingRIP().WithUnknownDisplacement().WithExplicitSize(codegen.QWORD_SIZE),
+			IsDirectlyRipRelative: false,
 		},
 		codegen.PushAsmLine{Operand: codegen.EmptyOperands().
-			UsingRIP().WithUnknownDisplacement().WithExplicitSize(codegen.QWORD_SIZE),
+			WithImmediate(&codegen.Immediate{
+				Val: int64(pltGotIdx - DYNAMIC_LINKER_GOT_PLT_ENTRIES),
+				Size: RELA_IDX_SIZE},
+			).WithExplicitSize(RELA_IDX_SIZE),
 		},
 		codegen.JumpAsmLine{Target: codegen.EmptyOperands().
 			UsingRIP().WithUnknownDisplacement().WithExplicitSize(codegen.QWORD_SIZE),
+			IsDirectlyRipRelative: true,
 		},
 	)
 	if len(code) > elf.PLT_ENTRY_SIZE {
 		panic("PLT code too large")
 	}
 	pltVMA := l.targetElf.SectionHdrTable.GetHeader(elf.PLT).Saddr
-	gotVMA := l.targetElf.SectionHdrTable.GetHeader(elf.GOT).Saddr
+	gotPltVMA := l.targetElf.SectionHdrTable.GetHeader(elf.GOT_PLT).Saddr
 	initialRIP := pltVMA + uint64(pltIdx * elf.PLT_ENTRY_SIZE)
 
-	// jmp GOT.PLT[pltGotIdx]
-	l.fixDisplacement(code, gotVMA + uint64(pltGotIdx * elf.GOT_ENTRY_SIZE), initialRIP, displacementsToFix[0])
+	// jmp [GOT.PLT[pltGotIdx]]
+	jmpGotPltDisp := displacementsToFix[0]
+	l.fixDisplacement(code, gotPltVMA + uint64(pltGotIdx * elf.GOT_ENTRY_SIZE), initialRIP, jmpGotPltDisp)
+
+	nextInstructionVMA := initialRIP
+	nextInstructionVMA += uint64(jmpGotPltDisp.CodeOffset + jmpGotPltDisp.SizeToFix + jmpGotPltDisp.InstructionSizeAfterDisplacement)
+	l.targetElf.GOT_PLT[pltGotIdx] = nextInstructionVMA
+
 	// jmp PLT[0]
 	l.fixDisplacement(code, pltVMA, initialRIP, displacementsToFix[1])
 	copy(l.targetElf.PLT[pltIdx].Code[:], code)
-}
-
-func (l *DynamicLinker) fillPltGotEntry(pltGotIdx int, trampolineVMA uint64) {
-	l.targetElf.GOT[int(l.targetElf.GotPltOffset) + pltGotIdx] = trampolineVMA
+	l.fillWithNoops(l.targetElf.PLT[pltIdx].Code[:], len(code), elf.PLT_ENTRY_SIZE)
 }
 
 func (l *DynamicLinker) relocateSharedLibrary(
@@ -449,7 +466,7 @@ func (l *DynamicLinker) relocateSharedLibrary(
 	}
 	if pltHdr, ok := l.targetElf.SectionHdrTable.MaybeHeader(elf.PLT); ok {
 		pltStartVMA = pltHdr.Saddr
-		gotPltStartVMA = gotPltStartVMA + (l.targetElf.GotPltOffset * elf.GOT_ENTRY_SIZE)
+		gotPltStartVMA = gotStartVMA + uint64(len(l.targetElf.GOT) * elf.GOT_ENTRY_SIZE)
 		l.createDynamicLinkerPltEntry()
 	}
 	alreadyInitializedPlt := utils.NewSet[uint32]()
@@ -507,7 +524,8 @@ func (l *DynamicLinker) CreateSharedLibrary(
 	objFilePath string,
 	resultPath string,
 	soname string,
-	sharedObjectPaths []string, // dependencies
+	sharedObjectDirs []string, // dependencies
+	dependencyShortNames []string,
 ) error {
 	e, err := elf.NewDeserializer().Deserialize(objFilePath)
 	if err != nil {
@@ -516,23 +534,22 @@ func (l *DynamicLinker) CreateSharedLibrary(
 	if e.Header.Etype != elf.RELOCATABLE_FILE {
 		return errors.New("Need relocatable file to create shared object")
 	}
-	depHelper, err := newDependencyHelper(sharedObjectPaths)
+	depHelper, err := newDependencyHelper(sharedObjectDirs, dependencyShortNames)
 	if err != nil {
 		return err
 	}
 	l.soname = soname
 	l.targetElf = e
-	l.dependencyNames = sharedObjectPaths // TODO map to just names
-	missingSymbols := l.setTypeOfUndefinedSymbolsAndGetIdxsOfOnesThatCantBeFound(depHelper)
-	if len(missingSymbols) > 0 {
-		return errors.New(fmt.Sprintf("Undefined symbols: %s",
-			strings.Join(l.helper.GetNamesOfSymbolsWithIdxs(l.targetElf, missingSymbols), ", ")))
-	}
+	// missingSymbols := l.setTypeOfUndefinedSymbolsAndGetIdxsOfOnesThatCantBeFound(depHelper)
+	// if len(missingSymbols) > 0 {
+	// 	return errors.New(fmt.Sprintf("Undefined symbols: %s",
+	// 		strings.Join(l.helper.GetNamesOfSymbolsWithIdxs(l.targetElf, missingSymbols), ", ")))
+	// }
 	l.createSharedLibrarySectionHeaders()
+	l.addSharedLibNeededSymbols()
 	symIdxToDynsymIdx := l.createSharedLibDynsymSection()
 	symIdxToRelaDynIdx, symIdxToRelaPltIdx := l.createSharedLibRelocationSections()
-	l.createSharedLibDynamicSection()
-	l.addSharedLibNeededSymbols()
+	l.createSharedLibDynamicSection(depHelper)
 	l.helper.SetSectionSizes(l.targetElf)
 	l.createSharedLibProgramHeaders()
 	l.helper.SetSymbolValues(l.targetElf, l.targetElf.Symtab)

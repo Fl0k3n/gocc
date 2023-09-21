@@ -329,6 +329,7 @@ func (l MovFloatingAsmLine) String() string {
 
 type JumpAsmLine struct {
 	Target *Operands
+	IsDirectlyRipRelative bool
 }
 
 func (l JumpAsmLine) String() string {

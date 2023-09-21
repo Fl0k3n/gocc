@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+const NOP_OPCODE = 0x90
+
 type X86_64Assembler struct {
 	assembledCode []uint8
 	individualCodeAsms [][]uint8
@@ -74,7 +76,7 @@ func (a *X86_64Assembler) assembleMovss(m codegen.MovFloatingAsmLine) {
 }
 
 func (a *X86_64Assembler) assembleUnconditionalJump(code codegen.JumpAsmLine) {
-	if code.Target.UsesRipDisplacement {
+	if code.IsDirectlyRipRelative {
 		var opcode uint8
 		disp := code.Target.Displacement
 		if disp.Size == codegen.BYTE_SIZE {
@@ -198,7 +200,7 @@ func (a *X86_64Assembler) assemblePush(p codegen.PushAsmLine) {
 		}
 		a.write(opcode)
 		a.write(p.Operand.Imm.EncodeToLittleEndianU2()...)
-	} else if p.Operand.IsFirstOperandRegister() {
+	} else if p.Operand.FirstOperand != nil && p.Operand.IsFirstOperandRegister() {
 		reg := p.Operand.FirstOperand.Register
 		opcode := 0x50 + getTruncatedRegisterNum(reg)
 		if p.Operand.DataTransferSize == codegen.WORD_SIZE {

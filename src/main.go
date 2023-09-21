@@ -75,7 +75,7 @@ func cli() {
 		if len(input) == 0 {
 			err = errors.New("Expected input Relocatable ELF file")
 		}
-		if er := dynamicLinker.CreateSharedLibrary(input[0], *output, "libtestsoname.so.0", []string{}); er != nil {
+		if er := dynamicLinker.CreateSharedLibrary(input[0], *output, "libtestsoname.so.0", []string{}, []string{}); er != nil {
 			err = er
 			goto onerr
 		}

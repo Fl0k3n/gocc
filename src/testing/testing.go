@@ -208,10 +208,19 @@ func testSharedLib() {
 	relocator := asm.NewRelocator()
 	assembler := asm.NewAssembler(relocator)
 	dynamicLinker := linkers.NewDynamicLinker(assembler)
-	err := dynamicLinker.CreateSharedLibrary(
-		"/home/flok3n/develop/from_scratch/gocc/resources/csrc/link/simple/libmys2.o",
+	var err error
+	// err = dynamicLinker.CreateSharedLibrary(
+	// 	"/home/flok3n/develop/from_scratch/gocc/resources/csrc/link/simple/libs3.o",
+	// 	"/home/flok3n/develop/from_scratch/gocc/resources/csrc/link/simple/libs3.so.0.0",
+	// 	"libs3.so.0", []string{}, []string{})
+	// if err != nil {
+	// 	goto onerr
+	// }
+	err = dynamicLinker.CreateSharedLibrary(
+		"/home/flok3n/develop/from_scratch/gocc/resources/csrc/link/simple/libs2.o",
 		"/home/flok3n/develop/from_scratch/gocc/resources/csrc/link/simple/libs2.so.0.0",
-		"libs2.so.0", []string{})
+		"libs2.so.0", []string{}, []string{})
+// onerr:
 	if err != nil {
 		fmt.Println(err)
 	} else {

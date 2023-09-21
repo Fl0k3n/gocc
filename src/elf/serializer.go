@@ -63,19 +63,13 @@ func NewSerializer() *ELFSerializer {
 			STRTAB: 		func(e *ElfFile) []byte {return e.Strtab.GetNullCombinedStrings() },
 			SECTION_STRTAB: func(e *ElfFile) []byte {return e.SectionHdrTable.GetSectionStrtab().GetNullCombinedStrings() },
 			RELA_TEXT: 		func(e *ElfFile) []byte {return relaToBytes(e.RelaTextEntries)},
-			GOT: 			func(e *ElfFile) []byte {
-				if e.SectionHdrTable.HasSection(GOT_PLT) {
-					return gotToBytes(e.GOT[:e.GotPltOffset])
-				} else {
-					return gotToBytes(e.GOT)
-				}
-			},
+			GOT: 			func(e *ElfFile) []byte {return gotToBytes(e.GOT)},
 			HASH_SECTION:   func(e *ElfFile) []byte {return e.SymbolHashTab.ToBytes()},
 			DYNAMIC: 	    func(e *ElfFile) []byte {return e.Dynamic.ToBytes()},
 			DYNSYM:         func(e *ElfFile) []byte {return e.DynSymtab.ToBytes()},
 			DYNSTR:		    func(e *ElfFile) []byte {return e.DynStrtab.GetNullCombinedStrings()},
 			PLT:		    func(e *ElfFile) []byte {return pltToBytes(e.PLT)},
-			GOT_PLT:        func(e *ElfFile) []byte {return gotToBytes(e.GOT[e.GotPltOffset:])},
+			GOT_PLT:        func(e *ElfFile) []byte {return gotToBytes(e.GOT_PLT)},
 			RELA_DYN:       func(e *ElfFile) []byte {return relaToBytes(e.RelaDynEntries)},
 			RELA_PLT:       func(e *ElfFile) []byte {return relaToBytes(e.RelaPltEntries)},
 		},

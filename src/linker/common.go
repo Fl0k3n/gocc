@@ -48,10 +48,46 @@ func (l *LinkageHelper) GetNextSegmentPhysicalAndVirtualOffsets(
 		nextSegmentVirtualAddrStart += remainder
 	}
 	// we can't have multiple segments mapped to the same page if they have different access permissions
-	nextSegmentVirtualAddrStart += PAGE_SIZE 
+	nextSegmentVirtualAddrStart += PAGE_SIZE
 	return
 }
 
+
+// implicitly fixes Saddr and Soffset of section headers, section headers MUST have correct sizes
+func (l *LinkageHelper) joinSectionsToSegment(
+	e *elf.ElfFile,
+	hdr *elf.ProgramHeader,
+	startSectionIdx uint16,
+	endSectionIdx uint16, // inclusive
+) {
+	prevEndVirtAddr := hdr.Pvaddr + hdr.Pmemsz
+	prevEndPhyAddr := hdr.Poffset + hdr.Pfilesz
+
+	for sectionIdx := startSectionIdx; sectionIdx <= endSectionIdx; sectionIdx++ {
+		sectionHdr := e.SectionHdrTable.GetHeaderByIdx(sectionIdx)
+		sectionStartVirtAddr := prevEndVirtAddr
+		sectionStartPhyAddr := prevEndPhyAddr
+		var prevSectionAlignment uint64 = 0
+		if sectionHdr.Saddralign != 0 {
+			if remainder := sectionStartVirtAddr % sectionHdr.Saddralign; remainder != 0 {
+				prevSectionAlignment = sectionHdr.Saddralign - remainder
+				sectionStartVirtAddr += prevSectionAlignment
+				sectionStartPhyAddr += prevSectionAlignment
+			}
+		}
+		sectionHdr.Saddr = sectionStartVirtAddr
+		sectionHdr.Soffset = sectionStartPhyAddr
+		hdr.Pmemsz += sectionHdr.Ssize + prevSectionAlignment
+		if sectionHdr.Stype != uint32(elf.S_NOBITS) {
+			hdr.Pfilesz += sectionHdr.Ssize + prevSectionAlignment
+			prevEndPhyAddr = sectionStartPhyAddr + sectionHdr.Ssize
+		} else {
+			hdr.Pfilesz += prevSectionAlignment
+			prevEndPhyAddr += prevSectionAlignment
+		}
+		prevEndVirtAddr = sectionStartVirtAddr + sectionHdr.Ssize
+	}
+}
 
 // implicitly fixes Saddr and Soffset of section headers, section headers MUST have correct sizes
 func (l *LinkageHelper) createLoadableSegmentFromContiguousSections(
@@ -81,35 +117,23 @@ func (l *LinkageHelper) createLoadableSegmentFromContiguousSections(
 	}
 	firstSectionHdr.Saddr = firstVirtAddr
 	firstSectionHdr.Soffset = firstFileOffset
-
-	prevEndVirtAddr := firstVirtAddr + hdr.Pmemsz
-	prevEndPhyAddr := firstFileOffset + hdr.Pfilesz
-
-	for sectionIdx := startSectionIdx + 1; sectionIdx <= endSectionIdx; sectionIdx++ {
-		sectionHdr := e.SectionHdrTable.GetHeaderByIdx(sectionIdx)
-		sectionStartVirtAddr := prevEndVirtAddr
-		sectionStartPhyAddr := prevEndPhyAddr
-		var prevSectionAlignment uint64 = 0
-		if sectionHdr.Saddralign != 0 {
-			if remainder := sectionStartVirtAddr % sectionHdr.Saddralign; remainder != 0 {
-				prevSectionAlignment = sectionHdr.Saddralign - remainder
-				sectionStartVirtAddr += prevSectionAlignment
-				sectionStartPhyAddr += prevSectionAlignment
-			}
-		}
-		sectionHdr.Saddr = sectionStartVirtAddr
-		sectionHdr.Soffset = sectionStartPhyAddr
-		hdr.Pmemsz += sectionHdr.Ssize + prevSectionAlignment
-		if sectionHdr.Stype != uint32(elf.S_NOBITS) {
-			hdr.Pfilesz += sectionHdr.Ssize + prevSectionAlignment
-			prevEndPhyAddr = sectionStartPhyAddr + sectionHdr.Ssize
-		} else {
-			hdr.Pfilesz += prevSectionAlignment
-			prevEndPhyAddr += prevSectionAlignment
-		}
-		prevEndVirtAddr = sectionStartVirtAddr + sectionHdr.Ssize
-	}
+	l.joinSectionsToSegment(e, &hdr, startSectionIdx + 1, endSectionIdx)
 	return &hdr
+}
+
+func (l *LinkageHelper) createSegmentContainingElfHeaderAndProgramHeaders(programHeaderCount int) *elf.ProgramHeader {
+	phtSize := programHeaderCount * elf.PROGRAM_HEADER_SIZE
+	totalSize := uint64(elf.ELF_HEADER_SIZE + phtSize)
+	return &elf.ProgramHeader{
+		Ptype: uint32(elf.PT_LOAD),
+		Pflags: elf.PF_R,
+		Palign: PAGE_SIZE,
+		Poffset: 0,
+		Pvaddr: 0,
+		Ppaddr: 0,
+		Pfilesz: totalSize,
+		Pmemsz: totalSize,
+	}
 }
 
 func (l *LinkageHelper) updateFileOffsetsOfSectionsBetween(
@@ -161,7 +185,13 @@ func (l *LinkageHelper) GetIdxsOfSymbolsToBePlacedInGot(e *elf.ElfFile) []uint32
 }
 
 func (l *LinkageHelper) GetIdxsOfFunctionSymbolsToBePlacedInPlt(e *elf.ElfFile) []uint32 {
-	return l.getIdxsOfRelocationSymbolsWithType(e, elf.R_X86_64_PLT32)
+	res := []uint32{}
+	for _, symidx := range l.getIdxsOfRelocationSymbolsWithType(e, elf.R_X86_64_PLT32) {
+		if !e.Symtab.IsDefined(symidx) {
+			res = append(res, symidx)
+		}
+	}
+	return res
 }
 
 func (l *LinkageHelper) FixSectionInterlinks(e *elf.ElfFile) {
@@ -209,6 +239,7 @@ func (l *LinkageHelper) SetSectionSizes(e *elf.ElfFile) {
 	setSizeIfExists(elf.TEXT,		    func() int {return len(e.Code)})
 	setSizeIfExists(elf.DYNAMIC,	    func() int {return e.Dynamic.BinarySize()})
 	setSizeIfExists(elf.GOT,		    func() int {return len(e.GOT) * elf.GOT_ENTRY_SIZE})
+	setSizeIfExists(elf.GOT_PLT,	    func() int {return len(e.GOT_PLT) * elf.GOT_ENTRY_SIZE})
 	setSizeIfExists(elf.DATA,		    func() int {return len(e.Data)})
 	setSizeIfExists(elf.RO_DATA, 	    func() int {return len(e.Rodata.Data)})
 	setSizeIfExists(elf.SYMTAB, 	    func() int {return e.Symtab.BinarySize()})
@@ -272,13 +303,14 @@ func (l *LinkageHelper) AddDynamicReservedSymbol(e *elf.ElfFile, dynamicSectionI
 	return &sym
 }
 
-func (l *LinkageHelper) ReorderSymbolsToHaveLocalsFirst(e *elf.ElfFile) {
-	reorderLut := e.Symtab.ReorderSymbolsToHaveLocalsFirst()
-	if e.SectionHdrTable.HasSection(elf.RELA_TEXT) {
+func (l *LinkageHelper) ReorderSymbolsToHaveLocalsFirst(e *elf.ElfFile) (reorderLut []uint32) {
+	reorderLut = e.Symtab.ReorderSymbolsToHaveLocalsFirst()
+	if e.RelaTextEntries != nil {
 		for _, rela := range e.RelaTextEntries {
 			rela.Rinfo = elf.EncodeRelocationInfo(reorderLut[rela.SymbolIdx()], rela.RelocationType()) 
 		}
 	}
+	return
 }
 
 func (l *LinkageHelper) GetNamesOfSymbolsWithIdxs(e *elf.ElfFile, symIdxs []uint32) []string {

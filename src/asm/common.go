@@ -127,7 +127,7 @@ func (a *X86_64Assembler) assembleModrmRexAndSib(
 	if ops.SecondOperand == nil {
 		modrm.reg = modRmOpcode
 	} 	
-	if ops.IsFirstOperandMemory() || (ops.SecondOperand != nil && ops.IsSecondOperandMemory()) {
+	if ops.FirstOperand == nil || ops.IsFirstOperandMemory() || (ops.SecondOperand != nil && ops.IsSecondOperandMemory()) {
 		if ops.UsesRipDisplacement {
 			modrm.mod = 0b00
 			modrm.rm = 0b101

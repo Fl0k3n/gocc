@@ -212,6 +212,7 @@ func (w *X86_64Writer) JumpToLabel(label string) {
 		Target: EmptyOperands().
 			WithPossiblyComplexMemoryFirstOperand(LabeledMemoryAccessor{Label: label}).
 			WithExplicitSize(QWORD_SIZE),
+		IsDirectlyRipRelative: true,
 	})
 }
 
