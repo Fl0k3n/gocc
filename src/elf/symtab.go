@@ -1,6 +1,7 @@
 package elf
 
 const GOT_SYMBOL_NAME = "_GLOBAL_OFFSET_TABLE_"
+const DYNAMIC_SYMBOL_NAME = "_DYNAMIC"
 
 type Symtab struct {
 	symbols []*Symbol
@@ -64,13 +65,24 @@ func (s *Symtab) GetAll() []*Symbol {
 
 // omits expected null symbol at the start
 func (s *Symtab) GetUndefinedSymbols() []*Symbol {
-	res := []*Symbol{}
+	idxs := s.GetUndefinedSymbolIdxs()
+	res := make([]*Symbol, len(idxs))
+	for i, idx := range idxs {
+		res[i] = s.symbols[idx]
+	}
+	return res
+}
+
+// omits expected null symbol at the start
+func (s *Symtab) GetUndefinedSymbolIdxs() []uint32 {
+	res := []uint32{}
 	if len(s.symbols) == 0 {
 		return res
 	}
-	for _, sym := range s.symbols[1:] {
+	for idx := 1; idx < len(s.symbols); idx++ {
+		sym := s.symbols[idx]
 		if sym.Sshndx == SHN_UNDEF {
-			res = append(res, sym)
+			res = append(res, uint32(idx))
 		}
 	}
 	return res
@@ -89,7 +101,7 @@ func (s *Symtab) GetSymbolWithIdx(idx uint32) *Symbol {
 	return s.symbols[idx]
 }
 
-// TODO cache names if this is used often
+// TODO cache names if this is used often, shouldn't be tho, we got symhashtab for that
 func (s *Symtab) GetSymbolIdx(symName string, strtab *Strtab) uint32 {
 	for idx, sym := range s.symbols {
 		name := strtab.GetStringForIndex(sym.Sname)
@@ -98,6 +110,10 @@ func (s *Symtab) GetSymbolIdx(symName string, strtab *Strtab) uint32 {
 		}
 	}
 	panic("No symbol with name " + symName)
+}
+
+func (s *Symtab) IsDefined(symIdx uint32) bool {
+	return s.symbols[symIdx].Sshndx != SHN_UNDEF
 }
 
 func (s *Symtab) GetSymbol(symName string, strtab *Strtab) *Symbol {

@@ -53,6 +53,14 @@ func (r *Relocator) RecordDisplacementToFix(accessor codegen.MemoryAccessor, off
 	})
 }
 
+func (r *Relocator) GetDisplacementsToFix() []DisplacementToFix {
+	return r.displacementsToFix
+}
+
+func (r *Relocator) Reset() {
+	r.labels = map[string]int{}
+	r.displacementsToFix = []DisplacementToFix{}
+}
 
 func (r *Relocator) PutLabel(label string, offset int) {
 	r.labels[label] = offset

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"asm"
 	"compilers"
 	"errors"
 	"flag"
@@ -20,6 +21,7 @@ func cli() {
 	compile := flag.Bool("c", false, "Compile C source into relocatable file")
 	linkReloc := flag.Bool("r", false, "Link relocatable files into relocatable file")
 	linkExec := flag.Bool("e", false, "Create executable from relocatable file")
+	linkShared := flag.Bool("s", false, "Create shared library from relocatable file")
 	executableEntry := flag.String("entry", "", "Entry point of executable")
 	output := flag.String("o", "", "Output file name")
 	flag.Parse()
@@ -63,6 +65,18 @@ func cli() {
 		}
 		if er := linker.StaticLinkRelocatablesIntoRelocatable(input, *output); er != nil {
 			err = er	
+			goto onerr
+		}
+	} else if *linkShared {
+		relocator := asm.NewRelocator()
+		assembler := asm.NewAssembler(relocator)
+		dynamicLinker := linkers.NewDynamicLinker(assembler)
+		input := flag.Args()
+		if len(input) == 0 {
+			err = errors.New("Expected input Relocatable ELF file")
+		}
+		if er := dynamicLinker.CreateSharedLibrary(input[0], *output, "libtestsoname.so.0", []string{}); er != nil {
+			err = er
 			goto onerr
 		}
 	} else {

@@ -8,6 +8,11 @@ func NewProgramHdrTable() *ProgramHdrTable {
 	return &ProgramHdrTable{programHeaders: []ProgramHeader{}}
 }
 
+func (p *ProgramHdrTable) WithProgramHeaders(hdrs ...ProgramHeader) *ProgramHdrTable {
+	p.programHeaders = append(p.programHeaders, hdrs...)
+	return p
+}
+
 func (p *ProgramHdrTable) AddProgramHeader(hdr ProgramHeader) {
 	p.programHeaders = append(p.programHeaders, hdr)
 }

@@ -126,9 +126,14 @@ func (d *Deserializer) deserializeRelaTab() error {
 		relaEntries[i] = RelaEntryFromBytes(d.data, int(offset))
 		offset += RELA_ENTRY_SIZE
 	}
-	d.elfFile.RelaEntries = relaEntries
+	d.elfFile.RelaTextEntries = relaEntries
 	return nil
 
+}
+
+func (d *Deserializer) DeserializeDynamicInfo() (*DynamicTab, *Symtab, *SymbolHashTab, *Strtab) {
+	// TODO
+	return nil, nil, nil, nil
 }
 
 func (d *Deserializer) Deserialize(inputPath string) (*ElfFile, error) {

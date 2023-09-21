@@ -1,6 +1,7 @@
 package playground
 
 import (
+	"asm"
 	"compilers"
 	"fmt"
 	"grammars"
@@ -201,7 +202,21 @@ func testStaticLinking() {
 	} else {
 		fmt.Println("ok")
 	}
+}
 
+func testSharedLib() {
+	relocator := asm.NewRelocator()
+	assembler := asm.NewAssembler(relocator)
+	dynamicLinker := linkers.NewDynamicLinker(assembler)
+	err := dynamicLinker.CreateSharedLibrary(
+		"/home/flok3n/develop/from_scratch/gocc/resources/csrc/link/simple/libmys2.o",
+		"/home/flok3n/develop/from_scratch/gocc/resources/csrc/link/simple/libs2.so.0.0",
+		"libs2.so.0", []string{})
+	if err != nil {
+		fmt.Println(err)
+	} else {
+		fmt.Println("ok")
+	}
 }
 
 func CompileAndLink(srcs ...string) {
@@ -243,9 +258,10 @@ func Test() {
 	// testAssembler()
 	// serializeTables()
 	// testStaticLinking()
+	testSharedLib()
 	// CompileAndLink(
 	// 	"/home/flok3n/develop/from_scratch/gocc/resources/csrc/f1.c",
 	// 	"/home/flok3n/develop/from_scratch/gocc/resources/csrc/f2.c",
 	// )
-	CompileAndLink("/home/flok3n/develop/from_scratch/gocc/resources/csrc/f3.c")
+	// CompileAndLink("/home/flok3n/develop/from_scratch/gocc/resources/csrc/f3.c")
 }

@@ -193,6 +193,8 @@ type RelocationType uint32
 const (
 	R_X86_64_PC32 RelocationType = 2
 	R_X86_64_PLT32 = 4
+	R_X86_64_GLOB_DAT = 6
+	R_X86_64_JUMP_SLOT = 7
 	R_X86_64_REX_GOTPCRELX = 42
 )
 
@@ -255,6 +257,12 @@ func ProgramHeaderFromBytes(bytes []byte, offset int) *ProgramHeader {
 	return &p
 }
 
+const PLT_ENTRY_SIZE = 16
+
+type PLTEntry struct {
+	Code [16]uint8
+}
+
 type ElfFile struct {
 	Header *Header
 	ProgramHdrTable *ProgramHdrTable
@@ -264,7 +272,15 @@ type ElfFile struct {
 	Symtab *Symtab
 	Strtab *Strtab
 	SectionStrtab *Strtab
-	RelaEntries []*RelaEntry
+	RelaTextEntries []*RelaEntry
 	GOT []uint64
+	GotPltOffset uint64 // GOT[GotPltOffset] contains first PLT entry within GOT
+	PLT []PLTEntry
 	Rodata codegen.Rodata
+	Dynamic *DynamicTab
+	SymbolHashTab *SymbolHashTab
+	DynSymtab *Symtab
+	DynStrtab *Strtab
+	RelaDynEntries []*RelaEntry
+	RelaPltEntries []*RelaEntry
 }

@@ -8,6 +8,7 @@ import (
 type Combiner struct {
 	elfBuff *elf.ElfFile
 	symbolMap map[string][]uint32
+	helper *LinkageHelper
 }
 
 func newCombiner(initialElfFile *elf.ElfFile) *Combiner {
@@ -23,6 +24,7 @@ func newCombiner(initialElfFile *elf.ElfFile) *Combiner {
 	return &Combiner{
 		elfBuff: initialElfFile,
 		symbolMap: symbolMap,
+		helper: newHelper(),
 	}
 }
 
@@ -31,8 +33,8 @@ func (c *Combiner) combineTextSection(e *elf.ElfFile) {
 	curTextHdr := c.elfBuff.SectionHdrTable.GetHeader(elf.TEXT)
 	c.shiftOffsetsForSymbolsInSection(e, e.SectionHdrTable.GetSectionIdx(elf.TEXT) , int(curTextHdr.Ssize))
 	c.elfBuff.Code = append(c.elfBuff.Code, e.Code...)
-	if e.RelaEntries != nil {
-		for _, relaEntry := range e.RelaEntries {
+	if e.RelaTextEntries != nil {
+		for _, relaEntry := range e.RelaTextEntries {
 			relaEntry.Roffset += curTextHdr.Ssize
 		}
 	}
@@ -43,7 +45,7 @@ func (c *Combiner) combineRelaTextSection(e *elf.ElfFile) {
 	newRelaTextHdr := e.SectionHdrTable.GetHeader(elf.RELA_TEXT)
 	curRelaTextHdr := c.elfBuff.SectionHdrTable.GetHeader(elf.RELA_TEXT)
 	curRelaTextHdr.Ssize += newRelaTextHdr.Ssize
-	c.elfBuff.RelaEntries = append(c.elfBuff.RelaEntries, e.RelaEntries...)
+	c.elfBuff.RelaTextEntries = append(c.elfBuff.RelaTextEntries, e.RelaTextEntries...)
 }
 
 func (c *Combiner) combineDataSection(e *elf.ElfFile) {
@@ -108,7 +110,7 @@ func (c *Combiner) combineBssSection(e *elf.ElfFile) {
 
 func (c *Combiner) shiftSectionRelativeRelaEntries(target *elf.ElfFile, sectionSymbolIdx uint32, delta int) {
 	if target.SectionHdrTable.HasSection(elf.RELA_TEXT) {
-		for _, rela := range target.RelaEntries {
+		for _, rela := range target.RelaTextEntries {
 			if rela.SymbolIdx() == sectionSymbolIdx {
 				rela.Raddend += int64(delta)
 			}
@@ -134,10 +136,10 @@ func (c *Combiner) defineMissingSectionHeaders(e *elf.ElfFile) {
 }
 
 func (c *Combiner) changeSymbolIdxsOfRelaEntries(targetElf *elf.ElfFile, remapLUT []uint32) {
-	if targetElf.RelaEntries == nil {
+	if targetElf.RelaTextEntries == nil {
 		return
 	}
-	for _, rela := range targetElf.RelaEntries {
+	for _, rela := range targetElf.RelaTextEntries {
 		rela.Rinfo = elf.EncodeRelocationInfo(remapLUT[rela.SymbolIdx()], rela.RelocationType())
 	}
 }
@@ -279,15 +281,6 @@ func (c *Combiner) fixSectionReferences() {
 	}
 }
 
-func (c *Combiner) reorderSymbols() {
-	reorderLut := c.elfBuff.Symtab.ReorderSymbolsToHaveLocalsFirst()
-	if c.elfBuff.SectionHdrTable.HasSection(elf.RELA_TEXT) {
-		for _, rela := range c.elfBuff.RelaEntries {
-			rela.Rinfo = elf.EncodeRelocationInfo(reorderLut[rela.SymbolIdx()], rela.RelocationType()) 
-		}
-	}
-}
-
 func (c *Combiner) fixHeaders() {
 	if c.elfBuff.SectionHdrTable.HasSection(elf.STRTAB) {
 		strtabHdr := c.elfBuff.SectionHdrTable.GetHeader(elf.STRTAB)
@@ -323,7 +316,7 @@ func (c *Combiner) fixHeaders() {
 	c.elfBuff.Header.Eshoff = offset
 	c.elfBuff.Header.Eshnum = uint16(c.elfBuff.SectionHdrTable.NumberOfSections())
 	c.elfBuff.Header.Eshstrndx = c.elfBuff.SectionHdrTable.GetSectionIdx(elf.SECTION_STRTAB)
-	c.reorderSymbols()
+	c.helper.ReorderSymbolsToHaveLocalsFirst(c.elfBuff)
 	c.fixSectionReferences()
 }
 
@@ -352,7 +345,7 @@ func (c *Combiner) CombineWith(e *elf.ElfFile) error {
 		if hadRelaText {
 			c.combineRelaTextSection(e)
 		} else {
-			c.elfBuff.RelaEntries = e.RelaEntries
+			c.elfBuff.RelaTextEntries = e.RelaTextEntries
 		}
 	}
 	return nil

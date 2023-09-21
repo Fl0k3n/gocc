@@ -36,7 +36,7 @@ func NewBuilder(
 		definedFunctions.Add(fun.FunctionSymbol.Symbol.Name)
 	}
 	return &ELFBuilder{
-		strtab: newStrtab(),
+		strtab: NewStrtab(),
 		code: code, 
 		assembledFunctions: assembledFunctions,
 		globals: globals,
@@ -162,7 +162,6 @@ func (e *ELFBuilder) prepareSections() (sectionsThatNeedSymbol []string) {
 	}
 	if needsRelaText {
 		sectionIdxs[RELA_TEXT] = relaTextIdx
-		e.sectionAlignment[RELA_TEXT] = 8
 		sectionsThatNeedSymbol = append(sectionsThatNeedSymbol, RELA_TEXT)
 	}
 	if needsData {
@@ -358,7 +357,7 @@ func (e *ELFBuilder) createSectionHeaders() {
 	e.sectionHdrTable.CreateTextSectionHeader(fileOffset, len(e.code))
 	fileOffset += len(e.code)
 	if e.sectionHdrTable.HasSection(RELA_TEXT) {
-		e.sectionHdrTable.CreateRelaTextSectionHeader(fileOffset, e.sectionVirtualSize[RELA_TEXT], e.sectionAlignment[RELA_TEXT])
+		e.sectionHdrTable.CreateRelaTextSectionHeader(fileOffset, e.sectionVirtualSize[RELA_TEXT])
 		fileOffset += e.sectionVirtualSize[RELA_TEXT]
 	}
 	if e.sectionHdrTable.HasSection(DATA) {
@@ -398,7 +397,7 @@ func (e *ELFBuilder) CreateRelocatableELF(sourceFileName string, resultPath stri
 		Symtab: e.symtab,
 		Strtab: e.strtab,
 		SectionStrtab: e.sectionHdrTable.GetSectionStrtab(),
-		RelaEntries: relaEntries,
+		RelaTextEntries: relaEntries,
 		Rodata: e.rodata,
 	}
 	return NewSerializer().Serialize(elf, resultPath, 0644)

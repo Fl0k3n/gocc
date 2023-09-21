@@ -18,38 +18,66 @@ type ELFSerializer struct {
 	sectionSerializers map[SectionName]SectionSerializer
 }
 
+func gotToBytes(GOT []uint64) []byte {
+	res := make([]byte, len(GOT) * GOT_ENTRY_SIZE)
+	offset := 0	
+	for _, gotEntry := range GOT {
+		for i, b := range utils.EncodeUnsignedIntToLittleEndianU2(gotEntry) {
+			res[offset + i] = b
+		}
+		offset += GOT_ENTRY_SIZE
+	}
+	return res
+}
+
+func relaToBytes(relaEntries []*RelaEntry) []byte {
+	res := make([]byte, len(relaEntries) * RELA_ENTRY_SIZE)
+	offset := 0
+	for _, entry := range relaEntries {
+		for i, b := range entry.ToBytes() {
+			res[offset + i] = b
+		}
+		offset += RELA_ENTRY_SIZE
+	}
+	return res
+}
+
+func pltToBytes(entries []PLTEntry) []byte {
+	res := make([]byte, len(entries) * PLT_ENTRY_SIZE)
+	offset := 0
+	for _, entry := range entries {
+		copy(res[offset:], entry.Code[:])
+		offset += PLT_ENTRY_SIZE
+	}
+	return res
+}
+
 func NewSerializer() *ELFSerializer {
 	return &ELFSerializer{
 		sectionSerializers: map[string]func(*ElfFile) []byte{
-			TEXT:   		func(e *ElfFile) []byte {return e.Code; },
-			DATA:   		func(e *ElfFile) []byte {return e.Data; },
-			BSS:    		func(e *ElfFile) []byte {return []byte{}; },
-			RO_DATA:   		func(e *ElfFile) []byte {return e.Rodata.Data; },
-			SYMTAB: 		func(e *ElfFile) []byte {return e.Symtab.ToBytes(); },
-			STRTAB: 		func(e *ElfFile) []byte {return e.Strtab.GetNullCombinedStrings(); },
+			TEXT:   		func(e *ElfFile) []byte {return e.Code },
+			DATA:   		func(e *ElfFile) []byte {return e.Data },
+			BSS:    		func(e *ElfFile) []byte {return []byte{} },
+			RO_DATA:   		func(e *ElfFile) []byte {return e.Rodata.Data },
+			SYMTAB: 		func(e *ElfFile) []byte {return e.Symtab.ToBytes() },
+			STRTAB: 		func(e *ElfFile) []byte {return e.Strtab.GetNullCombinedStrings() },
 			SECTION_STRTAB: func(e *ElfFile) []byte {return e.SectionHdrTable.GetSectionStrtab().GetNullCombinedStrings() },
-			RELA_TEXT: 		func(e *ElfFile) []byte {
-				res := make([]byte, len(e.RelaEntries) * RELA_ENTRY_SIZE)
-				offset := 0
-				for _, entry := range e.RelaEntries {
-					for i, b := range entry.ToBytes() {
-						res[offset + i] = b
-					}
-					offset += RELA_ENTRY_SIZE
+			RELA_TEXT: 		func(e *ElfFile) []byte {return relaToBytes(e.RelaTextEntries)},
+			GOT: 			func(e *ElfFile) []byte {
+				if e.SectionHdrTable.HasSection(GOT_PLT) {
+					return gotToBytes(e.GOT[:e.GotPltOffset])
+				} else {
+					return gotToBytes(e.GOT)
 				}
-				return res
 			},
-			GOT: func(e *ElfFile) []byte {
-				res := make([]byte, len(e.GOT) * GOT_ENTRY_SIZE)
-				offset := 0	
-				for _, gotEntry := range e.GOT {
-					for i, b := range utils.EncodeUnsignedIntToLittleEndianU2(gotEntry) {
-						res[offset + i] = b
-					}
-					offset += GOT_ENTRY_SIZE
-				}
-				return res
-			},
+			HASH_SECTION:   func(e *ElfFile) []byte {return e.SymbolHashTab.ToBytes()},
+			DYNAMIC: 	    func(e *ElfFile) []byte {return e.Dynamic.ToBytes()},
+			DYNSYM:         func(e *ElfFile) []byte {return e.DynSymtab.ToBytes()},
+			DYNSTR:		    func(e *ElfFile) []byte {return e.DynStrtab.GetNullCombinedStrings()},
+			PLT:		    func(e *ElfFile) []byte {return pltToBytes(e.PLT)},
+			GOT_PLT:        func(e *ElfFile) []byte {return gotToBytes(e.GOT[e.GotPltOffset:])},
+			RELA_DYN:       func(e *ElfFile) []byte {return relaToBytes(e.RelaDynEntries)},
+			RELA_PLT:       func(e *ElfFile) []byte {return relaToBytes(e.RelaPltEntries)},
 		},
 	}
 }

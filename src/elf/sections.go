@@ -9,9 +9,17 @@ const SYMTAB = ".symtab"
 const STRTAB = ".strtab"
 const SECTION_STRTAB = ".shstrtab"
 
-const RELA_TEXT = ".rela.text"
-
+const HASH_SECTION = ".hash"
+const DYNAMIC = ".dynamic"
+const DYNSYM = ".dynsym"
+const DYNSTR = ".dynstr"
 const GOT = ".got"
+const PLT = ".plt"
+const GOT_PLT = ".got.plt"
+
+const RELA_TEXT = ".rela.text"
+const RELA_DYN = ".rela.dyn"
+const RELA_PLT = ".rela.plt"
 
 const NULL_SECTION_IDX = 0
 
@@ -28,7 +36,7 @@ type SectionHdrTable struct {
 
 func newSectionHdrTable() *SectionHdrTable {
 	return &SectionHdrTable{
-		sectionStrtab: newStrtab(),
+		sectionStrtab: NewStrtab(),
 		sectionIndexes: map[string]uint16{},
 	}
 }
@@ -60,6 +68,29 @@ func (s *SectionHdrTable) Reindex(sectionIdxs map[string]uint16) (reindexMap map
 	return
 }
 
+func (s *SectionHdrTable) CreateSectionHeaderWithDefaults(name string) {
+	switch name {
+	case NULL_SECTION: s.CreateNullSection()
+	case TEXT: s.CreateTextSectionHeader(0, 0)
+	case DATA: s.CreateDataSection(0, 0, 0)
+	case RO_DATA: s.CreateRodataSection(0, 0, 0)
+	case BSS: s.CreateBssSection(0, 0, 0)
+	case SYMTAB: s.CreateSymtabSection(0, 0, 0)
+	case STRTAB: s.CreateStrtabSection(0, 0)
+	case SECTION_STRTAB: s.CreateSectionStrtabSection(0, 0)
+ 	case HASH_SECTION: s.CreateHashSection(0, 0, 0)
+	case DYNAMIC: s.CreateDynamicSection(0, 0, 0)
+	case DYNSYM: s.CreateDynsymSection(0, 0, 0)
+	case DYNSTR: s.CreateDynstrSection(0, 0)
+	case GOT: s.CreateGOTSection(0, 0)
+	case PLT: s.CreatePLTSection(0, 0, 0)
+	case GOT_PLT: s.CreateGOTPLTSection(0, 0)
+	case RELA_TEXT: s.CreateRelaTextSectionHeader(0, 0)
+	case RELA_DYN: s.CreateRelaDynSectionHeader(0, 0)
+	case RELA_PLT: s.CreateRelaPltSectionHeader(0, 0)
+	}
+}
+
 func (s *SectionHdrTable) GetSectionStrtab() *Strtab {
 	return s.sectionStrtab
 }
@@ -83,6 +114,13 @@ func (s *SectionHdrTable) HasSection(sectionName string) bool {
 
 func (s *SectionHdrTable) GetHeader(sectionName string) *SectionHeader {
 	return &s.sectionHeaders[s.GetSectionIdx(sectionName)]
+}
+
+func (s *SectionHdrTable) MaybeHeader(sectionName string) (res *SectionHeader, present bool) {
+	if !s.HasSection(sectionName) {
+		return nil, false
+	}
+	return s.GetHeader(sectionName), true
 }
 
 func (s *SectionHdrTable) GetHeaderByIdx(sectionIdx uint16) *SectionHeader {
@@ -125,7 +163,7 @@ func (s *SectionHdrTable) ChangeSectionSizeAndShiftSuccedingSections(sectionIdx 
 func (s *SectionHdrTable) CreateNullSection() {
 	s.sectionHeaders[NULL_SECTION_IDX] = SectionHeader{
 		Sname: s.sectionStrtab.GetIdx(NULL_SECTION),
-		Stype: uint32(S_NULL),
+		Stype: S_NULL,
 		Sflags: 0,
 		Saddr: 0,
 		Soffset: 0,
@@ -140,8 +178,8 @@ func (s *SectionHdrTable) CreateNullSection() {
 func (s *SectionHdrTable) CreateTextSectionHeader(fileStartOffset int, size int) {
 	s.sectionHeaders[s.GetSectionIdx(TEXT)] = SectionHeader{
 		Sname: s.sectionStrtab.GetIdx(TEXT),
-		Stype: uint32(S_PROGBITS),
-		Sflags: uint64(S_ALLOC) | uint64(S_EXEC),
+		Stype: S_PROGBITS,
+		Sflags: S_ALLOC | S_WRITE,
 		Saddr: 0, // this should be set at linking stage, for other sections too
 		Soffset: uint64(fileStartOffset),
 		Ssize: uint64(size),
@@ -152,17 +190,17 @@ func (s *SectionHdrTable) CreateTextSectionHeader(fileStartOffset int, size int)
 	}
 }
 
-func (s *SectionHdrTable) CreateRelaTextSectionHeader(fileStartOffset int, size int, alignment int) {
+func (s *SectionHdrTable) CreateRelaTextSectionHeader(fileStartOffset int, size int) {
 	s.sectionHeaders[s.GetSectionIdx(RELA_TEXT)] = SectionHeader{
 		Sname: s.sectionStrtab.GetIdx(RELA_TEXT),
-		Stype: uint32(S_RELA),
+		Stype: S_RELA,
 		Sflags: S_INFO,
 		Saddr: 0,
 		Soffset: uint64(fileStartOffset),
 		Ssize: uint64(size),
 		Slink: uint32(s.GetSectionIdx(SYMTAB)),
 		Sinfo: uint32(s.GetSectionIdx(TEXT)),
-		Saddralign: uint64(alignment),
+		Saddralign: 8,
 		Sentsize: RELA_ENTRY_SIZE,
 	}
 }
@@ -170,8 +208,8 @@ func (s *SectionHdrTable) CreateRelaTextSectionHeader(fileStartOffset int, size 
 func (s *SectionHdrTable) CreateDataSection(fileStartOffset int, size int, alignment int) {
 	s.sectionHeaders[s.GetSectionIdx(DATA)] = SectionHeader{
 		Sname: s.sectionStrtab.GetIdx(DATA),  
-		Stype: uint32(S_PROGBITS),
-		Sflags: uint64(S_ALLOC) | uint64(S_WRITE),
+		Stype: S_PROGBITS,
+		Sflags: S_ALLOC | S_WRITE,
 		Saddr: 0,
 		Soffset: uint64(fileStartOffset),
 		Ssize: uint64(size),
@@ -185,8 +223,8 @@ func (s *SectionHdrTable) CreateDataSection(fileStartOffset int, size int, align
 func (s *SectionHdrTable) CreateGOTSection(fileStartOffset int, size int) {
 	s.sectionHeaders[s.GetSectionIdx(GOT)] = SectionHeader{
 		Sname: s.sectionStrtab.GetIdx(GOT),  
-		Stype: uint32(S_PROGBITS),
-		Sflags: uint64(S_ALLOC) | uint64(S_WRITE), // gcc uses Write flag, not sure why, elf specifies that its processor specific
+		Stype: S_PROGBITS,
+		Sflags: S_ALLOC | S_WRITE, // TODO it probably shouldn't be writeable for non-dynamically linked execs
 		Saddr: 0,
 		Soffset: uint64(fileStartOffset),
 		Ssize: uint64(size),
@@ -200,8 +238,8 @@ func (s *SectionHdrTable) CreateGOTSection(fileStartOffset int, size int) {
 func (s *SectionHdrTable) CreateBssSection(fileStartOffset int, size int, alignment int) {
 	s.sectionHeaders[s.GetSectionIdx(BSS)] = SectionHeader{
 		Sname: s.sectionStrtab.GetIdx(BSS),  
-		Stype: uint32(S_NOBITS),
-		Sflags: uint64(S_ALLOC) | uint64(S_WRITE),
+		Stype: S_NOBITS,
+		Sflags: S_ALLOC | S_WRITE,
 		Saddr: 0,
 		Soffset: uint64(fileStartOffset),
 		Ssize: uint64(size),
@@ -215,8 +253,8 @@ func (s *SectionHdrTable) CreateBssSection(fileStartOffset int, size int, alignm
 func (s *SectionHdrTable) CreateRodataSection(fileStartOffset int, size int, alignment int) {
 	s.sectionHeaders[s.GetSectionIdx(RO_DATA)] = SectionHeader{
 		Sname: s.sectionStrtab.GetIdx(RO_DATA),  
-		Stype: uint32(S_PROGBITS),
-		Sflags: uint64(S_ALLOC),
+		Stype: S_PROGBITS,
+		Sflags: S_ALLOC,
 		Saddr: 0,
 		Soffset: uint64(fileStartOffset),
 		Ssize: uint64(size),
@@ -230,7 +268,7 @@ func (s *SectionHdrTable) CreateRodataSection(fileStartOffset int, size int, ali
 func (s *SectionHdrTable) CreateSymtabSection(fileStartOffset int, size int, greatestLocalSymbolId uint32) {
 	s.sectionHeaders[s.GetSectionIdx(SYMTAB)] = SectionHeader{
 		Sname: s.sectionStrtab.GetIdx(SYMTAB),  
-		Stype: uint32(S_SYMTAB),
+		Stype: S_SYMTAB,
 		Sflags: 0,
 		Saddr: 0,
 		Soffset: uint64(fileStartOffset),
@@ -245,7 +283,7 @@ func (s *SectionHdrTable) CreateSymtabSection(fileStartOffset int, size int, gre
 func (s *SectionHdrTable) CreateStrtabSection(fileStartOffset int, size int) {
 	s.sectionHeaders[s.GetSectionIdx(STRTAB)] = SectionHeader{
 		Sname: s.sectionStrtab.GetIdx(STRTAB),
-		Stype: uint32(S_STRRAB),
+		Stype: S_STRRAB,
 		Sflags: 0, // don't load strtab 
 		Saddr: 0,
 		Soffset: uint64(fileStartOffset),
@@ -260,7 +298,7 @@ func (s *SectionHdrTable) CreateStrtabSection(fileStartOffset int, size int) {
 func (s *SectionHdrTable) CreateSectionStrtabSection(fileStartOffset int, size int) {
 	s.sectionHeaders[s.GetSectionIdx(SECTION_STRTAB)] = SectionHeader{
 		Sname: s.sectionStrtab.GetIdx(SECTION_STRTAB),
-		Stype: uint32(S_STRRAB),
+		Stype: S_STRRAB,
 		Sflags: 0, // don't load 
 		Saddr: 0,
 		Soffset: uint64(fileStartOffset),
@@ -269,6 +307,130 @@ func (s *SectionHdrTable) CreateSectionStrtabSection(fileStartOffset int, size i
 		Sinfo: 0,
 		Saddralign: 1,
 		Sentsize: 0,
+	}
+}
+
+func (s *SectionHdrTable) CreateHashSection(fileStartOffset int, size int, linkedSymtabIdx uint32) {
+	s.sectionHeaders[s.GetSectionIdx(HASH_SECTION)] = SectionHeader{
+		Sname: s.sectionStrtab.GetIdx(HASH_SECTION),
+		Stype: S_HASH,
+		Sflags: S_ALLOC,
+		Saddr: 0,
+		Soffset: uint64(fileStartOffset),
+		Ssize: uint64(size),
+		Slink: linkedSymtabIdx,
+		Sinfo: 0,
+		Saddralign: 8,
+		Sentsize: HASH_ENTRY_SIZE,
+	}
+}
+
+func (s *SectionHdrTable) CreateDynamicSection(
+	fileStartOffset int,
+	size int,
+	linkedStrtabIdx uint32,
+) {
+	s.sectionHeaders[s.GetSectionIdx(DYNAMIC)] = SectionHeader{
+		Sname: s.sectionStrtab.GetIdx(DYNAMIC),
+		Stype: S_DYNAMIC,
+		Sflags: S_ALLOC | S_WRITE,
+		Saddr: 0,
+		Soffset: uint64(fileStartOffset),
+		Ssize: uint64(size),
+		Slink: linkedStrtabIdx,
+		Sinfo: 0,
+		Saddralign: 8,
+		Sentsize: DYNAMIC_ENTRY_SIZE,
+	}
+}
+
+func (s *SectionHdrTable) CreateDynsymSection(fileStartOffset int, size int, greatestLocalSymbolId uint32) {
+	s.sectionHeaders[s.GetSectionIdx(DYNSYM)] = SectionHeader{
+		Sname: s.sectionStrtab.GetIdx(DYNSYM),  
+		Stype: S_DYNSYM,
+		Sflags: S_ALLOC,
+		Saddr: 0,
+		Soffset: uint64(fileStartOffset),
+		Ssize: uint64(size),
+		Slink: uint32(s.GetSectionIdx(DYNSTR)),
+		Sinfo: greatestLocalSymbolId + 1,
+		Saddralign: 8,
+		Sentsize: SYMBOL_SIZE,
+	}
+}
+
+func (s *SectionHdrTable) CreateDynstrSection(fileStartOffset int, size int) {
+	s.sectionHeaders[s.GetSectionIdx(DYNSTR)] = SectionHeader{
+		Sname: s.sectionStrtab.GetIdx(DYNSTR),
+		Stype: S_STRRAB,
+		Sflags: S_ALLOC,
+		Saddr: 0,
+		Soffset: uint64(fileStartOffset),
+		Ssize: uint64(size),
+		Slink: 0,
+		Sinfo: 0,
+		Saddralign: 1,
+		Sentsize: 0,
+	}
+}
+
+func (s *SectionHdrTable) CreatePLTSection(fileStartOffset int, size int, entrySize uint64) {
+	s.sectionHeaders[s.GetSectionIdx(PLT)] = SectionHeader{
+		Sname: s.sectionStrtab.GetIdx(PLT),
+		Stype: S_PROGBITS,
+		Sflags: S_ALLOC | S_EXEC,
+		Saddr: 0,
+		Soffset: uint64(fileStartOffset),
+		Ssize: uint64(size),
+		Slink: 0,
+		Sinfo: 0,
+		Saddralign: uint64(PLT_ENTRY_SIZE),
+		Sentsize: entrySize,
+	}
+}
+
+func (s *SectionHdrTable) CreateGOTPLTSection(fileStartOffset int, size int) {
+	s.sectionHeaders[s.GetSectionIdx(GOT_PLT)] = SectionHeader{
+		Sname: s.sectionStrtab.GetIdx(GOT_PLT),  
+		Stype: S_PROGBITS,
+		Sflags: S_ALLOC | S_WRITE,
+		Saddr: 0,
+		Soffset: uint64(fileStartOffset),
+		Ssize: uint64(size),
+		Slink: 0,
+		Sinfo: 0,
+		Saddralign: 8,
+		Sentsize: 8,
+	}
+}
+
+func (s *SectionHdrTable) CreateRelaDynSectionHeader(fileStartOffset int, size int) {
+	s.sectionHeaders[s.GetSectionIdx(RELA_DYN)] = SectionHeader{
+		Sname: s.sectionStrtab.GetIdx(RELA_DYN),
+		Stype: S_RELA,
+		Sflags: S_ALLOC,
+		Saddr: 0,
+		Soffset: uint64(fileStartOffset),
+		Ssize: uint64(size),
+		Slink: uint32(s.GetSectionIdx(DYNSYM)),
+		Sinfo: 0,
+		Saddralign: 8,
+		Sentsize: RELA_ENTRY_SIZE,
+	}
+}
+
+func (s *SectionHdrTable) CreateRelaPltSectionHeader(fileStartOffset int, size int) {
+	s.sectionHeaders[s.GetSectionIdx(RELA_PLT)] = SectionHeader{
+		Sname: s.sectionStrtab.GetIdx(RELA_PLT),
+		Stype: S_RELA,
+		Sflags: S_ALLOC | S_INFO,
+		Saddr: 0,
+		Soffset: uint64(fileStartOffset),
+		Ssize: uint64(size),
+		Slink: uint32(s.GetSectionIdx(DYNSYM)),
+		Sinfo: uint32(s.GetSectionIdx(GOT_PLT)),
+		Saddralign: 8,
+		Sentsize: RELA_ENTRY_SIZE,
 	}
 }
 

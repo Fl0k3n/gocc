@@ -178,7 +178,7 @@ func (o *Operands) ToAssembly() string {
 	return res
 }
 
-func emptyOperands() *Operands {
+func EmptyOperands() *Operands {
 	return &Operands{
 		FirstOperand: nil,
 		SecondOperand: nil,
@@ -257,8 +257,18 @@ func (m *Operands) WithSizeFromRegister() *Operands {
 	return m
 }
 
+func (m *Operands) UsingRIP() *Operands {
+	m.UsesRipDisplacement = true
+	return m
+}
+
 func (m *Operands) WithExplicitSize(size int) *Operands {
 	m.DataTransferSize = size
+	return m
+}
+
+func (m *Operands) WithUnknownDisplacement() *Operands {
+	m.SetUnknownDisplacement()
 	return m
 }
 

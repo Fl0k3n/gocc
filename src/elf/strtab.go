@@ -8,7 +8,7 @@ type Strtab struct {
 	definedStrings map[string]uint32
 }
 
-func newStrtab() *Strtab {
+func NewStrtab() *Strtab {
 	return &Strtab{
 		stringTable: []byte{0},
 		definedStrings: map[string]uint32{NULL_SYMBOL_STR: NULL_SYMBOL_STR_ID},

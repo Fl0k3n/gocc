@@ -379,12 +379,7 @@ func (a *X86_64Assembler) assembleLea(l codegen.LeaAsmLine) {
 	a.write(a.assembleMRInstruction([]uint8{0x8D}, l.Operands, NOT_OPCODE, codegen.DWORD_SIZE, true)...)
 }
 
-func (a *X86_64Assembler) assembleLine(code codegen.AsmLine) {
-	if _, isPlaceholder := code.(codegen.PlaceholderAsmLine); isPlaceholder {
-		return
-	}
-	sizeBefore := len(a.assembledCode)
-	a.code = append(a.code, code) // TODO
+func (a *X86_64Assembler) dispatch(code codegen.AsmLine) {
 	switch c := code.(type) {
 	case codegen.MovAsmLine:
 		a.assembleMov(c)
@@ -443,6 +438,15 @@ func (a *X86_64Assembler) assembleLine(code codegen.AsmLine) {
 	default:  
 		panic("Unsupported")
 	}
+}
+
+func (a *X86_64Assembler) assembleLine(code codegen.AsmLine) {
+	if _, isPlaceholder := code.(codegen.PlaceholderAsmLine); isPlaceholder {
+		return
+	}
+	sizeBefore := len(a.assembledCode)
+	a.code = append(a.code, code) // TODO
+	a.dispatch(code)
 	a.individualCodeAsms = append(a.individualCodeAsms, a.assembledCode[sizeBefore:])
 }
 
@@ -451,6 +455,20 @@ func (a *X86_64Assembler) AssembleMultiple(codeLines []codegen.AsmLine) {
 	for _, l := range codeLines {
 		a.assembleLine(l)
 	}
+}
+
+func (a *X86_64Assembler) AssembleStandalone(lines ...codegen.AsmLine) ([]uint8, []DisplacementToFix) {
+	if len(a.assembledCode) > 0 {
+		panic("Standalone assembly can be called only with clear assembler")
+	}
+	for _, line := range lines {
+		a.dispatch(line)
+	}
+	assembledCode := a.assembledCode
+	a.assembledCode = []uint8{}
+	displacements := a.relocator.GetDisplacementsToFix()
+	a.relocator.Reset()
+	return assembledCode, displacements
 }
 
 func (a *X86_64Assembler) Assemble(functions []*codegen.FunctionCode) ([]*AssembledFunction, []uint8) {
