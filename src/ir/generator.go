@@ -12,6 +12,7 @@ type IRGenerator struct {
 	writer *Writer
 	labels *LabelProvider
 	curFunctionName string
+	curFuncReturnType semantics.Ctype
 }
 
 func NewGenerator(writer *Writer) *IRGenerator {
@@ -538,6 +539,9 @@ func (g *IRGenerator) generateStatement(statement ast.Statement) {
 	case ast.ReturnJumpStatement:
 		if stmnt.Expression != nil {
 			retSym := g.generateExpressionAndGetResultSymbol(stmnt.Expression)
+			if castTo, retMustBeCasted := g.typeEngine.GetAssignmentCastInfo(g.curFuncReturnType, retSym.Ctype); retMustBeCasted {
+				retSym = g.typeCast(retSym, castTo)
+			}
 			g.writer.WriteReturnLine(retSym)
 		} else {
 			g.writer.WriteReturnLine(nil)
@@ -565,6 +569,7 @@ func (g *IRGenerator) generateFunction(f *ast.FunctionDefinition) {
 	defer g.scopeMgr.LeaveFunction()
 	g.writer.EnterFunction(funSymbol)
 	g.curFunctionName = funSymbol.Symbol.Name
+	g.curFuncReturnType = funPtr.ReturnType
 	g.labels.EnterFunction(g.curFunctionName)
 	
 	if f.DeclarationList != nil {

@@ -277,6 +277,7 @@ type ElfFile struct {
 	GOT_PLT []uint64
 	PLT []PLTEntry
 	Rodata codegen.Rodata
+	Interp string
 	Dynamic *DynamicTab
 	SymbolHashTab *SymbolHashTab
 	DynSymtab *Symtab

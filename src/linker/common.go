@@ -2,6 +2,7 @@ package linkers
 
 import (
 	"elf"
+	"errors"
 	"math"
 	"utils"
 )
@@ -136,6 +137,32 @@ func (l *LinkageHelper) createSegmentContainingElfHeaderAndProgramHeaders(progra
 	}
 }
 
+func (l *LinkageHelper) createPhdrProgramHeader(size uint64) *elf.ProgramHeader {
+	return &elf.ProgramHeader{
+		Ptype: uint32(elf.PT_PHDR),
+		Pflags: elf.PF_R,
+		Palign: 8,
+		Poffset: 0,
+		Pvaddr: 0,
+		Ppaddr: 0,
+		Pfilesz: size,
+		Pmemsz: size,
+	}
+}
+
+func (l *LinkageHelper) createInterpProgramHeader(size uint64) *elf.ProgramHeader {
+	return &elf.ProgramHeader{
+		Ptype: uint32(elf.PT_INTERP),
+		Pflags: elf.PF_R,
+		Palign: 1,
+		Poffset: 0,
+		Pvaddr: 0,
+		Ppaddr: 0,
+		Pfilesz: size,
+		Pmemsz: size,
+	}
+}
+
 func (l *LinkageHelper) updateFileOffsetsOfSectionsBetween(
 	e *elf.ElfFile,
 	minSectionIdx uint16,
@@ -237,6 +264,7 @@ func (l *LinkageHelper) SetSectionSizes(e *elf.ElfFile) {
 	setSizeIfExists(elf.RELA_PLT,	    func() int {return len(e.RelaPltEntries) * elf.RELA_ENTRY_SIZE})
 	setSizeIfExists(elf.PLT, 		    func() int {return len(e.PLT) * elf.PLT_ENTRY_SIZE})
 	setSizeIfExists(elf.TEXT,		    func() int {return len(e.Code)})
+	setSizeIfExists(elf.INTERP,         func() int {return len([]byte(e.Interp)) + 1})
 	setSizeIfExists(elf.DYNAMIC,	    func() int {return e.Dynamic.BinarySize()})
 	setSizeIfExists(elf.GOT,		    func() int {return len(e.GOT) * elf.GOT_ENTRY_SIZE})
 	setSizeIfExists(elf.GOT_PLT,	    func() int {return len(e.GOT_PLT) * elf.GOT_ENTRY_SIZE})
@@ -321,7 +349,7 @@ func (l *LinkageHelper) GetNamesOfSymbolsWithIdxs(e *elf.ElfFile, symIdxs []uint
 	return res
 }
 
-func (l LinkageHelper) UpdateHeaderForElfWithProgramHeaders(e *elf.ElfFile) {
+func (l *LinkageHelper) UpdateHeaderForElfWithProgramHeaders(e *elf.ElfFile) {
 	hdr := e.Header
 	hdr.Ephentsize = elf.PROGRAM_HEADER_SIZE
 	hdr.Ephnum = uint16(e.ProgramHdrTable.Size())
@@ -332,3 +360,11 @@ func (l LinkageHelper) UpdateHeaderForElfWithProgramHeaders(e *elf.ElfFile) {
 	hdr.Eshstrndx = e.SectionHdrTable.GetSectionIdx(elf.SECTION_STRTAB)
 }
 
+func (l *LinkageHelper) SetEntryPoint(e *elf.ElfFile, entrySymbolName string) error {
+	entrySym, ok := e.Symtab.TryGetSymbol(entrySymbolName, e.Strtab)
+	if !ok {
+		return errors.New("Undefined entry symbol: " + entrySymbolName)
+	}
+	e.Header.Eentry = entrySym.Svalue
+	return nil
+}

@@ -24,6 +24,12 @@ type DynamicEntry struct {
 	DvalOrPtr uint64
 }
 
+func DynamicEntryFromBytes(bytes []byte, offset int) *DynamicEntry {
+	d := DynamicEntry{}
+	utils.DecodeUnsignedIntsFromLittleEndianU2(bytes, offset, &d.Dtag, &d.DvalOrPtr)
+	return &d
+}
+
 type DynamicTab struct {
 	entries []DynamicEntry
 }
@@ -39,6 +45,10 @@ func (d *DynamicTab) Alloc(size int) {
 		panic("Can alloc only for empty dynamic tabs")
 	}
 	d.entries = make([]DynamicEntry, size)
+}
+
+func (d *DynamicTab) Set(idx int, entry DynamicEntry) {
+	d.entries[idx] = entry
 }
 
 func (d *DynamicTab) AddDynamicEntry(tag DynamicTag, val uint64) int {

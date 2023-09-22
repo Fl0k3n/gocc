@@ -58,6 +58,13 @@ func BuildSymbolHashTab(nbuckets uint64, symtab *Symtab, strtab *Strtab) *Symbol
 	}
 }
 
+func NewSymbolHashTab(buckets []uint32, chains []uint32) *SymbolHashTab {
+	return &SymbolHashTab{
+		Buckets: buckets,
+		Chains: chains,
+	}
+}
+
 func (s *SymbolHashTab) Lookup(symName string, symtab *Symtab, strtab *Strtab) (res uint32, ok bool) {
 	bucketIdx := hashSymbolName(symName) % uint64(len(s.Buckets))
 	chainIdx := s.Buckets[bucketIdx]

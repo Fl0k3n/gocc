@@ -7,6 +7,8 @@ import (
 	"utils"
 )
 
+// TODO refactor this similar to serializer
+
 type Deserializer struct {
 	elfFile *ElfFile	
 	data []byte
@@ -91,19 +93,30 @@ func (d *Deserializer) deserializeRodata() error {
 	return nil
 }
 
-func (d *Deserializer) deserializeSymtab() error {
-	if !d.elfFile.SectionHdrTable.HasSection(SYMTAB) {
-		return nil
-	}
-	symtabHdr := d.elfFile.SectionHdrTable.GetHeader(SYMTAB)
-	symbols := make([]*Symbol, symtabHdr.Ssize / symtabHdr.Sentsize)
+func (d *Deserializer) deserializeSymtab(sectionName string) (*Symtab, error) {
+	symtabHdr := d.elfFile.SectionHdrTable.GetHeader(sectionName)
+	symbols := make([]*Symbol, symtabHdr.Ssize / SYMBOL_SIZE)
 	offset := symtabHdr.Soffset
 	for i := 0; i < len(symbols); i++ {
 		symbols[i] = SymbolFromBytes(d.data, int(offset))
 		offset += SYMBOL_SIZE
 	}
-	d.elfFile.Symtab = NewSymtabWith(symbols)
-	return nil
+	return NewSymtabWith(symbols), nil
+}
+
+func (d *Deserializer) deserializeMainSymtab() error {
+	if !d.elfFile.SectionHdrTable.HasSection(SYMTAB) {
+		return nil
+	}
+	st, err := d.deserializeSymtab(SYMTAB)
+	d.elfFile.Symtab = st
+	return err
+}
+
+func (d *Deserializer) deserializeDynSymtab() error {
+	st, err := d.deserializeSymtab(DYNSYM)
+	d.elfFile.DynSymtab = st
+	return err
 }
 
 func (d *Deserializer) deserializeStrtab() error {
@@ -112,6 +125,12 @@ func (d *Deserializer) deserializeStrtab() error {
 	}
 	strtabHdr := d.elfFile.SectionHdrTable.GetHeader(STRTAB)
 	d.elfFile.Strtab = newStrtabFromBytes(d.data, uint32(strtabHdr.Soffset), uint32(strtabHdr.Ssize))
+	return nil
+}
+
+func (d *Deserializer) deserializeDynstr() error {
+	strtabHdr := d.elfFile.SectionHdrTable.GetHeader(DYNSTR)
+	d.elfFile.DynStrtab = newStrtabFromBytes(d.data, uint32(strtabHdr.Soffset), uint32(strtabHdr.Ssize))
 	return nil
 }
 
@@ -128,12 +147,66 @@ func (d *Deserializer) deserializeRelaTab() error {
 	}
 	d.elfFile.RelaTextEntries = relaEntries
 	return nil
-
 }
 
-func (d *Deserializer) DeserializeDynamicInfo() (*DynamicTab, *Symtab, *SymbolHashTab, *Strtab) {
-	// TODO
-	return nil, nil, nil, nil
+func (d *Deserializer) deserializeDynamicTab() error {
+	dyn := NewDynamicTab()
+	dynamicHdr := d.elfFile.SectionHdrTable.GetHeader(DYNAMIC)
+
+	size := int(dynamicHdr.Ssize / DYNAMIC_ENTRY_SIZE)
+	dyn.Alloc(size)
+
+	offset := int(dynamicHdr.Soffset)
+	for i := 0; i < size; i++ {
+ 		dyn.Set(i, *DynamicEntryFromBytes(d.data, offset))
+		offset += DYNAMIC_ENTRY_SIZE
+	}
+	return nil
+}
+
+func (d *Deserializer) deserializeHashTab() error {
+	hashHdr := d.elfFile.SectionHdrTable.GetHeader(HASH_SECTION)
+	var nbuckets uint32
+	var nchains uint32
+	utils.DecodeUnsignedIntsFromLittleEndianU2(d.data, int(hashHdr.Soffset), &nbuckets, &nchains)
+	offset := int(hashHdr.Soffset + 8)
+	buckets := make([]uint32, nbuckets)
+	chains := make([]uint32, nchains)
+	for i := 0; i < int(nbuckets); i++ {
+		utils.DecodeUnsignedIntFromLittleEndianU2(d.data, offset, &buckets[i])
+		offset += 4
+	}
+	for i := 0; i < int(nchains); i++ {
+		utils.DecodeUnsignedIntFromLittleEndianU2(d.data, offset, &chains[i])
+		offset += 4
+	}
+	d.elfFile.SymbolHashTab = NewSymbolHashTab(buckets, chains)
+	return nil
+}
+
+func (d *Deserializer) DeserializeDynamicInfo(path string) (*DynamicTab, *Symtab, *SymbolHashTab, *Strtab, error) {
+	d.elfFile = &ElfFile{}
+	var err error
+	data, er := os.ReadFile(path) // TODO don't read entire code + data to memory
+	if er != nil {
+		err = er
+		goto done
+	}
+	d.data = data
+	err = utils.Pipeline().
+		Then(d.deserializeHeader).
+		Then(d.deserializeSectionHeaderTable).
+		Then(d.deserializeDynamicTab).
+		Then(d.deserializeDynSymtab).
+		Then(d.deserializeDynstr).
+		Then(d.deserializeHashTab).
+		Error()
+done:
+	d.data = nil
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	return d.elfFile.Dynamic, d.elfFile.DynSymtab, d.elfFile.SymbolHashTab, d.elfFile.DynStrtab, nil
 }
 
 func (d *Deserializer) Deserialize(inputPath string) (*ElfFile, error) {
@@ -149,7 +222,7 @@ func (d *Deserializer) Deserialize(inputPath string) (*ElfFile, error) {
 		Then(d.deserializeSectionHeaderTable).
 		Then(d.deserializeCodeAndData).
 		Then(d.deserializeRodata).
-		Then(d.deserializeSymtab).
+		Then(d.deserializeMainSymtab).
 		Then(d.deserializeStrtab). 
 		Then(d.deserializeRelaTab).
 		Error()

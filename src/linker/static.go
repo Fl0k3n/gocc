@@ -170,10 +170,10 @@ func (l *Linker) requiresGOT(e *elf.ElfFile) bool {
 	return false
 }
 
-func (l *Linker) fixProgramHeaderForStaticallyLinkedExecutable(e *elf.ElfFile, entrySymbolName string) {
+func (l *Linker) fixProgramHeaderForStaticallyLinkedExecutable(e *elf.ElfFile, entrySymbolName string) error {
 	l.helper.UpdateHeaderForElfWithProgramHeaders(e)
 	e.Header.Etype = elf.EXECUTABLE_FILE
-	e.Header.Eentry = e.Symtab.GetSymbol(entrySymbolName, e.Strtab).Svalue
+	return l.helper.SetEntryPoint(e, entrySymbolName)
 }
 
 func (l *Linker) relocateStaticallyLinkedExecutable(e *elf.ElfFile, symIdxToGotIdxMapping map[uint32]int) error {
@@ -289,7 +289,9 @@ func (l *Linker) CreateExecutable(objFilePath string, resultPath string, entrySy
 		return err
 	}
 	l.updateSectionHeadersForChangedSections(e)
-	l.fixProgramHeaderForStaticallyLinkedExecutable(e, entrySymbolName)
+	if err := l.fixProgramHeaderForStaticallyLinkedExecutable(e, entrySymbolName); err != nil {
+		return err
+	}
 
 	return elf.NewSerializer().Serialize(e, resultPath, 0744)
 }

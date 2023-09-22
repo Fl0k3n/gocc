@@ -9,6 +9,7 @@ const SYMTAB = ".symtab"
 const STRTAB = ".strtab"
 const SECTION_STRTAB = ".shstrtab"
 
+const INTERP = ".interp"
 const HASH_SECTION = ".hash"
 const DYNAMIC = ".dynamic"
 const DYNSYM = ".dynsym"
@@ -88,6 +89,7 @@ func (s *SectionHdrTable) CreateSectionHeaderWithDefaults(name string) {
 	case RELA_TEXT: s.CreateRelaTextSectionHeader(0, 0)
 	case RELA_DYN: s.CreateRelaDynSectionHeader(0, 0)
 	case RELA_PLT: s.CreateRelaPltSectionHeader(0, 0)
+	case INTERP: s.CreateInterpSectionHeader(0, 0)
 	}
 }
 
@@ -431,6 +433,21 @@ func (s *SectionHdrTable) CreateRelaPltSectionHeader(fileStartOffset int, size i
 		Sinfo: uint32(s.GetSectionIdx(GOT_PLT)),
 		Saddralign: 8,
 		Sentsize: RELA_ENTRY_SIZE,
+	}
+}
+
+func (s *SectionHdrTable) CreateInterpSectionHeader(fileStartOffset int, size int) {
+	s.sectionHeaders[s.GetSectionIdx(INTERP)] = SectionHeader{
+		Sname: s.sectionStrtab.GetIdx(INTERP),
+		Stype: S_PROGBITS,
+		Sflags: S_ALLOC,
+		Saddr: 0,
+		Soffset: uint64(fileStartOffset),
+		Ssize: uint64(size),
+		Slink: 0,
+		Sinfo: 0,
+		Saddralign: 1,
+		Sentsize: 0,
 	}
 }
 

@@ -72,6 +72,7 @@ func NewSerializer() *ELFSerializer {
 			GOT_PLT:        func(e *ElfFile) []byte {return gotToBytes(e.GOT_PLT)},
 			RELA_DYN:       func(e *ElfFile) []byte {return relaToBytes(e.RelaDynEntries)},
 			RELA_PLT:       func(e *ElfFile) []byte {return relaToBytes(e.RelaPltEntries)},
+			INTERP:         func(e *ElfFile) []byte {return append([]byte(e.Interp), 0)},
 		},
 	}
 }

@@ -101,23 +101,44 @@ func (s *Symtab) GetSymbolWithIdx(idx uint32) *Symbol {
 	return s.symbols[idx]
 }
 
-// TODO cache names if this is used often, shouldn't be tho, we got symhashtab for that
-func (s *Symtab) GetSymbolIdx(symName string, strtab *Strtab) uint32 {
+func (s *Symtab) TryGetSymbolIdx(symName string, strtab *Strtab) (idx uint32, ok bool) {
 	for idx, sym := range s.symbols {
 		name := strtab.GetStringForIndex(sym.Sname)
 		if name == symName {
-			return uint32(idx)
+			return uint32(idx), true
 		}
 	}
-	panic("No symbol with name " + symName)
+	return 0, false
+}
+
+// TODO cache names if this is used often, shouldn't be tho, we got symhashtab for that
+func (s *Symtab) GetSymbolIdx(symName string, strtab *Strtab) uint32 {
+	res, ok := s.TryGetSymbolIdx(symName, strtab)
+	if !ok {
+		panic("No symbol with name " + symName)
+	}
+	return res
 }
 
 func (s *Symtab) IsDefined(symIdx uint32) bool {
 	return s.symbols[symIdx].Sshndx != SHN_UNDEF
 }
 
+func (s *Symtab) HasSymbol(symName string, strtab *Strtab) bool {
+	_, ok := s.TryGetSymbolIdx(symName, strtab)
+	return ok
+}
+
 func (s *Symtab) GetSymbol(symName string, strtab *Strtab) *Symbol {
 	return s.symbols[s.GetSymbolIdx(symName, strtab)]
+}
+
+func (s *Symtab) TryGetSymbol(symName string, strtab *Strtab) (sym *Symbol, ok bool) {
+	idx, ok := s.TryGetSymbolIdx(symName, strtab)
+	if !ok {
+		return nil, false
+	}
+	return s.symbols[idx], true
 }
 
 func (s *Symtab) OverwriteSymbol(idx uint32, sym *Symbol) {
