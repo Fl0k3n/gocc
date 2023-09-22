@@ -1,4 +1,8 @@
 BITS 64
 
 .text:
-mov rbx, ebx
+movsx rax, ax
+movsx rax, al
+movsx eax, ax
+movsx eax, al
+movsx rax, eax
